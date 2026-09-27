@@ -11,7 +11,7 @@ from src.exceptions import (
     NotFoundException,
     PermissionException,
 )
-from src.connectors.mcp_cache import invalidate_mcp_surface_cache
+from src.platform.access.adapters.mcp_cache import invalidate_mcp_surface_cache
 from src.infra.supabase.dependencies import get_supabase_repository
 from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 from src.platform.authorization.models import ProjectAction
@@ -120,7 +120,7 @@ class ToolService:
         - Invalidate by access-surface id, so rotation never needs to retrieve
           a stored plaintext key.
         """
-        from src.connectors.agent.config.repository import AgentRepository
+        from src.platform.access.adapters.agent.config.repository import AgentRepository
 
         try:
             agent_repo = AgentRepository()
@@ -160,7 +160,7 @@ class ToolService:
         Check if updating tool name would conflict with sibling tools
         in the same connection (Agent or MCP).
         """
-        from src.connectors.agent.config.repository import AgentRepository
+        from src.platform.access.adapters.agent.config.repository import AgentRepository
 
         try:
             agent_repo = AgentRepository()

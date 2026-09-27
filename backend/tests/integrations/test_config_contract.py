@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.connectors.datasource._base import AuthRequirement
-from src.platform.integrations.config_contract import validate_structured_config
+from src.provider._base import AuthRequirement
+from src.platform.synchronize.config_contract import validate_structured_config
 
 
 def _oauth_spec():

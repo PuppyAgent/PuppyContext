@@ -112,13 +112,13 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
     ("GET", "/api/v1/projects/{project_id}/access-point"): _human(ProjectAction.ACCESS_READ),
     ("PATCH", "/api/v1/projects/{project_id}/access-point"): _human(ProjectAction.PROJECT_MANAGE),
     ("GET", "/api/v1/projects/{project_id}/connectors"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/projects/{project_id}/connectors"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/connectors"): _human(ProjectAction.ACCESS_MANAGE),
     ("POST", "/api/v1/projects/{project_id}/connectors/enable-target"): _human(ProjectAction.ACCESS_MANAGE),
-    ("PATCH", "/api/v1/projects/{project_id}/connectors/{connector_id}"): _human(ProjectAction.INTEGRATION_MANAGE),
-    ("DELETE", "/api/v1/projects/{project_id}/connectors/{connector_id}"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("PATCH", "/api/v1/projects/{project_id}/connectors/{connector_id}"): _human(ProjectAction.ACCESS_MANAGE),
+    ("DELETE", "/api/v1/projects/{project_id}/connectors/{connector_id}"): _human(ProjectAction.ACCESS_MANAGE),
     ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/activate-agent"): _human(ProjectAction.AGENT_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/pause"): _human(ProjectAction.INTEGRATION_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/resume"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/pause"): _human(ProjectAction.ACCESS_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/resume"): _human(ProjectAction.ACCESS_MANAGE),
     ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/run"): _human(ProjectAction.AUTOMATION_RUN),
     ("GET", "/api/v1/tools/by-project/{project_id}"): _human(ProjectAction.CONTENT_READ),
 
@@ -127,10 +127,10 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
         ("GET", f"/api/v1/projects/{{project_id}}/github/{suffix}"): _human(ProjectAction.ACCESS_READ)
         for suffix in ("branches", "repos", "status", "sync-log")
     },
-    ("DELETE", "/api/v1/projects/{project_id}/github"): _human(ProjectAction.INTEGRATION_MANAGE),
-    ("PATCH", "/api/v1/projects/{project_id}/github"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("DELETE", "/api/v1/projects/{project_id}/github"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/projects/{project_id}/github"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
     **{
-        ("POST", f"/api/v1/projects/{{project_id}}/github/{suffix}"): _human(ProjectAction.INTEGRATION_MANAGE)
+        ("POST", f"/api/v1/projects/{{project_id}}/github/{suffix}"): _human(ProjectAction.SYNCHRONIZE_MANAGE)
         for suffix in ("connect", "export", "import")
     },
 
@@ -243,18 +243,18 @@ PROJECT_ROUTE_AUTHORIZATION.update({
 PROJECT_ROUTE_AUTHORIZATION.update({
     # Integration control and execution.
     ("GET", "/api/v1/integrations/status"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/integrations/connections"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("POST", "/api/v1/integrations/connections"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
     ("GET", "/api/v1/integrations/connections"): _human(ProjectAction.ACCESS_READ),
-    ("DELETE", "/api/v1/integrations/connections/{connection_id}"): _human(ProjectAction.INTEGRATION_MANAGE),
-    ("PATCH", "/api/v1/integrations/connections/{connection_id}"): _human(ProjectAction.INTEGRATION_MANAGE),
-    ("PATCH", "/api/v1/integrations/connections/{connection_id}/trigger"): _human(ProjectAction.INTEGRATION_MANAGE),
-    ("POST", "/api/v1/integrations/connections/{connection_id}/pause"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("DELETE", "/api/v1/integrations/connections/{connection_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/integrations/connections/{connection_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/integrations/connections/{connection_id}/trigger"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/integrations/connections/{connection_id}/pause"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
     ("POST", "/api/v1/integrations/connections/{connection_id}/refresh"): _human(ProjectAction.AUTOMATION_RUN),
-    ("POST", "/api/v1/integrations/connections/{connection_id}/resume"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("POST", "/api/v1/integrations/connections/{connection_id}/resume"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
     ("GET", "/api/v1/integrations/failed-runs"): _human(ProjectAction.ACCESS_READ),
     ("GET", "/api/v1/integrations/connections/{connection_id}/runs"): _human(ProjectAction.ACCESS_READ),
     ("GET", "/api/v1/integrations/runs/{run_id}"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/integrations/bootstrap"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("POST", "/api/v1/integrations/bootstrap"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
     ("POST", "/api/v1/integrations/pull"): _human(ProjectAction.AUTOMATION_RUN),
     ("POST", "/api/v1/integrations/push/{path:path}"): _human(ProjectAction.AUTOMATION_RUN),
     ("POST", "/api/v1/integrations/github/webhook"): _runtime("integration.webhook"),
@@ -299,9 +299,9 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("DELETE", "/api/v1/imports/{job_id}"): _human(ProjectAction.INGEST_WRITE),
 
     # Database connectors.
-    ("POST", "/api/v1/db-connector/access"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("POST", "/api/v1/db-connector/access"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
     ("GET", "/api/v1/db-connector/access"): _human(ProjectAction.ACCESS_READ),
-    ("DELETE", "/api/v1/db-connector/access/{connection_id}"): _human(ProjectAction.INTEGRATION_MANAGE),
+    ("DELETE", "/api/v1/db-connector/access/{connection_id}"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
     ("GET", "/api/v1/db-connector/access/{connection_id}/tables"): _human(ProjectAction.ACCESS_READ),
     ("GET", "/api/v1/db-connector/access/{connection_id}/tables/{table_name}/preview"): _human(ProjectAction.ACCESS_READ),
     ("POST", "/api/v1/db-connector/access/{connection_id}/save"): _human(ProjectAction.CONTENT_WRITE),

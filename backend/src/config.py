@@ -730,7 +730,7 @@ class Settings(BaseSettings):
     UPLOAD_JOB_STALE_SECONDS: int = 60 * 60
     UPLOAD_JOB_REAPER_MAX_PER_RUN: int = 100
 
-    # DB Connector sensitive config encryption (AES-256-GCM)
+    # Database provider sensitive config encryption (AES-256-GCM)
     # Base64-encoded string of 32-byte key
     DB_CONNECTOR_ENCRYPTION_KEY: str = ""
     DB_CONNECTOR_ENCRYPTION_KID: str = "k1"

@@ -1,8 +1,8 @@
 """Tests for connector architecture alignment.
 
 Covers:
-  - BaseConnector pull() method
-  - IntegrationEngine decoupling (fetch → compare → ProductOperationAdapter.write)
+  - BaseProvider pull() method
+  - SynchronizeEngine decoupling (fetch → compare → ProductOperationAdapter.write)
   - Unified connections manager routing by provider
 """
 
@@ -10,20 +10,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.connectors.datasource._base import (
-    BaseConnector,
+from src.provider._base import (
+    BaseProvider,
     Capability,
-    ConnectorSpec,
+    ProviderSpec,
     FetchResult,
 )
 
-# ── BaseConnector Tests ────────────────────────────────────────
+# ── BaseProvider Tests ────────────────────────────────────────
 
-class FakeConnector(BaseConnector):
+class FakeConnector(BaseProvider):
     """Minimal connector for testing."""
 
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="fake",
             display_name="Fake",
             capabilities=Capability.PULL,
@@ -55,7 +55,7 @@ class TestBaseConnector:
         c = FakeConnector()
         mock_sync = MagicMock()
         mock_sync.config = {}
-        with pytest.raises(NotImplementedError, match="use IntegrationEngine"):
+        with pytest.raises(NotImplementedError, match="use SynchronizeEngine"):
             await c.pull(mock_sync)
 
     @pytest.mark.asyncio
@@ -74,11 +74,11 @@ class TestBaseConnector:
         assert result == []
 
 
-class PullableConnector(BaseConnector):
-    """Connector that implements pull()."""
+class PullableConnector(BaseProvider):
+    """AccessSurface that implements pull()."""
 
     def spec(self):
-        return ConnectorSpec(
+        return ProviderSpec(
             provider="pullable", display_name="Pullable",
             capabilities=Capability.PULL, supported_directions=["inbound"],
         )
@@ -110,21 +110,21 @@ class TestManagerRouting:
         assert "direct" in known_providers
 
 
-# ── IntegrationEngine Decoupling Tests ─────────────────────────
+# ── SynchronizeEngine Decoupling Tests ─────────────────────────
 
 class TestIntegrationEngineDecoupling:
-    """Verify IntegrationEngine properly separates concerns."""
+    """Verify SynchronizeEngine properly separates concerns."""
 
     def test_engine_module_importable(self):
-        from src.platform.integrations.engine import IntegrationEngine
-        assert hasattr(IntegrationEngine, "execute")
+        from src.platform.synchronize.engine import SynchronizeEngine
+        assert hasattr(SynchronizeEngine, "execute")
 
     def test_engine_uses_version_write_port(self):
-        """IntegrationEngine.execute() should enter project writes through one port."""
+        """SynchronizeEngine.execute() should enter project writes through one port."""
         import inspect
 
-        from src.platform.integrations.engine import IntegrationEngine
-        source = inspect.getsource(IntegrationEngine.execute)
+        from src.platform.synchronize.engine import SynchronizeEngine
+        source = inspect.getsource(SynchronizeEngine.execute)
         assert "self.write_port.write_plan" in source
         assert "commands.bulk_write" not in source
         assert "commands.write_bytes" not in source
@@ -133,16 +133,16 @@ class TestIntegrationEngineDecoupling:
         """The Integration write port is the only direct Version Engine write adapter."""
         import inspect
 
-        from src.platform.integrations.version_write_port import VersionEngineWritePort
+        from src.platform.synchronize.version_write_port import VersionEngineWritePort
         source = inspect.getsource(VersionEngineWritePort.write_plan)
         assert "build_leased_worker_write_commands" in source
         assert "commands.bulk_write" in source
         assert "commands.write_bytes" in source
 
     def test_connector_has_no_version_adapter_dependency(self):
-        """BaseConnector should not import or reference ProductOperationAdapter."""
+        """BaseProvider should not import or reference ProductOperationAdapter."""
         import inspect
-        source = inspect.getsource(BaseConnector)
+        source = inspect.getsource(BaseProvider)
         assert "ProductOperationAdapter" not in source
         assert "version_engine" not in source
 
@@ -153,19 +153,19 @@ class TestPluginDiscovery:
     """Verify the plugin auto-discovery mechanism exists."""
 
     def test_discovery_function_exists(self):
-        from src.connectors.datasource.dependencies import _discover_connectors
-        assert callable(_discover_connectors)
+        from src.provider.dependencies import _discover_providers
+        assert callable(_discover_providers)
 
     def test_registry_class_importable(self):
-        from src.connectors.datasource.registry import ConnectorRegistry
-        assert hasattr(ConnectorRegistry, "register")
+        from src.provider.registry import ProviderRegistry
+        assert hasattr(ProviderRegistry, "register")
 
     def test_connector_setup_protocol(self):
         """Each connector module should export a setup() function."""
         import importlib
         # Test with URL connector (simplest, no OAuth)
         mod = importlib.import_module(
-            "src.connectors.datasource.url.connector"
+            "src.provider.url.adapter"
         )
         assert hasattr(mod, "setup")
         assert callable(mod.setup)

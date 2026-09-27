@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from src.connectors.datasource.run_repository import SyncRunRepository
+from src.platform.synchronize.run_repository import SyncRunRepository
 
 
 class FakeQuery:
@@ -169,10 +169,10 @@ def test_list_failed_for_access_points_reads_sync_runs_by_connection_id():
         ],
     })))
 
-    rows = repo.list_failed_for_access_points(["conn-1", "conn-2"], limit=10)
+    rows = repo.list_failed_for_connections(["conn-1", "conn-2"], limit=10)
 
     assert [row.id for row in rows] == ["run-newer", "run-older"]
-    assert [row.access_point_id for row in rows] == ["conn-1", "conn-2"]
+    assert [row.connection_id for row in rows] == ["conn-1", "conn-2"]
 
 
 def test_get_active_by_sync_returns_newest_active_run():
@@ -209,7 +209,7 @@ def test_get_active_by_sync_returns_newest_active_run():
 
     assert run is not None
     assert run.id == "run-running"
-    assert run.access_point_id == "conn-1"
+    assert run.connection_id == "conn-1"
     assert run.status == "running"
 
 
@@ -221,7 +221,7 @@ def test_create_queued_single_lane_falls_back_after_unique_race():
 
     assert created is False
     assert run.id == "run-existing"
-    assert run.access_point_id == "conn-1"
+    assert run.connection_id == "conn-1"
     assert run.status == "queued"
     assert client.insert_attempts == 1
     assert client.active_selects == 2

@@ -9,7 +9,7 @@ MIGRATION = ROOT / (
 )
 VERSION_STORAGE = ROOT / "backend/src/version_engine/storage/backends/s3.py"
 SHADOW_SNAPSHOTS = ROOT / ("backend/src/version_engine/entrypoints/http/shadow_snapshot.py")
-INGEST_ROUTER = ROOT / "backend/src/ingest/router.py"
+INGEST_ROUTER = ROOT / "backend/src/platform/upload/handlers.py"
 INGEST_JOBS = ROOT / "backend/src/ingest/file/jobs/jobs.py"
 LANDING = ROOT / "backend/src/platform/landing/service.py"
 

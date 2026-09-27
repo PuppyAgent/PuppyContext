@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.config import settings
-from src.connectors.datasource.run_repository import SyncRunRepository
+from src.platform.synchronize.run_repository import SyncRunRepository
 from src.infra.supabase.client import SupabaseClient
 from src.utils.logger import log_error
 

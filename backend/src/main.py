@@ -69,13 +69,13 @@ from src.tool.router import router as tool_router
 tool_router_duration = time.time() - tool_router_start
 
 mcp_v3_router_start = time.time()
-from src.connectors.agent.mcp.router import router as mcp_v3_router
+from src.platform.access.adapters.agent.mcp.router import router as mcp_v3_router
 
 mcp_v3_router_duration = time.time() - mcp_v3_router_start
 
 agent_router_start = time.time()
-from src.connectors.agent.config.router import router as agent_config_router
-from src.connectors.agent.router import router as agent_router
+from src.platform.access.adapters.agent.config.router import router as agent_config_router
+from src.platform.access.adapters.agent.router import router as agent_router
 
 agent_router_duration = time.time() - agent_router_start
 
@@ -100,7 +100,7 @@ project_router_duration = time.time() - project_router_start
 from src.platform.organization.router import router as organization_router
 
 oauth_router_start = time.time()
-from src.connectors.datasource.oauth.router import router as oauth_router
+from src.provider.oauth.router import router as oauth_router
 
 oauth_router_duration = time.time() - oauth_router_start
 
@@ -129,10 +129,10 @@ from src.platform.imports.router import router as imports_router
 
 imports_router_duration = time.time() - imports_router_start
 
-db_connector_router_start = time.time()
-from src.connectors.database.router import router as db_connector_router
+database_import_router_start = time.time()
+from src.platform.imports.database.router import router as database_import_router
 
-db_connector_router_duration = time.time() - db_connector_router_start
+database_import_router_duration = time.time() - database_import_router_start
 
 # Scheduler service import
 scheduler_start = time.time()
@@ -170,7 +170,7 @@ routers_duration = (
     + analytics_router_duration
     + profile_router_duration
     + imports_router_duration
-    + db_connector_router_duration
+    + database_import_router_duration
 )
 
 
@@ -267,22 +267,22 @@ async def _init_file_ingest() -> None:
         )
 
 
-def _init_connector_registry() -> None:
-    """Initialize ConnectorRegistry singleton."""
+def _init_provider_registry() -> None:
+    """Initialize ProviderRegistry singleton."""
     registry_init_start = time.time()
     try:
-        log_info("🔌 Initializing ConnectorRegistry...")
-        from src.connectors.datasource.dependencies import init_registry
+        log_info("🔌 Initializing ProviderRegistry...")
+        from src.provider.dependencies import init_registry
 
         init_registry()
         registry_duration = time.time() - registry_init_start
         log_info(
-            f"✅ ConnectorRegistry initialized successfully (took: {registry_duration * 1000:.2f}ms)"
+            f"✅ ProviderRegistry initialized successfully (took: {registry_duration * 1000:.2f}ms)"
         )
     except Exception as e:
         registry_duration = time.time() - registry_init_start
         log_error(
-            f"❌ ConnectorRegistry initialization failed (took: {registry_duration * 1000:.2f}ms): {e}"
+            f"❌ ProviderRegistry initialization failed (took: {registry_duration * 1000:.2f}ms): {e}"
         )
 
 
@@ -545,7 +545,7 @@ async def app_lifespan(app: FastAPI):
     await _init_mcp_health_check()
     await _init_scheduler()
     await _init_file_ingest()
-    _init_connector_registry()
+    _init_provider_registry()
     await _init_version_trees()
     _init_scope_sandbox_reaper(app)
     _init_entitlement_provisioner(app)
@@ -669,7 +669,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_v3_router, prefix="/api/v1", tags=["mcp"])
     app.include_router(agent_router, prefix="/api/v1", tags=["agents"])
     app.include_router(agent_config_router, prefix="/api/v1", tags=["agent-config"])
-    from src.connectors.agent.chat.router import router as chat_router
+    from src.platform.access.adapters.agent.chat.router import router as chat_router
 
     app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
     app.include_router(context_publish_router, prefix="/api/v1", tags=["publishes"])
@@ -731,20 +731,20 @@ def create_app() -> FastAPI:
     from src.platform.workspace.router import router as workspace_router
 
     app.include_router(workspace_router, prefix="/api/v1", tags=["workspace"])
-    from src.platform.integrations.router import router as integrations_router
+    from src.platform.synchronize.router import router as synchronize_router
 
-    app.include_router(integrations_router, prefix="/api/v1", tags=["integrations"])
-    # GitHub Integration: bind a project to a (repo, branch) pair, run
+    app.include_router(synchronize_router, prefix="/api/v1", tags=["integrations"])
+    # GitHub Synchronize: bind a project to a (repo, branch) pair, run
     # imports/exports, receive webhooks. Two routers because the webhook
     # callback isn't per-project.
-    from src.repo.github_integration.router import (
-        router as github_integration_router,
+    from src.platform.synchronize.github.router import (
+        router as github_sync_router,
     )
-    from src.repo.github_integration.router import (
+    from src.platform.synchronize.github.router import (
         webhook_router as github_webhook_router,
     )
 
-    app.include_router(github_integration_router, tags=["github-integration"])
+    app.include_router(github_sync_router, tags=["github-integration"])
     app.include_router(github_webhook_router, tags=["github-integration"])
     from src.platform.scope_sandbox.router import router as scope_sandbox_router
 
@@ -759,7 +759,7 @@ def create_app() -> FastAPI:
     app.include_router(profile_router, tags=["profile"])
     app.include_router(imports_router, prefix="/api/v1", tags=["imports"])
     app.include_router(activity_router, prefix="/api/v1", tags=["activity"])
-    app.include_router(db_connector_router, prefix="/api/v1", tags=["db-connector"])
+    app.include_router(database_import_router, prefix="/api/v1", tags=["db-connector"])
     app.include_router(organization_router, prefix="/api/v1", tags=["organizations"])
     from src.platform.billing.router import router as billing_router
 
@@ -768,13 +768,13 @@ def create_app() -> FastAPI:
 
     app.include_router(managed_ai_router, prefix="/api/v1")
     app.include_router(managed_ai_internal_router)
-    from src.connectors.mcp_endpoint.router import router as mcp_endpoint_router
+    from src.platform.access.adapters.mcp_endpoint.router import router as mcp_endpoint_router
 
     app.include_router(mcp_endpoint_router, prefix="/api/v1", tags=["mcp-endpoints"])
     from src.platform.landing.router import router as landing_router
 
     app.include_router(landing_router, prefix="/api/v1", tags=["landing"])
-    from src.connectors.sandbox_endpoint.router import router as sandbox_endpoint_router
+    from src.platform.access.adapters.sandbox_endpoint.router import router as sandbox_endpoint_router
 
     app.include_router(sandbox_endpoint_router, prefix="/api/v1", tags=["sandbox-endpoints"])
     from src.platform.project.dashboard_router import router as dashboard_router
@@ -783,18 +783,18 @@ def create_app() -> FastAPI:
     from src.platform.access.router import router as access_router
 
     app.include_router(access_router, prefix="/api/v1", tags=["access"])
-    from src.connectors.gateway.router import router as gateway_router
+    from src.provider.accounts.router import router as gateway_router
 
     app.include_router(gateway_router, prefix="/api/v1", tags=["gateways"])
 
     # Repository data-plane surface: scope CRUD, repo identity, connectors.
-    from src.repo.connector_router import router as repo_connector_router
+    from src.platform.access.project_router import router as project_access_router
     from src.repo.identity_router import router as repo_identity_router
     from src.repo.scope_router import router as repo_scope_router
 
     app.include_router(repo_scope_router, prefix="/api/v1", tags=["repo-scopes"])
     app.include_router(repo_identity_router, prefix="/api/v1", tags=["repo-identity"])
-    app.include_router(repo_connector_router, prefix="/api/v1", tags=["connectors"])
+    app.include_router(project_access_router, prefix="/api/v1", tags=["connectors"])
     router_register_duration = time.time() - router_register_start
 
     # Register exception handlers

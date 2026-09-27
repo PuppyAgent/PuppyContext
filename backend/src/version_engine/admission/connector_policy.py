@@ -1,4 +1,4 @@
-"""Connector-level admission policy for Version Engine entry points."""
+"""AccessSurface-level admission policy for Version Engine entry points."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from src.platform.repository_target.auth_context import repository_target_from_auth
 from src.platform.repository_target.models import repository_target_scope_id
-from src.repo.connector_repository import ConnectorRepository
+from src.platform.access.model_repository import AccessModelRepository
 from src.utils.logger import log_error, log_warning
 from src.version_engine.admission.channel_pause import enforce_channel_pause
 
@@ -62,7 +62,7 @@ def clear_connector_policy_cache(
 ) -> None:
     """Drop cached connector policy snapshots.
 
-    Connector policy is a hot-path admission check. The TTL is short, but CRUD
+    AccessSurface policy is a hot-path admission check. The TTL is short, but CRUD
     paths call this so UI changes feel immediate.
     """
 
@@ -148,7 +148,7 @@ def get_connector_policy_snapshot(
         return cached
 
     try:
-        connector = ConnectorRepository().get_by_target_provider(
+        connector = AccessModelRepository().get_by_target_kind(
             project_id,
             scope_id,
             provider,
@@ -171,7 +171,7 @@ def get_connector_policy_snapshot(
 
     snapshot = ConnectorPolicySnapshot(
         connector_id=connector.id,
-        provider=connector.provider,
+        provider=connector.kind,
         status=connector.status,
         allowed_commands=(
             effective_cli_fs_allowed_commands(connector.policy)

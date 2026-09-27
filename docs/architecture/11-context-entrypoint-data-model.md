@@ -5,7 +5,7 @@ exposed from a PuppyOne workspace:
 
 - Upload: local bytes enter once.
 - Import: an external snapshot enters once.
-- Integration: a durable external service, system, or local sync relationship is
+- Synchronize: a durable external service, system, or local sync relationship is
   created.
 - Access: a scoped workspace surface is exposed to a person, tool, or runtime.
 
@@ -29,8 +29,8 @@ in stages while old rows remain readable.
 | Upload | `upload_jobs` | One local upload task and its lifecycle |
 | Upload | `upload_items` | Per-file state for an upload task |
 | Import | `import_jobs` | Existing canonical one-shot external import task |
-| Integration | `connections` | Durable integration relationship and sync configuration |
-| Integration | `sync_runs` | One execution of an integration |
+| Synchronize | `connections` | Durable integration relationship and sync configuration |
+| Synchronize | `sync_runs` | One execution of an integration |
 | Access | `access_surfaces` | Project-root or Scope-targeted workspace entry points |
 | Activity | `context_activity_items` | Read-only aggregation of upload, import, and sync history |
 
@@ -56,7 +56,7 @@ Upload jobs have no provider, no OAuth binding, no schedule, and no durable
 external relationship.
 
 File upload and folder upload both belong here. A folder upload is a one-shot
-copy of selected local files. Local folder synchronize belongs to Integration
+copy of selected local files. Local folder synchronize belongs to Synchronize
 because it keeps a durable relationship with a filesystem client.
 
 ## Import
@@ -76,12 +76,12 @@ task status directly.
 
 Examples include GitHub repository snapshots, URL or website snapshots, one-shot
 document/page imports, templates, and future external snapshot providers. None
-of these should create a durable sync binding unless the user chose Integration.
+of these should create a durable sync binding unless the user chose Synchronize.
 
-## Integration
+## Synchronize
 
 `connections` is the current table for durable integration relationships. The
-product category is Integration; the table name remains `connections` as an
+product category is Synchronize; the table name remains `connections` as an
 implementation and migration detail.
 
 An integration stores:
@@ -89,7 +89,7 @@ An integration stores:
 - Provider and external resource identity.
 - Optional OAuth or credential reference.
 - Direction: inbound, outbound, or bidirectional.
-- `target_path`: the project-root destination path for Integration writes.
+- `target_path`: the project-root destination path for Synchronize writes.
 - Trigger type and trigger config.
 - Cursor, watermark, remote hash, external version, and last sync result.
 - Lifecycle status: active, paused, syncing, error, or disabled.
@@ -97,7 +97,7 @@ An integration stores:
 A durable integration is configuration plus durable state. It is not a run and
 it is not an import.
 
-Integration rows are not path-permission scopes. A connection may keep a
+Synchronize rows are not path-permission scopes. A connection may keep a
 `scope_id` only for rollout compatibility or root association; that field must
 not define where Google/GitHub/Gmail/Search Console data is written. The write
 destination is `target_path`, and execution reaches the same project-root
@@ -115,10 +115,10 @@ The legacy `connector_runs` table is migration input for historical run
 backfill. Runtime durable source synchronization uses `connections` and
 `sync_runs`.
 
-Connector is a second-level implementation concept under a service. Integration
+Connector is a second-level implementation concept under a service. Synchronize
 connectors may represent GitHub, Google Drive, Gmail, databases, local
 filesystem sync, and future providers. They supply capabilities; the
-Integration service owns lifecycle, sync runs, and final write semantics.
+Synchronize service owns lifecycle, sync runs, and final write semantics.
 
 ## Access
 
@@ -191,3 +191,20 @@ Upload, Import, and SyncRun into one lifecycle.
 6. Access surfaces create `access_surfaces`, not import jobs.
 7. Long-running upload, import, and sync work must run through worker queues.
 8. All final content writes must go through the Version Engine.
+
+
+## Phase-one implementation boundary
+
+ISSUE-048 organizes backend source under `platform/upload`, `platform/imports`,
+`platform/synchronize`, `platform/access`, and shared `provider`.
+`platform/synchronize/github` owns durable GitHub binding/pull/push; one-time
+GitHub snapshots use Import and `provider/github`. Git access to PuppyOne remains
+an Access transport through the existing Version Engine.
+
+Public `/integrations`, `/connectors`, `/access`, `/db-connector`, `/oauth` and
+`/ingest` contracts remain stable. Physical table/column names are unchanged.
+The GitHub job still uses the imports queue and the old serialized job name;
+its dispatcher delegates to `execute_github_sync_pull`. This preserves pending
+and retry jobs during mixed-version rollout. Database cleanup is ISSUE-049.
+The canonical implementation map and compatibility ledger are maintained in
+`puppy-issues:document/puppyone/architecture/entrypoints/phase-one-implementation.md`.

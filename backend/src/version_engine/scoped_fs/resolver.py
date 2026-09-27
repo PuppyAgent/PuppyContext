@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from src.exceptions import ErrorCode
 from src.infra.supabase.dependencies import get_supabase_client
 from src.repo.access_credentials import AccessCredentialRepository
-from src.repo.access_surface_repository import AccessSurfaceRepository
+from src.platform.access.surface_repository import AccessSurfaceRepository
 from src.repo.scope_repository import RepositoryScopeRepository
 
 from .context import ScopedFsContext

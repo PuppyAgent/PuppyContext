@@ -297,7 +297,7 @@ def test_web_one_time_git_credential_is_bound_to_displayed_target_and_mode():
 
 
 def test_legacy_access_router_cannot_issue_server_generated_human_git_secrets():
-    router = (ROOT / "backend/src/connectors/manager/router.py").read_text(encoding="utf-8")
+    router = (ROOT / "backend/src/platform/access/router.py").read_text(encoding="utf-8")
     git_branch = router.split('if provider == "git_remote":', 1)[1].split(
         'if provider == "cli":', 1
     )[0]

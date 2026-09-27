@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from src.platform.integrations.router import _queue_sync_run, trigger_pull
+from src.platform.synchronize.router import _queue_sync_run, trigger_pull
 
 
 class FakeRun:
@@ -98,7 +98,7 @@ async def test_queue_sync_run_creates_queued_run_and_enqueues_worker(monkeypatch
     run_repo = FakeRunRepository()
     arq_client = FakeSyncArqClient()
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -130,7 +130,7 @@ async def test_queue_sync_run_rejects_paused_connection_before_creating_run(monk
     run_repo = FakeRunRepository()
     arq_client = FakeSyncArqClient()
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -155,7 +155,7 @@ async def test_queue_sync_run_reuses_existing_active_run(monkeypatch):
     run_repo = FakeRunRepository(active_run=active_run)
     arq_client = FakeSyncArqClient()
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -189,7 +189,7 @@ async def test_queue_sync_run_reuses_active_run_even_when_connection_paused(monk
     run_repo = FakeRunRepository(active_run=active_run)
     arq_client = FakeSyncArqClient()
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -216,7 +216,7 @@ async def test_queue_sync_run_recovers_stale_active_run_then_queues(monkeypatch)
     run_repo.stale_run_ids.add("run-stale")
     arq_client = FakeSyncArqClient()
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -238,7 +238,7 @@ async def test_queue_sync_run_dedupes_unique_race_without_enqueue(monkeypatch):
     run_repo = RaceRunRepository()
     arq_client = FakeSyncArqClient()
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -268,7 +268,7 @@ async def test_queue_sync_run_marks_run_failed_when_worker_enqueue_fails(monkeyp
     run_repo = FakeRunRepository()
     arq_client = FakeSyncArqClient(error=RuntimeError("redis unavailable"))
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 
@@ -318,7 +318,7 @@ async def test_trigger_pull_all_returns_existing_running_and_skips_unqueueable(m
         def authorize(self, project_id, user_id, action):
             return SimpleNamespace(project_id=project_id, user_id=user_id)
 
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(router_module, "_get_run_repo", lambda: run_repo)
 

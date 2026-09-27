@@ -6,15 +6,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.config import settings
-from src.connectors.datasource._base import BaseConnector, Capability, ConnectorSpec, FetchResult
-from src.connectors.datasource.materializers.base import MaterializationSchema, MaterializedOutput
-from src.connectors.datasource.materializers.providers import (
+from src.provider._base import BaseProvider, Capability, ProviderSpec, FetchResult
+from src.provider.materializers.base import MaterializationSchema, MaterializedOutput
+from src.provider.materializers.providers import (
     GmailMaterializer,
     GoogleSheetsMaterializer,
 )
-from src.connectors.datasource.registry import ConnectorRegistry
-from src.connectors.datasource.schemas import Sync
-from src.platform.integrations.engine import IntegrationEngine
+from src.provider.registry import ProviderRegistry
+from src.provider.schemas import Sync
+from src.platform.synchronize.engine import SynchronizeEngine
 
 
 def _sync(provider: str = "gmail") -> Sync:
@@ -92,9 +92,9 @@ def test_google_sheets_materializer_writes_workbook_csv_and_schema():
     )
 
 
-class _FakeConnector(BaseConnector):
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+class _FakeConnector(BaseProvider):
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="gmail",
             display_name="Gmail",
             capabilities=Capability.PULL,
@@ -106,7 +106,7 @@ class _FakeConnector(BaseConnector):
 
 
 def test_registry_serializes_materialization_schema():
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(_FakeConnector())
     registry.register_materializer(GmailMaterializer())
 
@@ -119,7 +119,7 @@ def test_registry_serializes_materialization_schema():
 
 
 def test_registry_pins_and_resolves_materialization_schema():
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(_FakeConnector())
     registry.register_materializer(GmailMaterializer())
 
@@ -135,9 +135,9 @@ def test_registry_pins_and_resolves_materialization_schema():
     )
 
 
-class _EngineConnector(BaseConnector):
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+class _EngineConnector(BaseProvider):
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="engine_fake",
             display_name="Engine Fake",
             capabilities=Capability.PULL,
@@ -148,12 +148,12 @@ class _EngineConnector(BaseConnector):
         return FetchResult(content={"ok": True}, content_hash="hash-3", summary="Fetched")
 
 
-class _CountingConnector(BaseConnector):
+class _CountingConnector(BaseProvider):
     def __init__(self):
         self.fetch_calls = 0
 
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="counting_fake",
             display_name="Counting Fake",
             capabilities=Capability.PULL,
@@ -165,13 +165,13 @@ class _CountingConnector(BaseConnector):
         return FetchResult(content={"ok": True}, content_hash="hash-counting")
 
 
-class _ClaimAwareConnector(BaseConnector):
+class _ClaimAwareConnector(BaseProvider):
     def __init__(self, run_repo):
         self.run_repo = run_repo
         self.fetch_calls = 0
 
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="engine_fake",
             display_name="Engine Fake",
             capabilities=Capability.PULL,
@@ -234,12 +234,12 @@ class _RecordingRuntimeMeter:
             self.events.append("settle")
 
 
-class _MeteredConnector(BaseConnector):
+class _MeteredConnector(BaseProvider):
     def __init__(self, events: list[str]):
         self.events = events
 
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="metered_fake",
             display_name="Metered Fake",
             capabilities=Capability.PULL | Capability.PUSH,
@@ -251,7 +251,7 @@ class _MeteredConnector(BaseConnector):
         return FetchResult(content={"ok": True}, content_hash="metered-hash")
 
     async def push(self, connection, content, node_type):
-        from src.connectors.datasource.schemas import PushResult
+        from src.provider.schemas import PushResult
 
         self.events.append("push")
         return PushResult(success=True, remote_hash="remote-after-push")
@@ -300,7 +300,7 @@ class _EngineMaterializerV2:
 
 @pytest.mark.asyncio
 async def test_integration_engine_uses_pinned_materializer():
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(_EngineConnector())
     registry.register_materializer(_EngineMaterializer())
     registry.register_materializer(_EngineMaterializerV2())
@@ -325,7 +325,7 @@ async def test_integration_engine_uses_pinned_materializer():
         return_value=SimpleNamespace(commit_id="commit-2")
     )
 
-    result = await IntegrationEngine(
+    result = await SynchronizeEngine(
         registry, repository, run_repo, write_port=write_port
     ).execute(connection.id)
 
@@ -346,7 +346,7 @@ async def test_integration_engine_uses_pinned_materializer():
 @pytest.mark.asyncio
 async def test_integration_engine_direct_execute_skips_existing_active_run():
     connector = _CountingConnector()
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(connector)
 
     connection = _sync("counting_fake")
@@ -358,7 +358,7 @@ async def test_integration_engine_direct_execute_skips_existing_active_run():
         SimpleNamespace(id="run-active", status="running", worker_job_id="arq-active")
     )
 
-    result = await IntegrationEngine(registry, repository, run_repo).execute(connection.id)
+    result = await SynchronizeEngine(registry, repository, run_repo).execute(connection.id)
 
     assert result is None
     assert run_repo.created == [("sync-1", "manual")]
@@ -371,7 +371,7 @@ async def test_integration_engine_direct_execute_skips_existing_active_run():
 async def test_integration_engine_direct_execute_creates_claims_and_completes_run():
     run_repo = _CreatedSingleLaneRunRepo()
     connector = _ClaimAwareConnector(run_repo)
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(connector)
     registry.register_materializer(_EngineMaterializer())
 
@@ -390,7 +390,7 @@ async def test_integration_engine_direct_execute_creates_claims_and_completes_ru
         return_value=SimpleNamespace(commit_id="commit-claim")
     )
 
-    result = await IntegrationEngine(
+    result = await SynchronizeEngine(
         registry, repository, run_repo, write_port=write_port
     ).execute(connection.id)
 
@@ -409,7 +409,7 @@ async def test_integration_engine_reserves_connector_runtime_before_pull(monkeyp
     events: list[str] = []
     meter = _RecordingRuntimeMeter(events)
     connector = _MeteredConnector(events)
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(connector)
 
     connection = _sync("metered_fake")
@@ -420,7 +420,7 @@ async def test_integration_engine_reserves_connector_runtime_before_pull(monkeyp
     write_port = MagicMock()
     write_port.write_plan = AsyncMock(return_value=SimpleNamespace(commit_id="commit-metered"))
 
-    result = await IntegrationEngine(
+    result = await SynchronizeEngine(
         registry,
         repository,
         run_repo,
@@ -447,7 +447,7 @@ async def test_integration_engine_reserves_connector_runtime_before_push(monkeyp
     events: list[str] = []
     meter = _RecordingRuntimeMeter(events)
     connector = _MeteredConnector(events)
-    registry = ConnectorRegistry()
+    registry = ProviderRegistry()
     registry.register(connector)
 
     connection = _sync("metered_fake")
@@ -458,7 +458,7 @@ async def test_integration_engine_reserves_connector_runtime_before_push(monkeyp
     run_repo = MagicMock()
     run_repo.create.return_value = SimpleNamespace(id="push-run")
 
-    result = await IntegrationEngine(
+    result = await SynchronizeEngine(
         registry,
         repository,
         run_repo,

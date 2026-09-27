@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.repo.github_integration import importer
+from src.platform.synchronize.github import importer
 
 
 # ── pure channel classification ───────────────────────────────────────

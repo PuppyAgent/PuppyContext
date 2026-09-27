@@ -55,7 +55,7 @@ def test_git_cli_and_frontend_native_writes_share_version_engine_under_concurren
     # This is an in-memory mixed-protocol test. Isolate the three optional
     # control/derived seams that otherwise read the developer's Supabase URL
     # from .env and leak slow background threads into the test.
-    from src.repo.connector_repository import ConnectorRepository
+    from src.platform.access.model_repository import AccessModelRepository
     from src.version_engine.derived import outbox
     from src.infra.search import text_indexer
     from src.version_engine.infrastructure.supabase.version_ref_repository import (
@@ -63,7 +63,7 @@ def test_git_cli_and_frontend_native_writes_share_version_engine_under_concurren
     )
 
     monkeypatch.setattr(
-        ConnectorRepository, "get_by_scope_provider", lambda *_a, **_k: None
+        AccessModelRepository, "get_by_scope_kind", lambda *_a, **_k: None
     )
     monkeypatch.setattr(VersionRefStore, "list_refs", lambda *_a, **_k: [])
     monkeypatch.setattr(text_indexer, "index_commit_delta", lambda *_a, **_k: None)

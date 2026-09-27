@@ -9,10 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.repo.github_integration import jobs as gh_jobs
-from src.repo.github_integration import webhook as wh
+from src.platform.synchronize.github import jobs as gh_jobs
+from src.platform.synchronize.github import webhook as wh
 
-DEP = "src.platform.imports.dependencies.get_import_arq_client"
+DEP = "src.platform.synchronize.github.arq_client.get_github_sync_arq_client"
 
 
 def _sig(secret: str, body: bytes) -> str:
@@ -23,7 +23,7 @@ class _FakeArq:
     def __init__(self):
         self.calls: list[dict] = []
 
-    async def enqueue_github_import(self, integration_id, *, branch=None,
+    async def enqueue_pull(self, integration_id, *, branch=None,
                                     force=False, triggered_by="webhook", dedup_key=None):
         self.calls.append({"integration_id": integration_id, "branch": branch,
                            "force": force, "triggered_by": triggered_by, "dedup_key": dedup_key})
@@ -50,7 +50,7 @@ async def test_dispatch_enqueues_on_valid_push(monkeypatch):
 
 async def test_dispatch_dedup_returns_already_queued(monkeypatch):
     class _Dedup(_FakeArq):
-        async def enqueue_github_import(self, *a, **k):
+        async def enqueue_pull(self, *a, **k):
             return None
     monkeypatch.setattr(DEP, lambda: _Dedup())
     body = b"{}"
@@ -95,7 +95,7 @@ async def test_execute_github_import_runs_branch(monkeypatch):
         seen["import"] = {"branch": branch, "force": force, "triggered_by": triggered_by}
         return SimpleNamespace(status="success", git_sha="abc123")
 
-    monkeypatch.setattr(gh_jobs, "GithubIntegrationRepository", lambda: _Repo())
+    monkeypatch.setattr(gh_jobs, "GithubSyncRepository", lambda: _Repo())
     monkeypatch.setattr(gh_jobs, "import_branch", _imp)
     out = await gh_jobs.execute_github_import({}, "int-9", branch="main",
                                               force=False, triggered_by="webhook")
@@ -107,6 +107,6 @@ async def test_execute_github_import_missing_integration(monkeypatch):
     class _Repo:
         async def get_by_id(self, iid):
             return None
-    monkeypatch.setattr(gh_jobs, "GithubIntegrationRepository", lambda: _Repo())
+    monkeypatch.setattr(gh_jobs, "GithubSyncRepository", lambda: _Repo())
     out = await gh_jobs.execute_github_import({}, "missing")
     assert out["status"] == "skipped" and out["reason"] == "integration_not_found"

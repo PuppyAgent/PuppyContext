@@ -262,7 +262,7 @@ def get_version_auth(
     work unchanged. The "Pause" toggle in the access-page UI becomes a
     hard gate progressively as clients roll out the header — for the
     in-app agent path the same enforcement happens inside the agent
-    chat router (see src/connectors/agent/chat/...).
+    chat router (see src/platform/access/adapters/agent/chat/...).
     """
     if not credentials:
         raise HTTPException(status_code=401, detail="Missing Authorization header")

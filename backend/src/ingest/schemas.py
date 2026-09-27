@@ -24,7 +24,7 @@ class IngestType(str, Enum):
     DOCUMENT = "document"  # docx, xlsx, etc.
     TEXT = "text"          # txt, md, json, code files
 
-    # SaaS types (SAAS source → ImportJob or IntegrationEngine)
+    # SaaS types (SAAS source → ImportJob or SynchronizeEngine)
     GITHUB = "github"
     NOTION = "notion"
     GMAIL = "gmail"

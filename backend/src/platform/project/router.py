@@ -89,7 +89,7 @@ def _count_user_access_points(project_ids: list[str]) -> dict[str, int]:
     connection_rows = (
         sb.table("connections").select("project_id").in_("project_id", project_ids).execute()
     ).data or []
-    from src.repo.access_surface_repository import AccessSurfaceRepository
+    from src.platform.access.surface_repository import AccessSurfaceRepository
 
     access_counts = AccessSurfaceRepository(sb).count_by_projects_and_kinds(
         project_ids, ["mcp", "sandbox"]

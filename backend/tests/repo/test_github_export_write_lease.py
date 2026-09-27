@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from src.exceptions import AppException, ErrorCode
-from src.repo.github_integration import exporter
+from src.platform.synchronize.github import exporter
 
 INTEGRATION = {
     "id": "integration-1",
@@ -44,12 +44,12 @@ def _prepare_export(monkeypatch) -> _FakeApi:
         return {"access_token": "token"}
 
     monkeypatch.setattr(
-        "src.repo.github_integration.importer._load_oauth_token",
+        "src.platform.synchronize.github.importer._load_oauth_token",
         load_oauth,
     )
     monkeypatch.setattr(exporter, "GithubApi", lambda _token: api)
     monkeypatch.setattr(exporter, "GithubSyncLogRepository", object)
-    monkeypatch.setattr(exporter, "GithubIntegrationRepository", object)
+    monkeypatch.setattr(exporter, "GithubSyncRepository", object)
     return api
 
 

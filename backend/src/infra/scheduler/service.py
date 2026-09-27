@@ -215,7 +215,7 @@ class SchedulerService:
             return
 
         try:
-            from src.repo.access_surface_repository import AccessSurfaceRepository
+            from src.platform.access.surface_repository import AccessSurfaceRepository
 
             agents = [
                 row for row in AccessSurfaceRepository().list_all(
@@ -303,7 +303,7 @@ class SchedulerService:
 
         Args:
             connection_id: The connection / sync row ID.
-            provider: Connector provider name (e.g. "gmail", "github").
+            provider: Source provider name (e.g. "gmail", "github").
             trigger_config: Scheduling config dict, or *None* to remove.
 
         Returns:

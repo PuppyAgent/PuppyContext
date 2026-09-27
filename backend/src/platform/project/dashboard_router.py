@@ -224,7 +224,7 @@ def _scope_paths_and_keys_by_id(sb, scope_ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
     try:
-        from src.repo.access_surface_repository import AccessSurfaceRepository
+        from src.platform.access.surface_repository import AccessSurfaceRepository
 
         rows = AccessSurfaceRepository(sb).scope_rows_for(
             [{"scope_id": scope_id} for scope_id in ids]
@@ -267,7 +267,7 @@ def _fetch_connections(sb, project_id: str) -> list[DashboardConnection]:
         .order("created_at")
         .execute()
     ).data or []
-    from src.repo.access_surface_repository import AccessSurfaceRepository
+    from src.platform.access.surface_repository import AccessSurfaceRepository
 
     access_rows = AccessSurfaceRepository(sb).list_by_project(project_id)
     from src.repo.access_credentials import (

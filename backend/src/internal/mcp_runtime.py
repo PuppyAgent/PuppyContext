@@ -15,7 +15,7 @@ from src.infra.supabase.dependencies import (
     get_supabase_client,
     get_supabase_repository,
 )
-from src.repo.access_surface_repository import AccessSurfaceRepository
+from src.platform.access.surface_repository import AccessSurfaceRepository
 from src.tool.repository import ToolRepositorySupabase
 from src.version_engine.bootstrap.dependencies import (
     get_product_operation_adapter,

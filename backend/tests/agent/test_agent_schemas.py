@@ -1,6 +1,6 @@
 import pytest
 
-from src.connectors.agent.schemas import AgentRequest
+from src.platform.access.adapters.agent.schemas import AgentRequest
 
 
 def test_agent_request_requires_prompt():

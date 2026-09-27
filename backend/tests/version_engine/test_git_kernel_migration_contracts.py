@@ -929,7 +929,7 @@ def test_access_tables_are_confined_to_repository_boundaries() -> None:
 
 def test_scope_credentials_are_hash_only_access_surface_credentials() -> None:
     scope_repo = (BACKEND_ROOT / "src/repo/scope_repository.py").read_text(encoding="utf-8")
-    surface_repo = (BACKEND_ROOT / "src/repo/access_surface_repository.py").read_text(
+    surface_repo = (BACKEND_ROOT / "src/platform/access/surface_repository.py").read_text(
         encoding="utf-8"
     )
     assert '.eq("access_key"' not in scope_repo
@@ -937,7 +937,7 @@ def test_scope_credentials_are_hash_only_access_surface_credentials() -> None:
     assert "resolve_scope_credential" in surface_repo
     assert "store_scope_credential" in surface_repo
 
-    access_router = (BACKEND_ROOT / "src/connectors/manager/router.py").read_text(encoding="utf-8")
+    access_router = (BACKEND_ROOT / "src/platform/access/router.py").read_text(encoding="utf-8")
     assert "_access_key_for" not in access_router
 
     migration = (

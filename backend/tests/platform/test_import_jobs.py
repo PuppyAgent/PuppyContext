@@ -7,15 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.connectors.datasource._base import (
+from src.provider._base import (
     AuthRequirement,
-    BaseConnector,
+    BaseProvider,
     Capability,
-    ConnectorSpec,
+    ProviderSpec,
     Credentials,
     FetchResult,
 )
-from src.connectors.datasource.github.connector import GithubConnector
+from src.provider.github.adapter import GithubProvider
 from src.platform.imports.jobs import execute_import_job
 from src.platform.imports.repository import ImportJob
 from src.platform.imports.runner import ImportRunResult, OneTimeImportRunner
@@ -32,9 +32,9 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-class MultiFileConnector(BaseConnector):
-    def spec(self) -> ConnectorSpec:
-        return ConnectorSpec(
+class MultiFileConnector(BaseProvider):
+    def spec(self) -> ProviderSpec:
+        return ProviderSpec(
             provider="github",
             display_name="GitHub",
             capabilities=Capability.PULL,
@@ -127,7 +127,7 @@ async def test_import_runner_writes_without_creating_sync_binding(monkeypatch):
     import src.platform.imports.runner as runner_module
     import src.version_engine.bootstrap.dependencies as version_deps
 
-    monkeypatch.setattr(runner_module, "get_connector_registry", lambda: FakeRegistry())
+    monkeypatch.setattr(runner_module, "get_import_provider_registry", lambda: FakeRegistry())
     monkeypatch.setattr(
         version_deps,
         "build_worker_version_engine_container",
@@ -163,9 +163,9 @@ async def test_import_runner_writes_without_creating_sync_binding(monkeypatch):
 async def test_import_runner_uses_real_github_connector_archive_flow(monkeypatch):
     """Hermetic coverage for GitHub zip -> import job -> Version Engine write."""
     fake_ops = FakeOps()
-    connector = GithubConnector(github_service=None, s3_service=None)
+    connector = GithubProvider(github_service=None, s3_service=None)
 
-    import src.connectors.datasource.github.connector as github_module
+    import src.provider.github.adapter as github_module
     import src.platform.imports.runner as runner_module
     import src.version_engine.bootstrap.dependencies as version_deps
 
@@ -195,7 +195,7 @@ async def test_import_runner_uses_real_github_connector_archive_flow(monkeypatch
     monkeypatch.setattr(github_module, "_download_zipball", fake_download_zipball)
     monkeypatch.setattr(
         runner_module,
-        "get_connector_registry",
+        "get_import_provider_registry",
         lambda: SingleConnectorRegistry(connector),
     )
     monkeypatch.setattr(
@@ -244,14 +244,14 @@ async def test_live_github_import_smoke_octocat_hello_world(monkeypatch):
     smoke job when external service health should be sampled.
     """
     fake_ops = FakeOps()
-    connector = GithubConnector(github_service=None, s3_service=None)
+    connector = GithubProvider(github_service=None, s3_service=None)
 
     import src.platform.imports.runner as runner_module
     import src.version_engine.bootstrap.dependencies as version_deps
 
     monkeypatch.setattr(
         runner_module,
-        "get_connector_registry",
+        "get_import_provider_registry",
         lambda: SingleConnectorRegistry(connector),
     )
     monkeypatch.setattr(
