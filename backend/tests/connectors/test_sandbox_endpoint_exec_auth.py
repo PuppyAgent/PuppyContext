@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.connectors.sandbox_endpoint.dependencies import get_sandbox_endpoint_service
-from src.connectors.sandbox_endpoint.router import router
+from src.platform.access.adapters.sandbox_endpoint.dependencies import get_sandbox_endpoint_service
+from src.platform.access.adapters.sandbox_endpoint.router import router
 from src.platform.scope_sandbox.execution.dependencies import get_sandbox_service
 
 

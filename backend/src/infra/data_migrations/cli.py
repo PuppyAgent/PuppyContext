@@ -29,7 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("lint", help="validate every repository artifact")
     policy = subparsers.add_parser("policy", help="enforce immutable database change policy")
     policy.add_argument("--base-ref", required=True)
-    for name in ("plan", "run", "status", "verify"):
+    for name in ("plan", "run", "status", "verify", "verify-external-state"):
         command = subparsers.add_parser(name)
         command.add_argument("migration_id")
     return parser
@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "verify":
             runner.verify(args.migration_id)
             print(json.dumps({"id": args.migration_id, "verified": True}, indent=2))
+        elif args.command == "verify-external-state":
+            print(json.dumps(runner.verify_external_state(args.migration_id), indent=2))
         return 0
     except DataMigrationError as error:
         print(f"error: {error}", file=sys.stderr)

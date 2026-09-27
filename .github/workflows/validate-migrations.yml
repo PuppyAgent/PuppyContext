@@ -2,6 +2,9 @@ name: Validate Database Changes
 
 on:
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,10 +42,19 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
+          if [ -z "$BASE_REF" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git fetch origin "$BASE_REF" --depth=1
           set +e
           git diff --quiet "origin/$BASE_REF...HEAD" -- \
             'supabase/migrations/**' \
+            'supabase/archive/**' \
+            'supabase/baselines/**' \
+            'scripts/database_history.py' \
+            'scripts/database_baseline.py' \
+            'scripts/test_entrypoint_migration*.py' \
             'supabase/data_migrations/**' \
             'supabase/releases/**' \
             'supabase/tests/**' \
@@ -51,11 +63,17 @@ jobs:
             'backend/tests/infra/data_migrations/**' \
             'backend/tests/security/test_credential_backfill_ci_contract.py' \
             'backend/tests/security/test_unified_authorization_architecture.py' \
+            'backend/tests/security/test_billing_database_boundary.py' \
+            'backend/src/platform/billing/**' \
+            'backend/src/platform/entitlements/**' \
+            'backend/src/platform/managed_ai/**' \
             'backend/pyproject.toml' \
             'backend/uv.lock' \
             '.github/workflows/*migration*.yml' \
             '.github/workflows/migrate-*.yml' \
             '.github/workflows/_schema-deploy.yml' \
+            '.github/workflows/_operator-data-verify.yml' \
+            '.github/workflows/prepare-baseline.yml' \
             '.github/workflows/validate-migrations.yml' \
             '.github/workflows/main-release-gate.yml'
           status=$?
@@ -92,9 +110,11 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch origin "$BASE_REF" --depth=1
           uv run puppyone-db lint
-          uv run puppyone-db policy --base-ref "origin/$BASE_REF"
+          if [ -n "$BASE_REF" ]; then
+            git fetch origin "$BASE_REF" --depth=1
+            uv run puppyone-db policy --base-ref "origin/$BASE_REF"
+          fi
 
       - name: Run data migration and workflow regression tests
         working-directory: backend
@@ -103,6 +123,9 @@ jobs:
             tests/infra/data_migrations \
             tests/security/test_credential_backfill_ci_contract.py \
             tests/security/test_unified_authorization_architecture.py \
+            tests/security/test_billing_database_boundary.py \
+            tests/infra/test_self_hosted_bootstrap.py \
+            tests/infra/test_readiness.py \
             -q
 
   validate_local_database:
@@ -149,6 +172,23 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: |
           supabase db reset --no-seed
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/_support/standalone_database.inc
+          supabase test db
+
+      - name: Upgrade populated standalone database without PuppyPay
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          # This is the local ephemeral Supabase started above, never --linked.
+          # Keep this baseline fixed so future migrations exercise a real upgrade.
+          python3 scripts/database_history.py stage --output "$RUNNER_TEMP/pre-b1"
+          supabase db reset --local --no-seed --version 20260720000000 --workdir "$RUNNER_TEMP/pre-b1"
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f supabase/test_fixtures/standalone_upgrade.sql
+          supabase migration up --local --workdir "$RUNNER_TEMP/pre-b1"
+          python3 scripts/database_history.py adopt
+          supabase migration up --local
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/_support/standalone_database.inc
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f supabase/test_fixtures/standalone_upgrade_assert.sql
           supabase test db
 
       - name: Verify historical Project creator repair, retry, and receipt
@@ -164,7 +204,7 @@ jobs:
           uv run puppyone-db run 20260713_reconcile_project_creator_admin
           cd ..
           psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
-            -f supabase/data_migrations/20260713_reconcile_project_creator_admin/test_assert.sql
+            -f supabase/archive/before_b1/data_migrations/20260713_reconcile_project_creator_admin/test_assert.sql
 
       - name: Verify legacy credential upgrade and pre-write admission
         working-directory: backend
@@ -177,6 +217,9 @@ jobs:
           DATA_MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: scripts/test-repository-target-migration.sh
+
+      - name: Verify entrypoint storage migration and future cleanup
+        run: backend/.venv/bin/python scripts/test_entrypoint_migration.py
 
       - name: Stop ephemeral Supabase
         if: always()
@@ -199,6 +242,9 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF=main
+          fi
           git fetch origin "$BASE_REF" --depth=1
           new_migrations=$(git diff --diff-filter=A --name-only \
             "origin/$BASE_REF...HEAD" -- 'supabase/migrations/*.sql' || true)

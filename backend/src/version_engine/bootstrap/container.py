@@ -90,8 +90,7 @@ def _probe_dependencies(s3_svc: S3Service, supa: SupabaseClient) -> None:
         if callable(head_bucket):
             head_bucket()
         else:
-            # Older S3Service shape — fall back to bucket attr access.
-            _ = getattr(s3_svc, "bucket_name", None) or getattr(s3_svc, "bucket", None)
+            s3_svc.client.head_bucket(Bucket=s3_svc.bucket_name)
     except Exception as exc:
         log_error(f"[version_engine][bootstrap] S3 probe failed: {exc}")
         raise RuntimeError(

@@ -22,10 +22,13 @@ from src.infra.data_migrations.errors import ExecutionError
 
 ROOT = Path(__file__).resolve().parents[4]
 PREFLIGHT = ROOT / "supabase/releases/legacy_credential_preflight.sql"
-MIGRATIONS = ROOT / "supabase/migrations"
+MIGRATIONS = ROOT / "supabase/archive/before_b1/migrations"
 HASH_EXPAND = MIGRATIONS / "20260704000000_repo_scopes_access_key_hash.sql"
 RETIRE = MIGRATIONS / "20260711070000_move_scope_credentials_to_access_credentials.sql"
-EMPTY_FIELDS = ROOT / "supabase/data_migrations/20260923_remove_empty_runtime_credential_fields"
+EMPTY_FIELDS = (
+    ROOT
+    / "supabase/archive/before_b1/data_migrations/20260923_remove_empty_runtime_credential_fields"
+)
 
 
 @pytest.fixture
@@ -118,8 +121,8 @@ def test_empty_secret_placeholders_are_removed_without_changing_credentials(data
     database.scalar(
         "INSERT INTO public.access_surfaces(id,project_id,kind,config) "
         "VALUES ('empty-secrets','fixture-project',:'kind', "
-        "'{\"api_key\":null,\"access_key\":\"\",\"mcp_api_key\":null,"
-        "\"model\":\"preserved\",\"nested\":{\"api_key\":null}}')",
+        '\'{"api_key":null,"access_key":"","mcp_api_key":null,'
+        '"model":"preserved","nested":{"api_key":null}}\')',
         variables={"kind": kind},
     )
     with pytest.raises(ExecutionError, match="placeholder cleanup is incomplete"):
@@ -127,16 +130,23 @@ def test_empty_secret_placeholders_are_removed_without_changing_credentials(data
     execute_file(database, EMPTY_FIELDS / "run.sql")
     execute_file(database, EMPTY_FIELDS / "verify.sql")
     expected = {"model": "preserved", "nested": {"api_key": None}}
-    assert json.loads(database.scalar(
-        "SELECT config FROM public.access_surfaces WHERE id='empty-secrets'"
-    )) == expected
+    assert (
+        json.loads(
+            database.scalar("SELECT config FROM public.access_surfaces WHERE id='empty-secrets'")
+        )
+        == expected
+    )
     execute_file(database, EMPTY_FIELDS / "run.sql")
-    assert json.loads(database.scalar(
-        "SELECT config FROM public.access_surfaces WHERE id='empty-secrets'"
-    )) == expected
-    assert database.scalar(
-        "SELECT jsonb_agg(c ORDER BY id) FROM public.access_surface_credentials c"
-    ) == credentials
+    assert (
+        json.loads(
+            database.scalar("SELECT config FROM public.access_surfaces WHERE id='empty-secrets'")
+        )
+        == expected
+    )
+    assert (
+        database.scalar("SELECT jsonb_agg(c ORDER BY id) FROM public.access_surface_credentials c")
+        == credentials
+    )
 
 
 def test_empty_placeholder_cleanup_preserves_nonempty_and_unrelated_values(database):
@@ -155,12 +165,15 @@ def test_empty_placeholder_cleanup_preserves_nonempty_and_unrelated_values(datab
     )
     execute_file(database, EMPTY_FIELDS / "run.sql")
     execute_file(database, EMPTY_FIELDS / "verify.sql")
-    assert json.loads(database.scalar(
-        "SELECT config FROM public.access_surfaces WHERE id='real-secret'"
-    )) == original
-    assert json.loads(database.scalar(
-        "SELECT config FROM public.access_surfaces WHERE id='other-kind'"
-    )) == {"api_key": None}
+    assert (
+        json.loads(
+            database.scalar("SELECT config FROM public.access_surfaces WHERE id='real-secret'")
+        )
+        == original
+    )
+    assert json.loads(
+        database.scalar("SELECT config FROM public.access_surfaces WHERE id='other-kind'")
+    ) == {"api_key": None}
     # Cleanup success cannot stand in for the actual credential backfill.
     database.scalar("DELETE FROM public.repo_scopes")
     with pytest.raises(ExecutionError, match="Agent/Sandbox"):
@@ -175,7 +188,7 @@ def test_actual_hash_artifact_then_retirement_preserves_tokens_and_existing_cred
     existing = database.scalar(
         "SELECT jsonb_agg(c ORDER BY id) FROM public.access_surface_credentials c"
     )
-    path = ROOT / "supabase/data_migrations/20260704_scope_access_key_hash/run.py"
+    path = ROOT / "supabase/archive/before_b1/data_migrations/20260704_scope_access_key_hash/run.py"
     spec = importlib.util.spec_from_file_location("postgres_legacy_scope_hash", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

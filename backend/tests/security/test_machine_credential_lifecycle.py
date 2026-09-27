@@ -9,8 +9,8 @@ from types import MethodType, SimpleNamespace
 import pytest
 
 from src.config import settings
-from src.connectors.agent.config.repository import AgentRepository
-from src.connectors.sandbox_endpoint.repository import SandboxEndpointRepository
+from src.platform.access.adapters.agent.config.repository import AgentRepository
+from src.platform.access.adapters.sandbox_endpoint.repository import SandboxEndpointRepository
 from src.repo.access_credentials import AccessCredentialRepository, access_token_hash
 from src.repo.scope_repository import RepositoryScopeRepository
 

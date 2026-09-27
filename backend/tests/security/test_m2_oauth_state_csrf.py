@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-from src.connectors.datasource.oauth.state_repository import OAuthStateRepository
+from src.provider.oauth.state_repository import OAuthStateRepository
 
 
 def _make_repo(stored_row: dict | None = None):

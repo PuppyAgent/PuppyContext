@@ -4,14 +4,118 @@ PuppyOne uses Supabase's official schema history and a portable extension for
 online production-data transformations. GitHub Actions is an adapter, not the
 migration engine.
 
+## Public core and private billing boundary
+
+PuppyOne Cloud is independently installable open-source software. PuppyPay is
+an optional, separately released private service. Each owns its tables and its
+migrations, even when hosted installations share one Supabase database:
+
+```text
+Public Cloud repo                         Private PuppyPay repo
+  Cloud SQL migrations                     Pay Alembic migrations
+  Product tables / entitlement projection  Financial ledger / balances / prices
+              |                                         |
+              +----------- versioned HTTP API ----------+
+
+Public CI: no Pay checkout, schema, service, or credentials
+Private CI: independent Pay DB tests + pinned public-consumer contract check
+```
+
+Cloud schema/data migrations MUST NOT require a Pay table, foreign key, RPC,
+HTTP call, migration revision, or completion receipt. Pay migrations MUST NOT
+require Cloud tables. User/org IDs cross the API boundary as identifiers;
+financial facts stay owned by Pay. Product-side entitlement projections remain
+Cloud-owned tables installed by the public migration history. Disabling hosted
+billing never means pretending that a missing required financial service worked.
+
+The public database validation workflow checks a fresh installation without any
+`puppypay` schema, then upgrades synthetic user/organization data from
+`20260720000000` to the current migration head and checks preservation. Existing
+older migration fixtures continue covering their specific historical cutovers.
+Source-boundary checks reject private Python imports and direct private-schema
+references; they supplement, rather than replace, executable database tests.
+
+The official staging/production deployment workflows and owner-specific main
+release policy run only in `puppyone-ai/puppyone-cloud`. Forks still run public
+validation. A self-hosted operator supplies their own deployment adapter and
+database credentials; they never need our protected environments or Pay repo.
+
+PuppyPay's private CI tests fresh/previous-revision upgrades against PostgreSQL
+without Cloud/Auth tables. It also checks the real public consumer selected by
+an immutable commit in `contracts/puppyone-consumer.json`. The private check
+round-trips entitlement publications/acknowledgements and billing facts, and
+validates requests emitted by Cloud's actual managed-inference service against
+Pay's request models. It uses synthetic data and an in-process HTTP transport;
+it is not a live checkout/provider or whole-application E2E test.
+
+A Cloud API change requires verifying its candidate SHA in the private workflow
+before enabling the hosted feature and updating the reviewed consumer pin. This
+private release check MUST NOT become a prerequisite of public schema upgrades
+or fork CI. Pay's own deployment waits for its local tests, container check, and
+consumer contract check. Compatible changes allow the two services to deploy
+independently; breaking API removals need a versioned transition. Installing a
+new schema and enabling a new hosted feature are separate release decisions.
+
+The Docker self-host bootstrap uses the same active migrations through a
+separate migration task. See [installation validation](14-self-hosted-installation.md)
+for the empty-stack test and supported upgrade boundaries. No hosted environment
+or GitHub branch-protection setting is changed by editing these workflow files.
+
 ## One rule, two lanes
+
+### Active baseline and immutable archive
+
+`supabase/migrations/20260926000000_baseline_b1.sql` is the sole executable B1.
+Its 102 historical sources are preserved byte-for-byte in
+`supabase/archive/before_b1/migrations/`. Later schema changes append timestamped SQL to
+`migrations/`; the ordinary Supabase CLI never scans the archive. `baselines/b1`
+holds the source inventory, hashes and verification evidence, not another copy
+of the executable SQL. No independent current-schema snapshot is maintained.
+
+All eight pre-B1 data artifact directories are also archived unchanged under
+`supabase/archive/before_b1/data_migrations/`, including manifests, runners,
+verification and fixtures. The shared catalog resolves current and archived
+artifacts by immutable ID, pins their original checksums, and rejects duplicates.
+Moving files never rewrites database receipts or implies work is complete.
+Release selection and operator verification use this same catalog.
+
+`scripts/database_baseline.py` compares archived replay with B1 installation in
+an isolated Supabase PostgreSQL 17 stack, including ACL/RLS, ownership, functions,
+Auth triggers, reference data and later migrations. It also verifies populated
+upgrades and atomic migration-history adoption, with no hosted credentials.
+
+`scripts/database_history.py check` verifies an existing database without
+committing changes. `adopt` requires the complete archived history and reviewed
+catalog fingerprint before atomically preserving all original history rows in
+`migration_log` and replacing the covered tracking rows with B1. No customer
+rows or data-job completion receipts are rewritten. Missing history or schema
+/ permission drift stops before history writes. Surviving data jobs understand
+B1 schema coverage; retired jobs do not run against removed tables.
+
+The protected schema workflow performs adoption before native `db push`.
+Supabase's direct GitHub integration does not execute this custom admission:
+an existing branch needs the protected transition before that integration can
+resume. Fresh preview databases can apply B1 normally. This repository change
+does not itself assert that any hosted database has adopted B1.
+
+Older installations can materialize the full public archive with
+`database_history.py stage --output <new-directory>` and use the existing
+phased data/schema upgrade rules before adoption. No private Pay repository is
+needed. Historical data transformations are not replaced by schema stamping.
+
+See [`supabase/baselines/README.md`](../../supabase/baselines/README.md) for the
+commands and rollout boundary. Compose now targets PG17; an existing PG15 volume
+still requires a separate explicit major-version upgrade. Never automatically
+swap the image on an existing data volume. Assess future compaction at stable
+release milestones, not monthly.
 
 ```text
 Schema lane
 supabase/migrations -> supabase db push -> supabase_migrations.schema_migrations
 
 Data lane
-supabase/data_migrations -> puppyone-db -> public.migration_log
+supabase/data_migrations + archive/before_b1/data_migrations
+    -> shared ID catalog -> puppyone-db -> public.migration_log
 ```
 
 Use `supabase/migrations` for DDL and small pure-SQL changes that are bounded,
@@ -33,12 +137,31 @@ every push.
 `supabase/seed.sql` is only bootstrap/demo/test data. It is not a production
 upgrade mechanism.
 
+## Release orchestration
+
+The entire staging/production release and manual data dispatch share an outer
+`database-release-<environment>` concurrency group. Runs and pending releases
+are not cancelled (`queue: max`); reusable steps retain their separate
+`database-<environment>` lock. The outer lock prevents two releases from
+interleaving their schema/data phases. A failed release must be investigated
+before promoting another version; queue order is not a replacement for receipts.
+
+Main Release Gate checks exact-head Qubits deployment evidence for schema,
+data-only, release-pointer, archive, runner and database-workflow changes,
+including renames out of those paths. Operator attestations use catalog checksum
+validation and read-only verification with timeouts; failed checks emit no
+success attestation and never manufacture runner receipts.
+
 ## Repository structure
 
 ```text
 supabase/
-├── migrations/                 # official Supabase schema history
-├── data_migrations/            # immutable PuppyOne data artifacts
+├── migrations/                 # B1 and subsequent schema migrations
+├── archive/before_b1/
+│   ├── migrations/             # 102 immutable historical SQL files
+│   └── data_migrations/        # all 8 immutable historical task directories
+├── baselines/b1/               # hashes, coverage and verification evidence
+├── data_migrations/            # new post-B1 data artifacts
 │   ├── manifest.schema.json
 │   ├── schema_history_baseline.json # immutable pre-governance hashes
 │   └── <migration_id>/

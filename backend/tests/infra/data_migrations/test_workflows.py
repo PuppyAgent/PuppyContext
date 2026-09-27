@@ -1,13 +1,115 @@
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
+
+from src.infra.data_migrations.schema_history import data_migration_directory
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 WORKFLOWS = REPOSITORY / ".github" / "workflows"
+
+
+def test_reusable_database_jobs_cannot_bypass_database_change_detection():
+    workflow = yaml.safe_load((WORKFLOWS / "validate-migrations.yml").read_text())
+    scope = next(
+        step["run"]
+        for step in workflow["jobs"]["database_change_scope"]["steps"]
+        if step.get("id") == "detect"
+    )
+    patterns = re.findall(r"'([^']+)'", scope)
+    for path in WORKFLOWS.glob("_*.yml"):
+        source = path.read_text()
+        if "group: database-${{ inputs.environment }}" in source:
+            relative = path.relative_to(REPOSITORY).as_posix()
+            assert any(fnmatch.fnmatchcase(relative, pattern) for pattern in patterns), relative
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "supabase/data_migrations/20260927000000_example/run.py",
+        "supabase/releases/staging-data-migration.json",
+        "supabase/archive/before_b1/data_migrations/20260720_project_storage_inventory/verify.sql",
+        "backend/src/infra/data_migrations/runner.py",
+        ".github/workflows/_operator-data-verify.yml",
+        "scripts/database_history.py",
+    ],
+)
+def test_main_promotion_requires_staging_evidence_for_data_only_changes(filename):
+    result = _run_database_gate([{"filename": filename, "status": "modified"}])
+    assert result["failed"] and "exact head SHA head" in result["failed"][0]
+    assert result["workflows"] == ["migrate-staging.yml"]
+
+
+def _run_database_gate(files):
+    workflow = yaml.safe_load((WORKFLOWS / "main-release-gate.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["main-release-gate"]["steps"]
+        if step.get("name") == "Require exact Qubits database attestation"
+    )
+    # Execute the real workflow script against an API fake: no hosted mutation.
+    harness = r"""
+      const files = JSON.parse(process.argv[1]);
+      const result = {failed: [], workflows: []};
+      const context = {repo: {owner: 'test', repo: 'test'}, payload: {
+        pull_request: {number: 1, head: {ref: 'qubits', sha: 'head'}, base: {sha: 'base'}, labels: []}
+      }};
+      const core = {info() {}, warning() {}, setFailed(message) {result.failed.push(message)}};
+      const github = {rest: {pulls: {listFiles: 'files'}, actions: {listWorkflowRuns: 'runs'}},
+        async paginate(method, args) {
+          if (method === 'files') return files;
+          result.workflows.push(args.workflow_id); return [];
+        }};
+    """
+    harness += (
+        "(async () => {\n"
+        + step["with"]["script"]
+        + "\n})().then(() => console.log(JSON.stringify(result)));"
+    )
+    completed = subprocess.run(
+        ["node", "-e", harness, json.dumps(files)], capture_output=True, text=True, check=True
+    )
+    return json.loads(completed.stdout)
+
+
+def test_database_gate_covers_renames_and_leaves_unrelated_changes_alone():
+    assert _run_database_gate([{"filename": "frontend/app/page.tsx"}])["failed"] == []
+    result = _run_database_gate(
+        [{"filename": "archive/removed.sql", "previous_filename": "supabase/migrations/old.sql"}]
+    )
+    assert result["failed"]
+
+
+def test_entire_database_release_queues_without_cancelling_pending_releases():
+    for name, group in [
+        ("migrate-staging", "database-release-staging"),
+        ("migrate-production", "database-release-production"),
+        ("data-migration", "database-release-${{ inputs.environment }}"),
+    ]:
+        workflow = yaml.safe_load((WORKFLOWS / (name + ".yml")).read_text())
+        assert workflow["concurrency"] == {
+            "group": group,
+            "cancel-in-progress": False,
+            "queue": "max",
+        }
+
+
+def test_operator_attestation_uses_catalog_and_read_only_runner():
+    workflow = yaml.safe_load((WORKFLOWS / "_operator-data-verify.yml").read_text())
+    steps = workflow["jobs"]["verify"]["steps"]
+    verify = next(step for step in steps if step.get("name") == "Verify Supabase completion state")
+    assert 'puppyone-db verify-external-state "$MIGRATION_ID"' in verify["run"]
+    publish = next(
+        step for step in steps if step.get("name") == "Publish operator verification attestation"
+    )
+    assert publish.get("if", "success()") == "success()"
 
 
 def test_database_workflow_yaml_is_parseable() -> None:
@@ -65,7 +167,12 @@ def test_psql_receives_discrete_connection_environment() -> None:
     assert "PGDATABASE:" not in validation
     assert 'psql "$DATABASE_URL"' not in schema
     assert "python3 supabase/releases/connection.py" in schema
-    assert validation.count('psql "$DATABASE_URL"') == 2
+    for job in yaml.safe_load(validation)["jobs"].values():
+        for step in job.get("steps", []):
+            if 'psql "$DATABASE_URL"' in step.get("run", ""):
+                assert step["env"]["DATABASE_URL"] == (
+                    "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+                )
     upgrade_harness = (REPOSITORY / "scripts" / "test-repository-target-migration.sh").read_text()
     explicit_calls = upgrade_harness.count('psql "$database_url"')
     assert explicit_calls == upgrade_harness.count("psql ")
@@ -95,11 +202,13 @@ def test_ordered_data_migration_fixtures_are_not_auto_discovered_by_supabase() -
     permission_migration = (
         REPOSITORY
         / "supabase"
+        / "archive"
+        / "before_b1"
         / "data_migrations"
         / "20260712_repo_user_permissions_to_project_members"
     )
-    creator_migration = (
-        REPOSITORY / "supabase" / "data_migrations" / "20260713_reconcile_project_creator_admin"
+    creator_migration = data_migration_directory(
+        REPOSITORY, "20260713_reconcile_project_creator_admin"
     )
     validation = (WORKFLOWS / "validate-migrations.yml").read_text()
     upgrade_harness = (REPOSITORY / "scripts" / "test-repository-target-migration.sh").read_text()
@@ -147,7 +256,7 @@ def test_staging_release_is_automatic_auditable_and_serial() -> None:
 
     assert '"refs/heads/qubits"' in staging
     assert "github.event_name == 'workflow_dispatch'" not in staging
-    assert "supabase/releases/staging-data-migration.json" in staging
+    assert "scripts/database_history.py release --environment staging" in staging
     assert jobs["prepare_schema"]["needs"] == "resolve_data_release"
     assert jobs["prepare_schema"]["with"]["allow_data_migration_pause"] is True
     assert jobs["validate_schema_pause"]["needs"] == [
@@ -193,11 +302,11 @@ def test_staging_release_is_automatic_auditable_and_serial() -> None:
         assert f"operation: {operation}" in staging
     assert re.fullmatch(r"[0-9A-Za-z_]+", release["migration_id"])
     assert release["execution_mode"] in {"ci", "operator_local"}
-    assert (REPOSITORY / "supabase" / "data_migrations" / release["migration_id"]).is_dir()
+    assert data_migration_directory(REPOSITORY, release["migration_id"]).is_dir()
     repair_id = release.get("repair_migration_id")
     if repair_id:
         assert re.fullmatch(r"[0-9A-Za-z_]+", repair_id)
-        assert (REPOSITORY / "supabase" / "data_migrations" / repair_id).is_dir()
+        assert data_migration_directory(REPOSITORY, repair_id).is_dir()
 
 
 def test_production_release_is_automatic_and_requires_qubits_evidence() -> None:
@@ -210,7 +319,7 @@ def test_production_release_is_automatic_and_requires_qubits_evidence() -> None:
 
     assert '"refs/heads/main"' in production
     assert "    paths:" not in production
-    assert "supabase/releases/production-data-migration.json" in production
+    assert "scripts/database_history.py release --environment production" in production
     assert jobs["prepare_schema"]["with"]["allow_data_migration_pause"] is True
     assert jobs["staging_data_evidence"]["with"] == {
         "environment": "staging",
@@ -243,7 +352,7 @@ def test_production_release_is_automatic_and_requires_qubits_evidence() -> None:
     assert production.count("uses: ./.github/workflows/_operator-data-verify.yml") == 2
     assert re.fullmatch(r"[0-9A-Za-z_]+", release["migration_id"])
     assert release["execution_mode"] in {"ci", "operator_local"}
-    assert (REPOSITORY / "supabase" / "data_migrations" / release["migration_id"]).is_dir()
+    assert data_migration_directory(REPOSITORY, release["migration_id"]).is_dir()
 
 
 def test_schema_runner_only_pauses_for_an_explicit_data_migration_guard() -> None:

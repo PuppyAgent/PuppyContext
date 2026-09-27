@@ -1,0 +1,18 @@
+{
+  "baseline_id": "b1",
+  "source_migration_count": 102,
+  "post_baseline_migrations_checked": [],
+  "baseline_sha256": "023a3b7cfa03dee8498dcff81e371c52a22aa99919863c92d3ecf8196ba6330c",
+  "supabase_cli": "2.107.0",
+  "postgres": "17.6",
+  "verified": [
+    "schema_owners_acl_rls",
+    "platform_triggers",
+    "reference_data",
+    "fresh_install_pgtap",
+    "populated_upgrade_pgtap"
+  ],
+  "schema_fingerprint": "340921fc0e8ef367401d3494c2b1dd60980073eaf5c935deb9244cca63b39651",
+  "adoption_verified": true,
+  "hosted_databases_accessed": false
+}

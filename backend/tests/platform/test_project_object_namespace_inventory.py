@@ -4,14 +4,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[3]
 MIGRATION = ROOT / (
-    "supabase/migrations/"
+    "supabase/archive/before_b1/migrations/"
     "20260716020000_project_deletion_storage_and_org_guard.sql"
 )
 VERSION_STORAGE = ROOT / "backend/src/version_engine/storage/backends/s3.py"
-SHADOW_SNAPSHOTS = ROOT / (
-    "backend/src/version_engine/entrypoints/http/shadow_snapshot.py"
-)
-INGEST_ROUTER = ROOT / "backend/src/ingest/router.py"
+SHADOW_SNAPSHOTS = ROOT / ("backend/src/version_engine/entrypoints/http/shadow_snapshot.py")
+INGEST_ROUTER = ROOT / "backend/src/platform/upload/handlers.py"
 INGEST_JOBS = ROOT / "backend/src/ingest/file/jobs/jobs.py"
 LANDING = ROOT / "backend/src/platform/landing/service.py"
 

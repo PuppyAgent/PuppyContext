@@ -6,17 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from src.infra.data_migrations.schema_history import data_migration_directory
+
 REPOSITORY = Path(__file__).resolve().parents[3]
 
 
 def _migration_module():
-    path = (
-        REPOSITORY
-        / "supabase"
-        / "data_migrations"
-        / "20260720_project_storage_inventory"
-        / "run.py"
-    )
+    path = data_migration_directory(REPOSITORY, "20260720_project_storage_inventory") / "run.py"
     spec = importlib.util.spec_from_file_location("storage_inventory_migration", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -91,7 +87,8 @@ def test_inventory_artifact_rejects_incomplete_multipart_pagination() -> None:
 
 def test_inventory_artifact_declares_the_forward_control_plane_repair() -> None:
     manifest = (
-        REPOSITORY / "supabase/data_migrations/20260720_project_storage_inventory/manifest.yml"
+        REPOSITORY
+        / "supabase/archive/before_b1/data_migrations/20260720_project_storage_inventory/manifest.yml"
     ).read_text(encoding="utf-8")
 
     assert '  - "20260718000000"' in manifest

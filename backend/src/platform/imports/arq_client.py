@@ -39,31 +39,3 @@ class ImportArqClient:
             _queue_name=self.queue_name,
         )
         return job.job_id
-
-    async def enqueue_github_import(
-        self,
-        integration_id: str,
-        *,
-        branch: str | None = None,
-        force: bool = False,
-        triggered_by: str = "webhook",
-        dedup_key: str | None = None,
-    ) -> str | None:
-        """Enqueue a GitHub branch import onto the imports worker queue.
-
-        ``dedup_key`` (e.g. ``gh-import:<integration>:<sha>``) is passed as the
-        ARQ ``_job_id`` so a redelivered webhook for the same push does not
-        double-run. ARQ returns ``None`` when a job with that id already exists,
-        which we surface as ``None`` (treated as "already queued").
-        """
-        redis = await self.get_pool()
-        job = await redis.enqueue_job(
-            "execute_github_import",
-            integration_id,
-            branch=branch,
-            force=force,
-            triggered_by=triggered_by,
-            _queue_name=self.queue_name,
-            _job_id=dedup_key,
-        )
-        return job.job_id if job is not None else None

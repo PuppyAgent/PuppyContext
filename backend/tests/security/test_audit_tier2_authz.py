@@ -47,7 +47,7 @@ def _base_app() -> FastAPI:
 # ── Bug 1: trigger_push project access ───────────────────────────────
 
 def _integrations_app(verify_returns):
-    from src.platform.integrations.router import router as integ_router
+    from src.platform.synchronize.router import router as integ_router
 
     app = _base_app()
     app.include_router(integ_router, prefix="/api/v1")
@@ -159,7 +159,7 @@ def _conn_row():
 
 
 def test_get_connection_detail_masks_credentials(monkeypatch):
-    from src.connectors.manager import router as mgr
+    from src.platform.access import router as mgr
 
     app = _base_app()
     app.include_router(mgr.router, prefix="/api/v1")
@@ -180,8 +180,8 @@ def test_get_connection_detail_masks_credentials(monkeypatch):
 # ── Bug 6: get_connection_run scoping ────────────────────────────────
 
 def test_get_connection_run_foreign_project_forbidden():
-    from src.platform.integrations import router as integ
-    from src.platform.integrations.router import router as integ_router
+    from src.platform.synchronize import router as integ
+    from src.platform.synchronize.router import router as integ_router
 
     app = _base_app()
     app.include_router(integ_router, prefix="/api/v1")
@@ -189,11 +189,11 @@ def test_get_connection_run_foreign_project_forbidden():
     svc = MagicMock()
     # connection exists and belongs to a project the caller can't reach
     svc.repository.get_by_id.return_value = SimpleNamespace(id="conn-1", project_id=FOREIGN)
-    from src.platform.integrations.dependencies import get_integration_service
-    app.dependency_overrides[get_integration_service] = lambda: svc
+    from src.platform.synchronize.dependencies import get_synchronize_service
+    app.dependency_overrides[get_synchronize_service] = lambda: svc
 
     run = SimpleNamespace(
-        id="run-1", access_point_id="conn-1", status="ok", worker_job_id=None,
+        id="run-1", connection_id="conn-1", status="ok", worker_job_id=None,
         started_at=None, finished_at=None, duration_ms=None, exit_code=None,
         stdout=None, error=None, trigger_type=None, result_summary=None,
     )

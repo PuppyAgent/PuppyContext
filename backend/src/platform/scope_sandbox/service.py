@@ -155,7 +155,7 @@ class ScopeSandboxService:
         user_id: str,
         expires_at: datetime,
     ) -> str | None:
-        from src.repo.access_surface_repository import AccessSurfaceRepository
+        from src.platform.access.surface_repository import AccessSurfaceRepository
 
         return AccessSurfaceRepository().issue_scope_session_credential(
             scope_id=scope_id,
@@ -169,7 +169,7 @@ class ScopeSandboxService:
         user_id: str,
         expires_at: datetime,
     ) -> str | None:
-        from src.repo.access_surface_repository import AccessSurfaceRepository
+        from src.platform.access.surface_repository import AccessSurfaceRepository
 
         return AccessSurfaceRepository().issue_git_session_credential(
             scope_id=scope_id,

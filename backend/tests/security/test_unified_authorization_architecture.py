@@ -153,18 +153,24 @@ def test_migrations_define_authorization_foundation_and_remove_checkout_identity
     foundation = (
         BACKEND.parent
         / "supabase"
+        / "archive"
+        / "before_b1"
         / "migrations"
         / "20260712010000_expand_unified_project_authorization.sql"
     ).read_text()
     creator_guard = (
         BACKEND.parent
         / "supabase"
+        / "archive"
+        / "before_b1"
         / "migrations"
         / "20260713010000_enforce_project_creator_admin.sql"
     ).read_text()
     retirement = (
         BACKEND.parent
         / "supabase"
+        / "archive"
+        / "before_b1"
         / "data_migrations"
         / "20260712_repo_user_permissions_to_project_members"
         / "contract.pending.sql"
@@ -172,12 +178,19 @@ def test_migrations_define_authorization_foundation_and_remove_checkout_identity
     data_migration = (
         BACKEND.parent
         / "supabase"
+        / "archive"
+        / "before_b1"
         / "data_migrations"
         / "20260712_repo_user_permissions_to_project_members"
         / "run.sql"
     ).read_text()
     binding_removal = (
-        BACKEND.parent / "supabase" / "migrations" / "20260716000000_remove_workspace_binding.sql"
+        BACKEND.parent
+        / "supabase"
+        / "archive"
+        / "before_b1"
+        / "migrations"
+        / "20260716000000_remove_workspace_binding.sql"
     ).read_text()
     assert "create_project_with_admin" in foundation
     assert "resolve_project_role" in foundation
@@ -213,7 +226,7 @@ def test_migrations_define_authorization_foundation_and_remove_checkout_identity
 
 
 def test_migration_functions_pin_a_hardened_search_path():
-    migrations = BACKEND.parent / "supabase" / "migrations"
+    migrations = BACKEND.parent / "supabase" / "archive" / "before_b1" / "migrations"
     for name in (
         "20260712010000_expand_unified_project_authorization.sql",
         "20260713010000_enforce_project_creator_admin.sql",
@@ -223,7 +236,7 @@ def test_migration_functions_pin_a_hardened_search_path():
         assert "SET search_path = pg_catalog, public, pg_temp" in text
     retirement = (
         BACKEND.parent
-        / "supabase/data_migrations/20260712_repo_user_permissions_to_project_members"
+        / "supabase/archive/before_b1/data_migrations/20260712_repo_user_permissions_to_project_members"
         / "contract.pending.sql"
     ).read_text()
     assert "SET search_path = public" not in retirement

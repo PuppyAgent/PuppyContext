@@ -15,15 +15,15 @@ async def _execute_sync_pull_async(sync_id: str, trigger_type: str = "scheduled"
     """
     Queue fresh data pull for a scheduled Integration binding.
     """
-    from src.connectors.datasource.run_repository import SyncRunRepository
+    from src.platform.synchronize.run_repository import SyncRunRepository
     from src.infra.supabase.client import SupabaseClient
-    from src.platform.integrations.arq_client import SyncArqClient
-    from src.platform.integrations.repository import IntegrationRepository
+    from src.platform.synchronize.arq_client import SyncArqClient
+    from src.platform.synchronize.repository import SynchronizeRepository
 
     started_at = datetime.now(timezone.utc)
     log_info(f"[sync-scheduler] Queueing pull for sync {sync_id}")
     supabase = SupabaseClient()
-    connection = IntegrationRepository(supabase).get_by_id(sync_id)
+    connection = SynchronizeRepository(supabase).get_by_id(sync_id)
     if not connection:
         return {
             "status": "failed",
@@ -90,8 +90,8 @@ async def _execute_sync_pull_async(sync_id: str, trigger_type: str = "scheduled"
         log_error(f"Traceback: {traceback.format_exc()}")
 
         try:
-            from src.platform.integrations.repository import IntegrationRepository
-            IntegrationRepository(SupabaseClient()).update_error(sync_id, str(e))
+            from src.platform.synchronize.repository import SynchronizeRepository
+            SynchronizeRepository(SupabaseClient()).update_error(sync_id, str(e))
         except Exception:
             pass
 

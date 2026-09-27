@@ -35,6 +35,7 @@ jobs:
     concurrency:
       group: database-${{ inputs.environment }}
       cancel-in-progress: false
+      queue: max
     env:
       TARGET_ENVIRONMENT: ${{ inputs.environment }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -73,6 +74,9 @@ jobs:
 
       - name: Bind protected PostgreSQL connection
         run: python3 supabase/releases/connection.py
+
+      - name: Verify and adopt archived baseline history
+        run: python3 scripts/database_history.py adopt
 
       - name: Show pending schema plan
         run: supabase db push --db-url "$SUPABASE_DATABASE_URL" --dry-run

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, status
 
-from src.ingest.router import (
+from src.platform.upload.handlers import (
     abort_upload,
     complete_upload,
     complete_upload_batch,

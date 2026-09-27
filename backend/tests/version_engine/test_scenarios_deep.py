@@ -662,25 +662,25 @@ class TestAuth:
         assert error.value.headers == {"X-PuppyOne-Error-Code": "1010"}
 
     def test_channel_pause_blocks_paused_connector(self, monkeypatch):
-        """Connector status='paused' → HTTPException 403."""
+        """AccessSurface status='paused' → HTTPException 403."""
         from src.version_engine.admission import channel_pause
 
         # Reset the global cache between tests
         channel_pause._channel_pause_cache.clear()
 
-        # Stub ConnectorRepository to return a paused connector.
+        # Stub AccessModelRepository to return a paused connector.
         class StubConn:
             id = "connector-1"
             status = "paused"
 
         class StubRepo:
-            def get_by_target_provider(self, project_id, scope_id, channel):
+            def get_by_target_kind(self, project_id, scope_id, channel):
                 assert project_id == "p"
                 return StubConn()
 
         monkeypatch.setattr(
             channel_pause,
-            "ConnectorRepository",
+            "AccessModelRepository",
             lambda: StubRepo(),
         )
 
@@ -699,9 +699,9 @@ class TestAuth:
 
         monkeypatch.setattr(
             channel_pause,
-            "ConnectorRepository",
+            "AccessModelRepository",
             lambda: type("R", (), {
-                "get_by_target_provider": lambda self, p, s, c: StubConn(),
+                "get_by_target_kind": lambda self, p, s, c: StubConn(),
             })(),
         )
 
@@ -1095,7 +1095,7 @@ class TestBatchAdapterThirdParty:
     def test_connector_incremental_push_with_delete(
         self, repo_manager, server_repo,
     ):
-        """Connector adds + removes paths in one sync round."""
+        """AccessSurface adds + removes paths in one sync round."""
         client = self._client(repo_manager)
         client.push(
             modified={"a.eml": b"A", "b.eml": b"B", "c.eml": b"C"},

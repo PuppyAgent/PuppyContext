@@ -2,11 +2,11 @@ from pathlib import Path
 
 _MIGRATION = (
     Path(__file__).resolve().parents[4]
-    / "supabase/migrations/20260714010000_unified_billing_control_plane.sql"
+    / "supabase/archive/before_b1/migrations/20260714010000_unified_billing_control_plane.sql"
 )
 _LIFECYCLE_MIGRATION = (
     Path(__file__).resolve().parents[4]
-    / "supabase/migrations/20260715010000_durable_billing_operation_lifecycle.sql"
+    / "supabase/archive/before_b1/migrations/20260715010000_durable_billing_operation_lifecycle.sql"
 )
 
 

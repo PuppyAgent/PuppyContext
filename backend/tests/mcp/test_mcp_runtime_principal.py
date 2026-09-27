@@ -4,8 +4,8 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from src.connectors.agent.mcp import dependencies
-from src.connectors.agent.mcp import router as mcp_router
+from src.platform.access.adapters.agent.mcp import dependencies
+from src.platform.access.adapters.agent.mcp import router as mcp_router
 
 
 def _request_with_headers(headers: dict[str, str]) -> Request:

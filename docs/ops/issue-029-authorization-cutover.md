@@ -7,7 +7,7 @@ mode.  Any ambiguous data blocks the cutover.
 ## Release artifacts
 
 - `20260712010000_expand_unified_project_authorization.sql`
-- `supabase/data_migrations/20260712_repo_user_permissions_to_project_members`
+- `supabase/archive/before_b1/data_migrations/20260712_repo_user_permissions_to_project_members`
 - reviewed `contract.pending.sql` promoted only after both environment receipts
 - canonical backend Project policy and route manifest
 - binding/readiness APIs

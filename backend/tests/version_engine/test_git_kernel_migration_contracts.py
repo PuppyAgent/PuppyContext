@@ -878,7 +878,8 @@ def test_version_storage_uses_canonical_physical_names() -> None:
     assert all("_mut_" not in value for value in values)
 
     migration = (
-        REPO_ROOT / "supabase/migrations/20260711040000_version_physical_rename.sql"
+        REPO_ROOT
+        / "supabase/archive/before_b1/migrations/20260711040000_version_physical_rename.sql"
     ).read_text(encoding="utf-8")
     for table in (
         "version_commits",
@@ -928,7 +929,7 @@ def test_access_tables_are_confined_to_repository_boundaries() -> None:
 
 def test_scope_credentials_are_hash_only_access_surface_credentials() -> None:
     scope_repo = (BACKEND_ROOT / "src/repo/scope_repository.py").read_text(encoding="utf-8")
-    surface_repo = (BACKEND_ROOT / "src/repo/access_surface_repository.py").read_text(
+    surface_repo = (BACKEND_ROOT / "src/platform/access/surface_repository.py").read_text(
         encoding="utf-8"
     )
     assert '.eq("access_key"' not in scope_repo
@@ -936,14 +937,12 @@ def test_scope_credentials_are_hash_only_access_surface_credentials() -> None:
     assert "resolve_scope_credential" in surface_repo
     assert "store_scope_credential" in surface_repo
 
-    access_router = (
-        BACKEND_ROOT / "src/connectors/manager/router.py"
-    ).read_text(encoding="utf-8")
+    access_router = (BACKEND_ROOT / "src/platform/access/router.py").read_text(encoding="utf-8")
     assert "_access_key_for" not in access_router
 
     migration = (
         REPO_ROOT
-        / "supabase/migrations/20260711070000_move_scope_credentials_to_access_credentials.sql"
+        / "supabase/archive/before_b1/migrations/20260711070000_move_scope_credentials_to_access_credentials.sql"
     ).read_text(encoding="utf-8")
     assert "INSERT INTO public.access_surface_credentials" in migration
     assert "legacy credential backfill is incomplete" in migration
@@ -953,7 +952,7 @@ def test_scope_credentials_are_hash_only_access_surface_credentials() -> None:
 
     cutover = (
         REPO_ROOT
-        / "supabase/migrations/20260715000000_project_owned_repository_targets_contract_cutover.sql"
+        / "supabase/archive/before_b1/migrations/20260715000000_project_owned_repository_targets_contract_cutover.sql"
     ).read_text(encoding="utf-8")
     assert "legacy Scope credential columns remain" in cutover
 
@@ -962,7 +961,8 @@ def test_scope_credentials_are_hash_only_access_surface_credentials() -> None:
 
 def test_object_gc_has_durable_recovery_window_and_metrics() -> None:
     migration = (
-        REPO_ROOT / "supabase/migrations/20260711080000_object_gc_quarantine_and_metrics.sql"
+        REPO_ROOT
+        / "supabase/archive/before_b1/migrations/20260711080000_object_gc_quarantine_and_metrics.sql"
     ).read_text(encoding="utf-8")
     assert "version_object_gc_candidates" in migration
     assert "version_object_gc_runs" in migration
@@ -981,7 +981,8 @@ def test_object_gc_has_durable_recovery_window_and_metrics() -> None:
 
 def test_object_gc_sync_rpc_ambiguity_has_forward_fix_and_execution_smoke() -> None:
     fix = (
-        REPO_ROOT / "supabase/migrations/20260711130000_fix_object_gc_candidate_sync_ambiguity.sql"
+        REPO_ROOT
+        / "supabase/archive/before_b1/migrations/20260711130000_fix_object_gc_candidate_sync_ambiguity.sql"
     ).read_text(encoding="utf-8")
     assert "RETURNS TABLE(object_id text)" in fix
     assert "ON CONFLICT ON CONSTRAINT version_object_gc_candidates_pkey" in fix
@@ -999,7 +1000,7 @@ def test_object_gc_sync_rpc_ambiguity_has_forward_fix_and_execution_smoke() -> N
 def test_irrecoverable_root_incidents_are_private_and_durable() -> None:
     migration = (
         REPO_ROOT
-        / "supabase/migrations/20260711140000_version_project_root_integrity_incidents.sql"
+        / "supabase/archive/before_b1/migrations/20260711140000_version_project_root_integrity_incidents.sql"
     ).read_text(encoding="utf-8")
     assert "version_project_root_integrity_incidents" in migration
     assert "REFERENCES public.projects(id) ON DELETE CASCADE" in migration
@@ -1024,9 +1025,9 @@ def test_legacy_mcp_and_sandbox_runtime_packages_are_retired() -> None:
     legacy_sandbox = BACKEND_ROOT / "src/infra/sandbox"
     assert not legacy_sandbox.exists() or not any(legacy_sandbox.glob("*.py"))
 
-    migration = (REPO_ROOT / "supabase/migrations/20260711050000_retire_legacy_mcps.sql").read_text(
-        encoding="utf-8"
-    )
+    migration = (
+        REPO_ROOT / "supabase/archive/before_b1/migrations/20260711050000_retire_legacy_mcps.sql"
+    ).read_text(encoding="utf-8")
     assert "INSERT INTO public.access_surfaces" in migration
     assert "DROP TABLE IF EXISTS public.mcps CASCADE" in migration
 
@@ -1063,7 +1064,8 @@ def test_mcp_transport_has_one_backend_runtime_and_one_binding_store() -> None:
     assert "/internal/tables/" not in rpc_client
 
     migration = (
-        REPO_ROOT / "supabase/migrations/20260711060000_unify_mcp_tool_bindings.sql"
+        REPO_ROOT
+        / "supabase/archive/before_b1/migrations/20260711060000_unify_mcp_tool_bindings.sql"
     ).read_text(encoding="utf-8")
     assert "idx_access_tools_surface_tool_unique" in migration
     assert "replace_mcp_surface_policy" in migration
@@ -1077,7 +1079,8 @@ def test_mcp_transport_has_one_backend_runtime_and_one_binding_store() -> None:
 
 def test_version_alias_views_are_not_exposed_as_rls_bypasses() -> None:
     migration = (
-        REPO_ROOT / "supabase/migrations/20260711020000_secure_version_alias_views.sql"
+        REPO_ROOT
+        / "supabase/archive/before_b1/migrations/20260711020000_secure_version_alias_views.sql"
     ).read_text(encoding="utf-8")
     views = (
         "version_commits",

@@ -24,29 +24,29 @@ jobs:
     concurrency:
       group: database-${{ inputs.environment }}
       cancel-in-progress: false
+      queue: max
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       MIGRATION_ID: ${{ inputs.migration_id }}
+      TARGET_ENVIRONMENT: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Validate immutable verification artifact
         shell: bash
+        run: python3 scripts/database_history.py data-path "$MIGRATION_ID"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install locked backend environment
+        working-directory: backend
         run: |
-          set -euo pipefail
-          case "$MIGRATION_ID" in
-            ''|*[!0-9A-Za-z_]*)
-              echo "::error::Invalid operator-local data migration ID."
-              exit 1
-              ;;
-          esac
-          verify="supabase/data_migrations/$MIGRATION_ID/verify.sql"
-          if [ ! -f "$verify" ]; then
-            echo "::error::Operator-local migration verification SQL is missing."
-            exit 1
-          fi
+          python -m pip install "uv==0.5.11"
+          uv sync --locked
 
       - name: Ensure PostgreSQL client is available
         shell: bash
@@ -61,21 +61,23 @@ jobs:
         run: python3 supabase/releases/connection.py
 
       - name: Verify Supabase completion state
+        working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
-          psql -X -v ON_ERROR_STOP=1 -c "SET SESSION ROLE postgres;" \
-            -f "supabase/data_migrations/$MIGRATION_ID/verify.sql"
+          uv run puppyone-db verify-external-state "$MIGRATION_ID" > "$RUNNER_TEMP/data-verification.json"
 
       - name: Publish operator verification attestation
-        if: always()
         shell: bash
         run: |
           {
             echo "## Operator-local data migration verification"
             echo
-            echo "- Environment: ${{ inputs.environment }}"
+            echo "- Environment: $TARGET_ENVIRONMENT"
             echo "- Migration: $MIGRATION_ID"
             echo "- Source SHA: $GITHUB_SHA"
             echo "- External data-plane work: not executed by CI"
+            echo '```json'
+            cat "$RUNNER_TEMP/data-verification.json"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

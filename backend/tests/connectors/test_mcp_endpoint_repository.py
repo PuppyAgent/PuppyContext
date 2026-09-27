@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.connectors.mcp_endpoint.repository import _row_to_endpoint
+from src.platform.access.adapters.mcp_endpoint.repository import _row_to_endpoint
 
 
 def test_row_to_endpoint_preserves_scope_id_for_runtime_resolution():

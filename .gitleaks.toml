@@ -1,0 +1,9 @@
+title = "Puppyone secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Migration source SHA-256 values are public file checksums, not API keys"
+regexTarget = "line"
+regexes = ['''^\s*"[0-9]{14}_[a-z0-9_]+\.sql": "[a-f0-9]{64}",?\s*$''']

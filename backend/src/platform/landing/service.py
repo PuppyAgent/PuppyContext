@@ -17,8 +17,8 @@ from pathlib import PurePosixPath
 from uuid import UUID, uuid4
 
 from src.config import settings
-from src.connectors.mcp_endpoint.schemas import McpAccessItem
-from src.connectors.mcp_endpoint.service import McpEndpointService
+from src.platform.access.adapters.mcp_endpoint.schemas import McpAccessItem
+from src.platform.access.adapters.mcp_endpoint.service import McpEndpointService
 from src.exceptions import AppException, ErrorCode
 from src.infra.s3.service import S3Service
 from src.platform.authorization.models import ProjectAction

@@ -1,7 +1,7 @@
 """Migrate legacy Access secrets/policies out of access_surfaces.config.
 
 Run after applying:
-  supabase/migrations/20260616003000_access_surface_credentials_policies.sql
+  supabase/archive/before_b1/migrations/20260616003000_access_surface_credentials_policies.sql
 
 This script intentionally does not preserve runtime compatibility with legacy
 config keys. After it runs, runtime code should read credentials/policies from

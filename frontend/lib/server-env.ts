@@ -31,6 +31,13 @@ export function getServerSupabaseUrl(): string {
   );
 }
 
+export function getPublicSupabaseUrl(): string {
+  return requireConfiguredHttpUrl(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    'NEXT_PUBLIC_SUPABASE_URL must configure the public Supabase identity',
+  );
+}
+
 export function getSupabaseAnonKey(): string {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!anonKey) {

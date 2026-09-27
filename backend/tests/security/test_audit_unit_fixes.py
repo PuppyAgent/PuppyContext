@@ -105,7 +105,7 @@ class TestCasBackoff:
 
 class TestAccessListMaskingHelpers:
     def _mod(self):
-        from src.connectors.manager import router
+        from src.platform.access import router
         return router
 
     def test_redact_config_strips_secrets(self):

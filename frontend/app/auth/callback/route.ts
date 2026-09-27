@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { createAuthServerClient } from '@/features/auth/supabase/server-client';
 import { cookies } from 'next/headers';
 import {
   getServerApiBaseUrl,
-  getServerSupabaseUrl,
-  getSupabaseAnonKey,
   getRequestOrigin,
 } from '@/lib/server-env';
 import {
@@ -46,7 +44,7 @@ export async function GET(request: Request) {
     return redirect(login.pathname + login.search);
   }
   const cookieStore = await cookies();
-  const supabase = createServerClient(getServerSupabaseUrl(), getSupabaseAnonKey(), {
+  const supabase = createAuthServerClient({
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: values =>

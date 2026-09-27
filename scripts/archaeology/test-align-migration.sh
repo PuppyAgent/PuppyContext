@@ -75,7 +75,7 @@ install_stubs() {
 apply_migrations() {
   local up_to="${1:-9999999999}"  # apply only files with version <= this
   local applied=0 failed=0 skipped=0 expected_fail=0
-  for f in "${REPO_ROOT}"/supabase/migrations/*.sql; do
+  for f in "${REPO_ROOT}"/supabase/archive/before_b1/migrations/*.sql; do
     local fn version
     fn="$(basename "$f")"
     version="${fn%%_*}"
@@ -244,14 +244,14 @@ verify_schema "scenario2_after_drift_inject" || true  # expected to fail
 
 log "Now applying alignment migration..."
 if PGPASSWORD= "${PG_BIN}/psql" -h /tmp -p "${PORT}" -U postgres -d postgres \
-     --no-psqlrc --set ON_ERROR_STOP=on -f "${REPO_ROOT}/supabase/migrations/20260418040000_align_legacy_drift.sql" \
+     --no-psqlrc --set ON_ERROR_STOP=on -f "${REPO_ROOT}/supabase/archive/before_b1/migrations/20260418040000_align_legacy_drift.sql" \
      2>&1 | tee -a "${LOG_DIR}/apply.log" | grep -E '(NOTICE|ERROR|FATAL)' | head -30; then
   echo "(alignment migration completed)"
 fi
 
 log "Now applying soften FK migration..."
 if PGPASSWORD= "${PG_BIN}/psql" -h /tmp -p "${PORT}" -U postgres -d postgres \
-     --no-psqlrc --set ON_ERROR_STOP=on -f "${REPO_ROOT}/supabase/migrations/20260418050000_soften_access_points_user_fk.sql" \
+     --no-psqlrc --set ON_ERROR_STOP=on -f "${REPO_ROOT}/supabase/archive/before_b1/migrations/20260418050000_soften_access_points_user_fk.sql" \
      2>&1 | tee -a "${LOG_DIR}/apply.log" | grep -E '(NOTICE|ERROR|FATAL)' | head -10; then
   echo "(soften FK migration completed)"
 fi
@@ -264,11 +264,11 @@ verify_schema "scenario2_after_both_migrations"
 hdr "SCENARIO 3: Re-apply both migrations (idempotency check)"
 log "Applying alignment migration AGAIN..."
 PGPASSWORD= "${PG_BIN}/psql" -h /tmp -p "${PORT}" -U postgres -d postgres \
-  --no-psqlrc --set ON_ERROR_STOP=on -q -f "${REPO_ROOT}/supabase/migrations/20260418040000_align_legacy_drift.sql" \
+  --no-psqlrc --set ON_ERROR_STOP=on -q -f "${REPO_ROOT}/supabase/archive/before_b1/migrations/20260418040000_align_legacy_drift.sql" \
   >> "${LOG_DIR}/apply.log" 2>&1
 log "Applying soften FK migration AGAIN..."
 PGPASSWORD= "${PG_BIN}/psql" -h /tmp -p "${PORT}" -U postgres -d postgres \
-  --no-psqlrc --set ON_ERROR_STOP=on -q -f "${REPO_ROOT}/supabase/migrations/20260418050000_soften_access_points_user_fk.sql" \
+  --no-psqlrc --set ON_ERROR_STOP=on -q -f "${REPO_ROOT}/supabase/archive/before_b1/migrations/20260418050000_soften_access_points_user_fk.sql" \
   >> "${LOG_DIR}/apply.log" 2>&1
 verify_schema "scenario3_idempotent_rerun"
 

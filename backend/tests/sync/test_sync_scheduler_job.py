@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.infra.scheduler.jobs.sync_job import _execute_sync_pull_async
-from src.platform.integrations.router import _queue_sync_run
+from src.platform.synchronize.router import _queue_sync_run
 
 
 class FakeRun:
@@ -94,15 +94,15 @@ async def test_scheduled_sync_job_queues_scheduled_run(monkeypatch):
         status="active",
     )
 
-    import src.connectors.datasource.run_repository as run_repo_module
+    import src.platform.synchronize.run_repository as run_repo_module
     import src.infra.supabase.client as supabase_module
-    import src.platform.integrations.arq_client as arq_module
-    import src.platform.integrations.repository as integration_repo_module
+    import src.platform.synchronize.arq_client as arq_module
+    import src.platform.synchronize.repository as integration_repo_module
 
     monkeypatch.setattr(supabase_module, "SupabaseClient", lambda: object())
     monkeypatch.setattr(
         integration_repo_module,
-        "IntegrationRepository",
+        "SynchronizeRepository",
         FakeIntegrationRepository,
     )
     monkeypatch.setattr(run_repo_module, "SyncRunRepository", lambda _supabase: run_repo)
@@ -141,15 +141,15 @@ async def test_scheduled_sync_job_skips_unqueueable_connections(
     arq_client = FakeSyncArqClient()
     FakeIntegrationRepository.connection = connection
 
-    import src.connectors.datasource.run_repository as run_repo_module
+    import src.platform.synchronize.run_repository as run_repo_module
     import src.infra.supabase.client as supabase_module
-    import src.platform.integrations.arq_client as arq_module
-    import src.platform.integrations.repository as integration_repo_module
+    import src.platform.synchronize.arq_client as arq_module
+    import src.platform.synchronize.repository as integration_repo_module
 
     monkeypatch.setattr(supabase_module, "SupabaseClient", lambda: object())
     monkeypatch.setattr(
         integration_repo_module,
-        "IntegrationRepository",
+        "SynchronizeRepository",
         FakeIntegrationRepository,
     )
     monkeypatch.setattr(run_repo_module, "SyncRunRepository", lambda _supabase: run_repo)
@@ -181,15 +181,15 @@ async def test_scheduled_sync_job_reuses_active_run(monkeypatch):
         status="syncing",
     )
 
-    import src.connectors.datasource.run_repository as run_repo_module
+    import src.platform.synchronize.run_repository as run_repo_module
     import src.infra.supabase.client as supabase_module
-    import src.platform.integrations.arq_client as arq_module
-    import src.platform.integrations.repository as integration_repo_module
+    import src.platform.synchronize.arq_client as arq_module
+    import src.platform.synchronize.repository as integration_repo_module
 
     monkeypatch.setattr(supabase_module, "SupabaseClient", lambda: object())
     monkeypatch.setattr(
         integration_repo_module,
-        "IntegrationRepository",
+        "SynchronizeRepository",
         FakeIntegrationRepository,
     )
     monkeypatch.setattr(run_repo_module, "SyncRunRepository", lambda _supabase: run_repo)
@@ -226,15 +226,15 @@ async def test_scheduled_sync_job_recovers_stale_active_run(monkeypatch):
         status="active",
     )
 
-    import src.connectors.datasource.run_repository as run_repo_module
+    import src.platform.synchronize.run_repository as run_repo_module
     import src.infra.supabase.client as supabase_module
-    import src.platform.integrations.arq_client as arq_module
-    import src.platform.integrations.repository as integration_repo_module
+    import src.platform.synchronize.arq_client as arq_module
+    import src.platform.synchronize.repository as integration_repo_module
 
     monkeypatch.setattr(supabase_module, "SupabaseClient", lambda: object())
     monkeypatch.setattr(
         integration_repo_module,
-        "IntegrationRepository",
+        "SynchronizeRepository",
         FakeIntegrationRepository,
     )
     monkeypatch.setattr(run_repo_module, "SyncRunRepository", lambda _supabase: run_repo)
@@ -261,16 +261,16 @@ async def test_scheduled_then_manual_refresh_reuses_same_active_run(monkeypatch)
         status="active",
     )
 
-    import src.connectors.datasource.run_repository as run_repo_module
+    import src.platform.synchronize.run_repository as run_repo_module
     import src.infra.supabase.client as supabase_module
-    import src.platform.integrations.arq_client as arq_module
-    import src.platform.integrations.repository as integration_repo_module
-    import src.platform.integrations.router as router_module
+    import src.platform.synchronize.arq_client as arq_module
+    import src.platform.synchronize.repository as integration_repo_module
+    import src.platform.synchronize.router as router_module
 
     monkeypatch.setattr(supabase_module, "SupabaseClient", lambda: object())
     monkeypatch.setattr(
         integration_repo_module,
-        "IntegrationRepository",
+        "SynchronizeRepository",
         FakeIntegrationRepository,
     )
     monkeypatch.setattr(run_repo_module, "SyncRunRepository", lambda _supabase: run_repo)

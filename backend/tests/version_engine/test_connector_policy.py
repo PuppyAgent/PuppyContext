@@ -50,17 +50,17 @@ def test_cli_fs_command_policy_allows_cached_command(monkeypatch):
     calls = []
 
     class _Repo:
-        def get_by_target_provider(self, project_id, scope_id, provider):
+        def get_by_target_kind(self, project_id, scope_id, provider):
             calls.append((project_id, scope_id, provider))
             return SimpleNamespace(
                 id="connector-1",
-                provider="cli",
+                kind="cli",
                 status="active",
                 policy={"fs": {"allowed_commands": ["ls"]}},
             )
 
     connector_policy.clear_connector_policy_cache()
-    monkeypatch.setattr(connector_policy, "ConnectorRepository", _Repo)
+    monkeypatch.setattr(connector_policy, "AccessModelRepository", _Repo)
 
     connector_policy.admit_cli_fs_command(_auth(), "ls", "cli")
     connector_policy.admit_cli_fs_command(_auth(), "ls", "cli")
@@ -70,16 +70,16 @@ def test_cli_fs_command_policy_allows_cached_command(monkeypatch):
 
 def test_cli_fs_command_policy_denies_unlisted_command(monkeypatch):
     class _Repo:
-        def get_by_target_provider(self, _project_id, _scope_id, _provider):
+        def get_by_target_kind(self, _project_id, _scope_id, _provider):
             return SimpleNamespace(
                 id="connector-1",
-                provider="cli",
+                kind="cli",
                 status="active",
                 policy={"fs": {"allowed_commands": ["ls"]}},
             )
 
     connector_policy.clear_connector_policy_cache()
-    monkeypatch.setattr(connector_policy, "ConnectorRepository", _Repo)
+    monkeypatch.setattr(connector_policy, "AccessModelRepository", _Repo)
 
     with pytest.raises(HTTPException) as exc:
         connector_policy.admit_cli_fs_command(_auth(), "rm", "cli")
@@ -91,11 +91,11 @@ def test_cli_fs_command_policy_denies_unlisted_command(monkeypatch):
 
 def test_cli_fs_command_policy_fails_closed_on_lookup_error(monkeypatch):
     class _Repo:
-        def get_by_target_provider(self, _project_id, _scope_id, _provider):
+        def get_by_target_kind(self, _project_id, _scope_id, _provider):
             raise RuntimeError("db down")
 
     connector_policy.clear_connector_policy_cache()
-    monkeypatch.setattr(connector_policy, "ConnectorRepository", _Repo)
+    monkeypatch.setattr(connector_policy, "AccessModelRepository", _Repo)
 
     with pytest.raises(HTTPException) as exc:
         connector_policy.admit_cli_fs_command(_auth(), "ls", "cli")

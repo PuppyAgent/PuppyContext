@@ -1,7 +1,7 @@
 """
 Normalizers - Convert ETL tasks to unified format.
 
-SaaS normalizers removed — SaaS imports now go through ImportJob or IntegrationEngine.
+SaaS normalizers removed — SaaS imports now go through ImportJob or SynchronizeEngine.
 """
 
 

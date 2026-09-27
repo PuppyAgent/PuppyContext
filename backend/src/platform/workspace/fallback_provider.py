@@ -12,7 +12,7 @@ import shutil
 import time
 from pathlib import Path
 
-from src.connectors.datasource.schemas import SyncResult
+from src.provider.schemas import SyncResult
 from src.platform.workspace.paths import (
     absolute_path,
     agent_child,

@@ -3,7 +3,7 @@ from pathlib import Path
 
 MIGRATION = (
     Path(__file__).parents[3]
-    / "supabase/migrations/20260712000000_project_history_ref_snapshot.sql"
+    / "supabase/archive/before_b1/migrations/20260712000000_project_history_ref_snapshot.sql"
 )
 
 
