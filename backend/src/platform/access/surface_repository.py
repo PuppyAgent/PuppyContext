@@ -169,7 +169,7 @@ class AccessSurfaceRepository:
         query = (
             self._client.table("access_tools")
             .select("*")
-            .eq("access_point_id", surface_id)
+            .eq("access_surface_id", surface_id)
         )
         if enabled_only:
             query = query.eq("enabled", True)

@@ -49,7 +49,7 @@ class GithubSyncArqClient:
         """
         redis = await self.get_pool()
         job = await redis.enqueue_job(
-            "execute_github_import",
+            "execute_github_sync_pull",
             binding_id,
             branch=branch,
             force=force,

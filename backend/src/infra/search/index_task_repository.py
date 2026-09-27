@@ -6,17 +6,16 @@ from typing import Any, Optional
 from src.infra.search.index_task import SearchIndexTask, SearchIndexTaskUpsert
 from src.infra.supabase.exceptions import handle_supabase_error
 
-_TABLE = "uploads"
-_TYPE = "search_index"
+_TABLE = "search_index_tasks"
 
-_STATUS_TO_UPLOADS = {
+_STATUS_TO_STORAGE = {
     "pending": "pending",
     "indexing": "running",
     "ready": "completed",
     "error": "failed",
 }
 
-_STATUS_FROM_UPLOADS = {
+_STATUS_FROM_STORAGE = {
     "pending": "pending",
     "running": "indexing",
     "completed": "ready",
@@ -26,19 +25,19 @@ _STATUS_FROM_UPLOADS = {
 
 
 def _row_to_task(row: dict[str, Any]) -> SearchIndexTask:
-    """Convert an uploads row back to the SearchIndexTask domain model."""
+    """Convert a persisted task row back to the SearchIndexTask domain model."""
     config = row.get("config") or {}
     result = row.get("result") or {}
     return SearchIndexTask(
         id=0,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
-        tool_id=config.get("tool_id", row["id"]),
-        user_id=row.get("user_id"),
+        tool_id=row["id"],
+        user_id=row.get("created_by"),
         project_id=row.get("project_id"),
         path=row.get("path") or "",
         json_path=config.get("json_path", ""),
-        status=_STATUS_FROM_UPLOADS.get(row.get("status", ""), "pending"),
+        status=_STATUS_FROM_STORAGE.get(row.get("status", ""), "pending"),
         started_at=row.get("started_at"),
         finished_at=row.get("completed_at"),
         nodes_count=result.get("nodes_count"),
@@ -53,9 +52,9 @@ def _row_to_task(row: dict[str, Any]) -> SearchIndexTask:
 
 class SearchIndexTaskRepository:
     """
-    Repository for search-index tasks in the unified ``uploads`` table.
+    Repository for the dedicated ``search_index_tasks`` table.
 
-    Uses tool_id as the uploads row id for stable upserts.
+    Uses tool_id as the persistent task ID for stable upserts.
     Search-specific fields live in config/result JSONB columns.
     """
 
@@ -67,7 +66,6 @@ class SearchIndexTaskRepository:
             self._client.table(_TABLE)
             .select("*")
             .eq("id", tool_id)
-            .eq("type", _TYPE)
             .limit(1)
             .execute()
         )
@@ -93,7 +91,7 @@ class SearchIndexTaskRepository:
                 if val is not None:
                     result[key] = val
 
-            status = _STATUS_TO_UPLOADS.get(task.status, "pending")
+            status = _STATUS_TO_STORAGE.get(task.status, "pending")
 
             progress = 0
             if status == "completed":
@@ -105,7 +103,6 @@ class SearchIndexTaskRepository:
 
             payload: dict[str, Any] = {
                 "id": task.tool_id,
-                "type": _TYPE,
                 "path": task.path,
                 "config": config,
                 "status": status,
@@ -113,7 +110,7 @@ class SearchIndexTaskRepository:
                 "updated_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(),
             }
             if task.user_id:
-                payload["user_id"] = task.user_id
+                payload["created_by"] = task.user_id
             if task.project_id:
                 payload["project_id"] = task.project_id
             if result:
@@ -142,8 +139,8 @@ class SearchIndexTaskRepository:
             if not rows:
                 got = self.get_by_tool_id(task.tool_id)
                 if got is None:
-                    raise ValueError("uploads upsert returned empty result")
+                    raise ValueError("search_index_tasks upsert returned empty result")
                 return got
             return _row_to_task(rows[0])
         except Exception as e:
-            raise handle_supabase_error(e, "write to uploads (search_index)")
+            raise handle_supabase_error(e, "write to search_index_tasks")

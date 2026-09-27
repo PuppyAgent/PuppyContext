@@ -142,9 +142,9 @@ def test_new_migration_cannot_sort_before_b1(archived_repository):
 def test_all_pre_b1_data_artifacts_resolve_without_changing_receipt_identity():
     baseline = load_baseline(ROOT)
     artifacts = DataMigrationCatalog(ROOT).load_all()
-    assert len(artifacts) == len(baseline["source_data_migrations"]) == 8
-    assert not list((ROOT / "supabase/data_migrations").glob("*/manifest.yml"))
-    for artifact in artifacts:
+    archived = [item for item in artifacts if item.manifest.id in baseline["source_data_migrations"]]
+    assert len(archived) == len(baseline["source_data_migrations"]) == 8
+    for artifact in archived:
         migration_id = artifact.manifest.id
         assert artifact.directory == data_migration_directory(ROOT, migration_id)
         assert artifact.directory.parent == ROOT / baseline["data_archive"]
@@ -188,7 +188,7 @@ def test_archived_completed_job_is_not_reexecuted():
     assert database.sql_runs == []
 
 
-def test_archived_release_resolves_without_database_or_site_packages():
+def test_current_release_resolves_without_database_or_site_packages():
     result = subprocess.run(
         [
             sys.executable,
@@ -202,4 +202,6 @@ def test_archived_release_resolves_without_database_or_site_packages():
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert "migration_id=20260720_project_storage_inventory\n" in result.stdout
+    pointer = json.loads((ROOT / "supabase/releases/staging-data-migration.json").read_text())
+    assert f"migration_id={pointer['migration_id']}\n" in result.stdout
+    assert f"execution_mode={pointer['execution_mode']}\n" in result.stdout

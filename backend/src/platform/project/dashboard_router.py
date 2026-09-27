@@ -466,9 +466,8 @@ def _build_index_map(sb, tool_rows: list) -> dict[str, dict]:
         return {}
 
     idx_rows = (
-        sb.table("uploads")
+        sb.table("search_index_tasks")
         .select("id, status, result")
-        .eq("type", "search_index")
         .in_("id", search_tool_ids)
         .execute()
     ).data
@@ -490,6 +489,7 @@ def _fetch_uploads(sb, project_id: str) -> list[DashboardUpload]:
         upload_rows = (
             sb.table("uploads")
             .select("id, status, type, progress, message")
+            .neq("type", "search_index")
             .eq("project_id", project_id)
             .in_("status", ["pending", "running"])
             .limit(20)
@@ -498,6 +498,15 @@ def _fetch_uploads(sb, project_id: str) -> list[DashboardUpload]:
     except Exception:
         return []
 
+    search_rows = (
+        sb.table("search_index_tasks")
+        .select("id, status, progress, message")
+        .eq("project_id", project_id)
+        .in_("status", ["pending", "running"])
+        .limit(20)
+        .execute()
+    ).data or []
+    upload_rows = (upload_rows or []) + [{**row, "type": "search_index"} for row in search_rows]
     return [
         DashboardUpload(
             id=u["id"],
@@ -506,5 +515,5 @@ def _fetch_uploads(sb, project_id: str) -> list[DashboardUpload]:
             progress=u.get("progress", 0),
             message=u.get("message"),
         )
-        for u in upload_rows
+        for u in upload_rows[:20]
     ]

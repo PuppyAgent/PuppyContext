@@ -1,6 +1,6 @@
 """Pydantic schemas for the GitHub Integration API.
 
-Mirrors the ``github_integrations`` and ``github_sync_log`` tables
+Mirrors the ``github_sync_bindings`` and ``github_sync_log`` tables
 created in supabase migrations 20260509000100 / 20260509000200.
 """
 from __future__ import annotations

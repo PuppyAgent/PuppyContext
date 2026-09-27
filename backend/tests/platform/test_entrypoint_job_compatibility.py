@@ -28,7 +28,7 @@ async def test_old_queued_and_retry_github_jobs_dispatch_to_synchronize(monkeypa
     assert "execute_github_sync_pull" in consumers
 
 
-async def test_github_producer_retains_old_queue_job_name_and_deduplication_key():
+async def test_github_producer_uses_canonical_job_with_existing_queue_and_deduplication_key():
     from src.platform.synchronize.github.arq_client import GithubSyncArqClient
     from src.platform.imports.worker import WorkerSettings
 
@@ -37,7 +37,7 @@ async def test_github_producer_retains_old_queue_job_name_and_deduplication_key(
     client._pool = redis
     assert await client.enqueue_pull("binding-1", branch="main", dedup_key="gh-import:binding-1:sha") == "job-1"
     redis.enqueue_job.assert_awaited_once_with(
-        "execute_github_import", "binding-1", branch="main", force=False, triggered_by="webhook",
+        "execute_github_sync_pull", "binding-1", branch="main", force=False, triggered_by="webhook",
         _queue_name=WorkerSettings.queue_name, _job_id="gh-import:binding-1:sha",
     )
     redis.enqueue_job.return_value = None

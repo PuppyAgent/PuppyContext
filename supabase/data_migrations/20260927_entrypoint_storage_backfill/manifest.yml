@@ -1,0 +1,11 @@
+api_version: 1
+id: 20260927_entrypoint_storage_backfill
+description: Align Access and GitHub identifiers and copy search tasks without losing live updates
+kind: sql
+entrypoint: run.sql
+verify: verify.sql
+requires_schema:
+  - "20260927010000"
+required_env: []
+timeout_seconds: 300
+legacy: false

@@ -1,4 +1,4 @@
-"""Repository for ``github_integrations`` and ``github_sync_log`` tables.
+"""Repository for ``github_sync_bindings`` and ``github_sync_log`` tables.
 
 Thin async wrapper over the Supabase client — keeps SQL/JSON shape
 out of the service layer. Mirrors the pattern used by
@@ -15,9 +15,9 @@ from src.utils.logger import log_warning
 
 
 class GithubSyncRepository:
-    """CRUD for ``public.github_integrations``."""
+    """CRUD for ``public.github_sync_bindings``."""
 
-    TABLE = "github_integrations"
+    TABLE = "github_sync_bindings"
 
     def __init__(self, client: Optional[SupabaseClient] = None):
         self._sb = (client or SupabaseClient()).client
@@ -95,7 +95,7 @@ class GithubSyncRepository:
         resp = self._sb.table(self.TABLE).insert(insert).execute()
         rows = resp.data or []
         if not rows:
-            raise RuntimeError("github_integration insert returned no row")
+            raise RuntimeError("github_sync_binding insert returned no row")
         return rows[0]
 
     async def update_watermark(
@@ -123,7 +123,7 @@ class GithubSyncRepository:
         try:
             self._sb.table(self.TABLE).update(update).eq("id", binding_id).execute()
         except Exception as e:
-            log_warning(f"[GithubIntegration] watermark update failed: {e}")
+            log_warning(f"[GithubSyncBinding] watermark update failed: {e}")
 
     async def delete_by_project(self, project_id: str) -> bool:
         return await asyncio.to_thread(self._delete_by_project_sync, project_id)
@@ -164,7 +164,7 @@ class GithubSyncLogRepository:
         git_sha, version_commit_id, error_message, files_changed,
     ) -> dict:
         row = {
-            "integration_id": binding_id,
+            "binding_id": binding_id,
             "direction": direction,
             "status": status,
             "git_sha": git_sha,
@@ -194,7 +194,7 @@ class GithubSyncLogRepository:
         resp = (
             self._sb.table(self.TABLE)
             .select("*", count="exact")
-            .eq("integration_id", binding_id)
+            .eq("binding_id", binding_id)
             .order("created_at", desc=True)
             .range(offset, offset + limit - 1)
             .execute()
@@ -216,7 +216,7 @@ class GithubSyncLogRepository:
         resp = (
             self._sb.table(self.TABLE)
             .select("id")
-            .eq("integration_id", binding_id)
+            .eq("binding_id", binding_id)
             .eq("direction", direction)
             .eq("git_sha", git_sha)
             .eq("status", "success")
@@ -234,7 +234,7 @@ class GithubSyncLogRepository:
         resp = (
             self._sb.table(self.TABLE)
             .select("*")
-            .eq("integration_id", binding_id)
+            .eq("binding_id", binding_id)
             .eq("direction", "import")
             .eq("status", "success")
             .order("created_at", desc=True)
@@ -246,8 +246,7 @@ class GithubSyncLogRepository:
 
 
 def _to_api_row(row: dict) -> dict:
-    """Expose version_commit_id while the DB column keeps its old name."""
+    """Preserve public JSON spelling at the wire boundary, not in storage."""
     out = dict(row)
-    if "version_commit_id" not in out and GITHUB_SYNC_VERSION_COLUMN in out:
-        out["version_commit_id"] = out.pop(GITHUB_SYNC_VERSION_COLUMN)
+    out["integration_id"] = out.pop("binding_id")
     return out

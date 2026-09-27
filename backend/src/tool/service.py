@@ -126,7 +126,7 @@ class ToolService:
             agent_repo = AgentRepository()
             seen_surfaces = set()
 
-            for conn_id in agent_repo.list_access_point_ids_by_tool(tool_id):
+            for conn_id in agent_repo.list_access_surface_ids_by_tool(tool_id):
                 agent = agent_repo.get_by_id(conn_id)
                 if not agent or not agent.mcp_enabled:
                     continue
@@ -165,7 +165,7 @@ class ToolService:
         try:
             agent_repo = AgentRepository()
 
-            for conn_id in agent_repo.list_access_point_ids_by_tool(tool_id):
+            for conn_id in agent_repo.list_access_surface_ids_by_tool(tool_id):
                 agent_tools = agent_repo.get_tools_by_agent_id(conn_id)
                 self._check_sibling_name_conflict(tool_id, user_id, new_name, conn_id, agent_tools)
         except BusinessException:

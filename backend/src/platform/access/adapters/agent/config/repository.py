@@ -38,7 +38,7 @@ def _row_to_tool(row: dict) -> AgentTool:
     """Map access_tools DB row to AgentTool model."""
     return AgentTool(
         id=row["id"],
-        agent_id=row.get("access_point_id", row.get("access_point_id", row.get("agent_id", ""))),
+        agent_id=row["access_surface_id"],
         tool_id=row["tool_id"],
         enabled=row.get("enabled", True),
         mcp_exposed=row.get("mcp_exposed", False),
@@ -369,13 +369,13 @@ class AgentRepository:
         all_tools = (
             self._client.table("access_tools")
             .select("*")
-            .in_("access_point_id", agent_ids)
+            .in_("access_surface_id", agent_ids)
             .order("created_at")
             .execute()
         ).data
         tools_by_agent: dict[str, list[AgentTool]] = {}
         for row in all_tools:
-            cid = row.get("access_point_id", row.get("access_point_id", ""))
+            cid = row["access_surface_id"]
             tools_by_agent.setdefault(cid, []).append(_row_to_tool(row))
 
         for agent in agents:
@@ -739,30 +739,30 @@ class AgentRepository:
         response = (
             self._client.table("access_tools")
             .select("*")
-            .eq("access_point_id", agent_id)
+            .eq("access_surface_id", agent_id)
             .order("created_at")
             .execute()
         )
         return [_row_to_tool(row) for row in response.data]
 
-    def list_access_point_ids_by_tool(self, tool_id: str) -> list[str]:
+    def list_access_surface_ids_by_tool(self, tool_id: str) -> list[str]:
         response = (
             self._client.table("access_tools")
-            .select("access_point_id")
+            .select("access_surface_id")
             .eq("tool_id", tool_id)
             .execute()
         )
         return list(dict.fromkeys(
-            row["access_point_id"]
+            row["access_surface_id"]
             for row in (response.data or [])
-            if row.get("access_point_id")
+            if row.get("access_surface_id")
         ))
 
     def get_tools_by_agent_id_for_mcp(self, agent_id: str) -> List[AgentTool]:
         response = (
             self._client.table("access_tools")
             .select("*")
-            .eq("access_point_id", agent_id)
+            .eq("access_surface_id", agent_id)
             .eq("enabled", True)
             .eq("mcp_exposed", True)
             .order("created_at")
@@ -791,7 +791,7 @@ class AgentRepository:
         binding_id = generate_uuid_v7()
         data = {
             "id": binding_id,
-            "access_point_id": agent_id,
+            "access_surface_id": agent_id,
             "tool_id": tool_id,
             "enabled": enabled,
             "mcp_exposed": mcp_exposed,
@@ -836,7 +836,7 @@ class AgentRepository:
         response = (
             self._client.table("access_tools")
             .delete()
-            .eq("access_point_id", agent_id)
+            .eq("access_surface_id", agent_id)
             .execute()
         )
         return len(response.data)
@@ -847,7 +847,7 @@ class AgentRepository:
         response = (
             self._client.table("access_tools")
             .select("*")
-            .eq("access_point_id", agent_id)
+            .eq("access_surface_id", agent_id)
             .eq("tool_id", tool_id)
             .execute()
         )
@@ -865,14 +865,14 @@ class AgentRepository:
         binding_id = generate_uuid_v7()
         data = {
             "id": binding_id,
-            "access_point_id": agent_id,
+            "access_surface_id": agent_id,
             "tool_id": tool_id,
             "enabled": enabled,
             "mcp_exposed": mcp_exposed,
         }
         response = (
             self._client.table("access_tools")
-            .upsert(data, on_conflict="access_point_id,tool_id")
+            .upsert(data, on_conflict="access_surface_id,tool_id")
             .execute()
         )
         return _row_to_tool(response.data[0])
