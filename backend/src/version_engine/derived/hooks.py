@@ -1123,7 +1123,7 @@ def _post_commit_delete_repository_scopes(
     We deliberately DON'T auto-rewrite repository_scopes.path because the
     target path is an explicit user-owned boundary.
 
-    Connector rows attached to the orphaned scope keep their FK; the user
+    AccessSurface rows attached to the orphaned scope keep their FK; the user
     sees the orphaned scope in /scopes and decides what to do. Logging
     here gives ops a forensics trail."""
     try:

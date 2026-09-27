@@ -563,7 +563,7 @@ def scenario_g_channel_pause():
             return PausedConn()
 
     import unittest.mock
-    with unittest.mock.patch.object(channel_pause, "ConnectorRepository", lambda: FakeRepo()):
+    with unittest.mock.patch.object(channel_pause, "AccessModelRepository", lambda: FakeRepo()):
         auth = {"_scope": {"id": "scope-1"}}
         try:
             channel_pause.enforce_channel_pause(auth, "cli")

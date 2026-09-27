@@ -1,10 +1,10 @@
-from src.connectors.datasource._base import FetchResult
-from src.connectors.datasource.schemas import Sync
-from src.platform.integrations.paths import (
+from src.provider._base import FetchResult
+from src.provider.schemas import Sync
+from src.platform.synchronize.paths import (
     canonical_provider,
     plan_fetch_result,
 )
-from src.platform.integrations.repository import IntegrationRepository
+from src.platform.synchronize.repository import SynchronizeRepository
 
 
 def _sync(path: str, config: dict | None = None) -> Sync:
@@ -78,7 +78,7 @@ def test_provider_aliases_are_canonicalized_at_boundary():
 
 
 def test_connection_target_path_column_allows_project_root():
-    repo = IntegrationRepository.__new__(IntegrationRepository)
+    repo = SynchronizeRepository.__new__(SynchronizeRepository)
 
     assert repo._target_path_from_row(
         {"target_path": "", "config": {"target_path": "Docs"}},
@@ -86,7 +86,7 @@ def test_connection_target_path_column_allows_project_root():
 
 
 def test_update_config_can_clear_target_path_to_project_root():
-    repo = IntegrationRepository.__new__(IntegrationRepository)
+    repo = SynchronizeRepository.__new__(SynchronizeRepository)
     patches = []
     repo._update_connection = lambda _connection_id, patch: patches.append(patch)
 

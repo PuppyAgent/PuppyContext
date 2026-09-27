@@ -7,8 +7,8 @@ import posixpath
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from src.connectors.datasource._base import AuthRequirement, FetchResult
-from src.connectors.datasource.dependencies import get_connector_registry
+from src.provider._base import AuthRequirement, FetchResult
+from src.platform.imports.providers import get_import_provider_registry
 from src.platform.imports.repository import ImportJob
 from src.platform.project.write_lease import (
     ProjectWriteLease,
@@ -99,14 +99,14 @@ class OneTimeImportRunner:
         *,
         on_phase: PhaseCallback | None = None,
     ) -> ImportRunResult:
-        registry = get_connector_registry()
-        connector = registry.get(job.provider)
-        if not connector and job.provider == "notion":
-            connector = registry.get("url")
-        if not connector:
+        registry = get_import_provider_registry()
+        adapter = registry.get(job.provider)
+        if not adapter and job.provider == "notion":
+            adapter = registry.get("url")
+        if not adapter:
             raise ValueError(f"Unknown import provider: {job.provider}")
 
-        spec = connector.spec()
+        spec = adapter.spec()
         config = dict(job.config or {})
         config["source_url"] = job.source_url
         if job.name and not config.get("name"):
@@ -122,7 +122,7 @@ class OneTimeImportRunner:
             user_id=job.created_by,
             required=spec.auth not in (AuthRequirement.NONE, AuthRequirement.OPTIONAL_OAUTH),
         )
-        result = await connector.fetch(config, credentials)
+        result = await adapter.fetch(config, credentials)
 
         if on_phase:
             await on_phase("writing", 75, "Writing files into the workspace")

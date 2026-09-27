@@ -2,15 +2,17 @@ services:
 
   # ── Supabase: Database ──────────────────────────────────────
   db:
-    image: supabase/postgres:15.6.1.143
+    image: supabase/postgres:17.6.1.064
     ports:
-      - "54322:5432"
+      - "127.0.0.1:${DATABASE_PORT:-54322}:5432"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ../supabase/migrations/20260306085814_qubits_schema.sql:/docker-entrypoint-initdb.d/99-migrations.sql:ro
+      # PG15 volumes require an explicit dump/restore before using this stack.
+      # Only Supabase platform setup belongs in initdb, never product DDL.
+      - ./db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -20,30 +22,37 @@ services:
 
   # ── Supabase: Auth (GoTrue) ────────────────────────────────
   auth:
-    image: supabase/gotrue:v2.158.1
+    image: supabase/gotrue:v2.184.0
     depends_on:
       db:
         condition: service_healthy
     environment:
       GOTRUE_API_HOST: "0.0.0.0"
       GOTRUE_API_PORT: "9999"
-      API_EXTERNAL_URL: http://localhost:${SUPABASE_API_PORT:-8000}
+      API_EXTERNAL_URL: http://localhost:${SUPABASE_API_PORT:-8000}/auth/v1
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
       GOTRUE_SITE_URL: http://localhost:${FRONTEND_PORT:-3000}
       GOTRUE_URI_ALLOW_LIST: ""
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      GOTRUE_JWT_ISSUER: http://localhost:${SUPABASE_API_PORT:-8000}/auth/v1
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_EXP: "3600"
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
       GOTRUE_SMS_AUTOCONFIRM: "true"
     restart: unless-stopped
 
   # ── Supabase: REST API (PostgREST) ─────────────────────────
   rest:
-    image: postgrest/postgrest:v12.2.3
+    image: postgrest/postgrest:v14.1
     depends_on:
       db:
         condition: service_healthy
@@ -67,8 +76,17 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      ANON_KEY: ${ANON_KEY:?Copy .env.example to .env}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?Copy .env.example to .env}
     volumes:
-      - ./kong.yml:/var/lib/kong/kong.yml:ro
+      - ./kong.yml:/var/lib/kong/kong.template.yml:ro
+      - ./kong-entrypoint.sh:/opt/puppyone/kong-entrypoint.sh:ro
+    entrypoint: ["sh", "/opt/puppyone/kong-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     depends_on:
       auth:
         condition: service_started
@@ -78,7 +96,7 @@ services:
 
   # ── Redis ───────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.2-alpine
     volumes:
       - redis_data:/data
     healthcheck:
@@ -89,7 +107,9 @@ services:
 
   # ── MinIO (S3-compatible storage) ──────────────────────────
   minio:
-    image: minio/minio:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
     ports:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
@@ -98,18 +118,50 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     restart: unless-stopped
 
-  minio-init:
-    image: minio/mc:latest
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.migrate
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      sleep 3;
-      mc alias set local http://minio:9000 $${S3_ACCESS_KEY:-minioadmin} $${S3_SECRET_KEY:-minioadmin};
-      mc mb local/$${S3_BUCKET:-contextbase} --ignore-existing;
-      "
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_started
+    restart: "no"
+
+  storage-init:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.local
+    environment: &backend-environment
+      APP_ENV: development
+      DEBUG: "false"
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY:?Copy .env.example to .env}
+      SUPABASE_ANON_KEY: ${ANON_KEY:?Copy .env.example to .env}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET_NAME: ${S3_BUCKET:-contextbase}
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-minioadmin}
+    command: ["uv", "run", "--frozen", "python", "-m", "src.infra.self_hosted_bootstrap"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kong:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: "no"
 
   # ── PuppyOne: Backend API ──────────────────────────────────
   api:
@@ -122,6 +174,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${SANDBOX_TMPDIR:-/tmp/puppyone-sandbox}:${SANDBOX_TMPDIR:-/tmp/puppyone-sandbox}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       kong:
@@ -131,8 +187,9 @@ services:
       minio:
         condition: service_started
     environment:
+      <<: *backend-environment
       APP_MODULE: src.main
-      DEBUG: "true"
+      DEBUG: "false"
       PORT: "9090"
       PUBLIC_URL: http://localhost:${BACKEND_PORT:-9090}
       INTERNAL_API_SECRET: docker-local-secret
@@ -145,6 +202,7 @@ services:
       AUTH_SECURITY_REDIS_URL: redis://redis:6379/0
       SUPABASE_PUBLIC_URL: http://localhost:${SUPABASE_API_PORT:-8000}
       FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3000}
+      ALLOWED_HOSTS: '["http://localhost:${FRONTEND_PORT:-3000}","http://127.0.0.1:${FRONTEND_PORT:-3000}"]'
       DESKTOP_AUTH_PUBLIC_BASE_URL: http://localhost:${BACKEND_PORT:-9090}/api/v1
       DESKTOP_AUTH_ALLOWED_CALLBACKS: puppyone://auth/callback
       SKIP_AUTH: ${SKIP_AUTH:-false}
@@ -163,6 +221,12 @@ services:
       SANDBOX_TMPDIR: ${SANDBOX_TMPDIR:-/tmp/puppyone-sandbox}
       E2B_API_KEY: ${E2B_API_KEY:-}
       DOCKER_HOST: unix:///var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/ready', timeout=8)"]
+      interval: 10s
+      timeout: 10s
+      start_period: 60s
+      retries: 30
     restart: unless-stopped
 
   # ── PuppyOne: Frontend ─────────────────────────────────────
@@ -171,11 +235,13 @@ services:
       context: ../frontend
       dockerfile: Dockerfile.local
       args:
+        NEXT_PUBLIC_APP_URL: http://localhost:${FRONTEND_PORT:-3000}
         NEXT_PUBLIC_SUPABASE_URL: http://localhost:${SUPABASE_API_PORT:-8000}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
         NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-9090}
         NEXT_PUBLIC_DEV_MODE: "true"
     environment:
+      NEXT_PUBLIC_APP_URL: http://localhost:${FRONTEND_PORT:-3000}
       NEXT_PUBLIC_SUPABASE_URL: http://localhost:${SUPABASE_API_PORT:-8000}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
       NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-9090}
@@ -186,7 +252,13 @@ services:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 30
     restart: unless-stopped
 
 volumes:

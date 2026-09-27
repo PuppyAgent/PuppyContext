@@ -1,5 +1,5 @@
 {
-  "migration_id": "20260720_project_storage_inventory",
+  "migration_id": "20260927_entrypoint_storage_backfill",
   "repair_migration_id": "",
-  "execution_mode": "operator_local"
+  "execution_mode": "ci"
 }

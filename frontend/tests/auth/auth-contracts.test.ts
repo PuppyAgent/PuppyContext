@@ -11,6 +11,7 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/server-env', () => ({
   getRequestOrigin: () => 'https://web.example.test',
   getServerSupabaseUrl: () => 'https://auth.example.test',
+  getPublicSupabaseUrl: () => 'https://auth.example.test',
   getSupabaseAnonKey: () => 'public-key',
   getServerApiBaseUrl: () => 'https://api.example.test',
 }));

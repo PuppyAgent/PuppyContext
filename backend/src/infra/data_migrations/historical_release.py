@@ -24,6 +24,7 @@ from .catalog import DataMigrationCatalog
 from .database import PsqlClient
 from .policy import HISTORICAL_RELEASE, historical_compatibility
 from .runner import DataMigrationRunner
+from .schema_history import baseline_version, historical_source, load_baseline
 
 
 def load_plan(root: Path) -> dict:
@@ -179,6 +180,10 @@ def main() -> None:
     source = dict(os.environ)
     db, env = bind(root, source)
     versions = db.applied_schema_versions()
+    baseline = load_baseline(root)
+    if baseline and baseline_version(baseline) in versions:
+        print("B1 schema history is active; historical catch-up is not applicable.")
+        return
     checkpoint_exists = db.receipt(plan["id"] + "_checkpoint") is not None
     completed = db.receipt(plan["id"])
     if plan["through_version"] in versions and (completed or not checkpoint_exists):
@@ -207,7 +212,7 @@ def main() -> None:
                 shutil.copyfile(root / "supabase/config.toml", stage / "supabase/config.toml")
                 for name in plan["schema_sha256"]:
                     if name[:14] <= through:
-                        shutil.copyfile(root / "supabase/migrations" / name, target / name)
+                        shutil.copyfile(historical_source(root, name), target / name)
                 command = [
                     "supabase",
                     "db",

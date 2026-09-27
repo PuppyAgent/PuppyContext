@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { getServerSupabaseUrl, getSupabaseAnonKey } from '@/lib/server-env';
+import { createAuthServerClient } from '@/features/auth/supabase/server-client';
 import { safeNext } from '@/features/auth/login-intent';
 
 const LOCALES = new Set(['en', 'zh-CN']);
@@ -44,7 +43,7 @@ export async function middleware(request: NextRequest) {
   if (pathname === '/login' && request.nextUrl.searchParams.get('client') === 'desktop')
     return finish();
 
-  const supabase = createServerClient(getServerSupabaseUrl(), getSupabaseAnonKey(), {
+  const supabase = createAuthServerClient({
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: values => {

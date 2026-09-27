@@ -2,16 +2,16 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.connectors.datasource.oauth.gmail_service import GmailOAuthService
-from src.connectors.datasource.oauth.google_calendar_service import GoogleCalendarOAuthService
-from src.connectors.datasource.oauth.google_docs_service import GoogleDocsOAuthService
-from src.connectors.datasource.oauth.google_drive_service import GoogleDriveOAuthService
-from src.connectors.datasource.oauth.google_search_console_service import (
+from src.provider.oauth.gmail_service import GmailOAuthService
+from src.provider.oauth.google_calendar_service import GoogleCalendarOAuthService
+from src.provider.oauth.google_docs_service import GoogleDocsOAuthService
+from src.provider.oauth.google_drive_service import GoogleDriveOAuthService
+from src.provider.oauth.google_search_console_service import (
     GoogleSearchConsoleOAuthService,
 )
-from src.connectors.datasource.oauth.google_sheets_service import GoogleSheetsOAuthService
-from src.connectors.datasource.oauth.models import OAuthConnection
-from src.connectors.datasource.oauth.repository import _select_preferred_connection_row
+from src.provider.oauth.google_sheets_service import GoogleSheetsOAuthService
+from src.provider.oauth.models import OAuthConnection
+from src.provider.oauth.repository import _select_preferred_connection_row
 
 
 def test_select_preferred_connection_row_avoids_legacy_gateway_duplicate():

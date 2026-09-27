@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from src.platform.repository_target.auth_context import repository_target_from_auth
 from src.platform.repository_target.models import repository_target_scope_id
-from src.repo.connector_repository import ConnectorRepository
+from src.platform.access.model_repository import AccessModelRepository
 from src.utils.logger import log_error, log_warning
 
 
@@ -96,7 +96,7 @@ def enforce_channel_pause(
         cached = _get_cached_channel_pause(target_key, normalized_channel)
         if cached is None:
             try:
-                connector = ConnectorRepository().get_by_target_provider(
+                connector = AccessModelRepository().get_by_target_kind(
                     target.project_id,
                     scope_id,
                     normalized_channel,

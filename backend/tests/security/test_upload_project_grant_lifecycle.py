@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from src.exceptions import NotFoundException, PermissionException
-from src.ingest.router import _authorize_owned_upload_task
+from src.platform.upload.handlers import _authorize_owned_upload_task
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.service import AuthorizationService
 from tests.authorization_fakes import StaticAuthorizationRepository, authorization_for

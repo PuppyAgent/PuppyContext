@@ -61,11 +61,11 @@ def get_initialization_service() -> UserInitializationService:
         from src.platform.project.control_plane_dependencies import (
             get_project_control_plane_service,
         )
-        from src.platform.project.dependencies import get_project_service
+        from src.platform.project.dependencies import build_project_service
         _initialization_service = UserInitializationService(
             profile_repo=ProfileRepositorySupabase(),
             org_repo=OrganizationRepository(),
-            project_service=get_project_service(),
+            project_service=build_project_service(),
             project_control_plane=get_project_control_plane_service(),
         )
     return _initialization_service

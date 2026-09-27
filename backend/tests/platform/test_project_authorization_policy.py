@@ -155,7 +155,7 @@ def test_editor_can_run_but_cannot_manage_project_runtime_surfaces():
         ProjectAction.AUTOMATION_MANAGE,
         ProjectAction.MCP_MANAGE,
         ProjectAction.SANDBOX_MANAGE,
-        ProjectAction.INTEGRATION_MANAGE,
+        ProjectAction.SYNCHRONIZE_MANAGE,
         ProjectAction.ACCESS_MANAGE,
         ProjectAction.CREDENTIAL_MANAGE,
         ProjectAction.MEMBERS_MANAGE,

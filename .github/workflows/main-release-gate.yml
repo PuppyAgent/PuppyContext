@@ -24,7 +24,7 @@ jobs:
   main-release-gate:
     name: Main Release Gate
     runs-on: ubuntu-latest
-    if: github.event.pull_request.base.ref == 'main'
+    if: github.repository == 'puppyone-ai/puppyone-cloud' && github.event.pull_request.base.ref == 'main'
     steps:
       - name: Validate main release policy
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -106,8 +106,9 @@ jobs:
               file.filename.startsWith('supabase/migrations/') &&
               file.filename.endsWith('.sql')
             );
-            if (schemaFiles.length === 0) {
-              core.info('No schema migration changes; database attestation is not required.');
+            const affectsDatabase = path => /^(supabase\/|backend\/src\/infra\/data_migrations\/|scripts\/database[^/]*\.py$|\.github\/workflows\/(?:_schema-deploy|_data-migration|_operator-data-verify|data-migration|migrate-staging|migrate-production|main-release-gate|validate-migrations|prepare-baseline)\.yml$)/.test(path);
+            if (!files.some(file => affectsDatabase(file.filename) || affectsDatabase(file.previous_filename || ''))) {
+              core.info('No database release changes; database attestation is not required.');
               return;
             }
 

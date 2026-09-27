@@ -28,8 +28,8 @@ async def _execute_agent_task_async(agent_id: str) -> dict:
     Returns:
         dict with execution results
     """
-    from src.connectors.agent.config.service import AgentConfigService
-    from src.connectors.agent.service import AgentService
+    from src.platform.access.adapters.agent.config.service import AgentConfigService
+    from src.platform.access.adapters.agent.service import AgentService
     from src.infra.supabase.client import SupabaseClient
     from src.platform.scope_sandbox.execution.service import SandboxService
 
@@ -41,7 +41,7 @@ async def _execute_agent_task_async(agent_id: str) -> dict:
     try:
         db_client = SupabaseClient().client
 
-        from src.repo.access_surface_repository import AccessSurfaceRepository
+        from src.platform.access.surface_repository import AccessSurfaceRepository
 
         agent = AccessSurfaceRepository(db_client).get_agent_with_project(agent_id)
 

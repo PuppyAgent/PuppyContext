@@ -5,14 +5,14 @@ workspace or exposing context from it:
 
 - Upload
 - Import
-- Integration
+- Synchronize
 - Access
 
 Everything else is a child resource, adapter, execution, or write tag. In
 particular:
 
 - A connector is a second-level adapter under a service.
-- Synchronize is an action/execution under Integration.
+- Synchronize is an action/execution under Synchronize.
 - An access surface is a child resource under Access.
 - `source_channel` is a Version Engine write tag, not a product resource.
 
@@ -36,7 +36,7 @@ Context Resources
 │   │   └── future one-shot providers
 │   └── Version Engine write: source_channel=import
 │
-├── Integration service
+├── Synchronize service
 │   ├── connection record
 │   ├── SyncRun
 │   ├── target_path: project-root write destination
@@ -89,7 +89,7 @@ UploadJob
 
 Upload has no provider binding, no OAuth binding, no schedule, and no durable
 relationship with the local machine. Folder upload is still Upload. Local-folder
-synchronize belongs to Integration because it keeps a durable relationship with
+synchronize belongs to Synchronize because it keeps a durable relationship with
 a sync client.
 
 ## Import
@@ -116,9 +116,9 @@ The import connector supplies provider-specific fetch capability. It must not
 own job status, retries, product navigation, or version semantics. Import has no
 pause/resume sync controls, no webhook, and no long-lived external binding.
 
-## Integration
+## Synchronize
 
-Integration is a durable relationship between the workspace and an external
+Synchronize is a durable relationship between the workspace and an external
 service, external system, or local filesystem sync client.
 
 Examples:
@@ -129,10 +129,10 @@ Examples:
 - Integrate a database and save query results.
 - Integrate a local folder through the filesystem sync client.
 
-Integration owns configuration and durable sync state:
+Synchronize owns configuration and durable sync state:
 
 ```text
-Integration service
+Synchronize service
   -> connection record (provider, external resource, target_path)
   -> SyncRun
   -> integration connector.fetch(...) / connector.push(...)
@@ -145,11 +145,11 @@ integration. Each execution is a `SyncRun`, triggered manually, by schedule, by
 webhook, by realtime events, or by a push path.
 
 The current implementation table is named `connections`. That is an
-implementation and migration detail; the product category is Integration.
+implementation and migration detail; the product category is Synchronize.
 
 `connections.target_path` is the project-root destination path for fetched data.
 It is not an Access scope. During rollout a connection row may still carry a
-root `scope_id` or a historical scope fallback, but Integration write routing
+root `scope_id` or a historical scope fallback, but Synchronize write routing
 must use `target_path` plus the Version Engine root write boundary.
 
 ## Access
@@ -229,7 +229,7 @@ The service answers product questions:
 
 - Is this one-shot or durable?
 - Which lifecycle table owns status?
-- Is this Upload, Import, Integration, or Access?
+- Is this Upload, Import, Synchronize, or Access?
 - Which actor, permission boundary, and write tag should reach the Version
   Engine?
 
@@ -237,7 +237,7 @@ Good boundary:
 
 ```text
 ImportJob -> GitHub connector -> fetched files -> Version Engine
-Integration -> GitHub connector -> SyncRun -> Version Engine
+Synchronize -> GitHub connector -> SyncRun -> Version Engine
 Access -> Git connector -> scoped push -> Version Engine
 ```
 
@@ -245,7 +245,7 @@ Bad boundary:
 
 ```text
 GitHub connector creates ImportJob
-GitHub connector decides this is Integration
+GitHub connector decides this is Synchronize
 Sandbox connector owns product history
 Connector publishes Version Engine commits directly
 ```
@@ -262,3 +262,20 @@ All four services converge at the Version Engine. The Version Engine owns:
 
 The services own user intent and lifecycle. Connectors own provider/runtime
 capability. `source_channel` only labels the final write.
+
+
+## Phase-one implementation boundary
+
+ISSUE-048 organizes backend source under `platform/upload`, `platform/imports`,
+`platform/synchronize`, `platform/access`, and shared `provider`.
+`platform/synchronize/github` owns durable GitHub binding/pull/push; one-time
+GitHub snapshots use Import and `provider/github`. Git access to PuppyOne remains
+an Access transport through the existing Version Engine.
+
+Public `/integrations`, `/connectors`, `/access`, `/db-connector`, `/oauth` and
+`/ingest` contracts remain stable. Physical table/column names are unchanged.
+The GitHub job still uses the imports queue and the old serialized job name;
+its dispatcher delegates to `execute_github_sync_pull`. This preserves pending
+and retry jobs during mixed-version rollout. Database cleanup is ISSUE-049.
+The canonical implementation map and compatibility ledger are maintained in
+`puppy-issues:document/puppyone/architecture/entrypoints/phase-one-implementation.md`.

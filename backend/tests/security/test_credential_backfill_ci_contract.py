@@ -8,12 +8,13 @@ from pathlib import Path
 import pytest
 import yaml
 
+from src.infra.data_migrations.schema_history import data_migration_directory
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_ROOT = REPO_ROOT / "supabase" / "data_migrations"
 
 
 def _load_scope_module():
-    path = DATA_ROOT / "20260704_scope_access_key_hash" / "run.py"
+    path = data_migration_directory(REPO_ROOT, "20260704_scope_access_key_hash") / "run.py"
     spec = importlib.util.spec_from_file_location("legacy_scope_hash_backfill", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -22,7 +23,7 @@ def _load_scope_module():
 
 
 def _load_surface_module():
-    path = DATA_ROOT / "20260711_surface_credentials" / "run.py"
+    path = data_migration_directory(REPO_ROOT, "20260711_surface_credentials") / "run.py"
     spec = importlib.util.spec_from_file_location("legacy_surface_backfill", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -35,9 +36,11 @@ def test_applied_credential_sql_history_remains_language_neutral() -> None:
         "20260711010000_harden_agent_sandbox_credentials.sql",
         "20260711070000_move_scope_credentials_to_access_credentials.sql",
     ):
-        migration = (REPO_ROOT / "supabase/migrations" / migration_name).read_text(
-            encoding="utf-8"
-        ).lower()
+        migration = (
+            (REPO_ROOT / "supabase/archive/before_b1/migrations" / migration_name)
+            .read_text(encoding="utf-8")
+            .lower()
+        )
         assert "python" not in migration
         assert ".py" not in migration
         assert "scripts/" not in migration
@@ -49,7 +52,7 @@ def test_credential_backfills_are_versioned_legacy_artifacts() -> None:
         "20260711_surface_credentials": "20260616003000",
     }
     for migration_id, required_schema in expected.items():
-        directory = DATA_ROOT / migration_id
+        directory = data_migration_directory(REPO_ROOT, migration_id)
         manifest = yaml.safe_load((directory / "manifest.yml").read_text())
         assert manifest["id"] == migration_id
         assert manifest["kind"] == "python"
@@ -66,9 +69,9 @@ def test_credential_backfills_use_bounded_stable_keyset_pagination() -> None:
         "20260704_scope_access_key_hash",
         "20260711_surface_credentials",
     ):
-        source = (DATA_ROOT / migration_id / "run.py").read_text()
+        source = (data_migration_directory(REPO_ROOT, migration_id) / "run.py").read_text()
         assert '.order("id")' in source
-        assert '.limit(page_size)' in source
+        assert ".limit(page_size)" in source
         assert '.gt("id", after_id)' in source
         assert ".range(" not in source
 
@@ -78,13 +81,19 @@ def test_schema_deployment_never_names_application_backfills() -> None:
         workflow = (REPO_ROOT / ".github/workflows" / workflow_name).read_text()
         assert "backfill_scope_access_key_hash" not in workflow
         assert "backfill_surface_credentials" not in workflow
-        assert "scripts/" not in workflow
+        # Resolving release metadata performs no data transformation.
+        environment = "staging" if workflow_name == "migrate-staging.yml" else "production"
+        metadata_command = (
+            f"python3 scripts/database_history.py release --environment {environment}"
+        )
+        assert "scripts/" not in workflow.replace(metadata_command, "")
         assert "_schema-deploy.yml" in workflow
 
     reusable = (REPO_ROOT / ".github/workflows/_schema-deploy.yml").read_text()
-    # Credential acquisition is connection setup, not an application backfill.
-    # No other Python command may execute inside the ordinary schema lane.
+    # Connection setup and verified history adoption never execute application
+    # backfills. All other Python steps remain forbidden in the schema lane.
     without_connection = reusable.replace("python3 supabase/releases/connection.py", "")
+    without_connection = without_connection.replace("python3 scripts/database_history.py adopt", "")
     assert "python" not in without_connection.lower()
     assert "backfill" not in reusable.lower()
 

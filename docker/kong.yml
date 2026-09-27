@@ -4,10 +4,10 @@ _transform: true
 consumers:
   - username: anon
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      - key: __ANON_KEY__
   - username: service_role
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      - key: __SERVICE_ROLE_KEY__
 
 plugins:
   - name: cors
@@ -27,18 +27,34 @@ plugins:
         - Content-Type
         - apikey
         - x-client-info
+        - x-supabase-api-version
       exposed_headers:
         - Content-Range
         - X-Total-Count
       credentials: true
       max_age: 3600
-  - name: key-auth
-    config:
-      key_names:
-        - apikey
-      hide_credentials: false
-
 services:
+  # Confirmation links and OAuth redirects arrive from a browser without an
+  # apikey header. GoTrue verifies their token/state; the gateway must let them
+  # reach the provider. Other Auth and REST endpoints retain key-auth.
+  - name: auth-v1-verify
+    url: http://auth:9999/verify
+    routes:
+      - name: auth-v1-verify
+        strip_path: true
+        paths: ["/auth/v1/verify"]
+  - name: auth-v1-callback
+    url: http://auth:9999/callback
+    routes:
+      - name: auth-v1-callback
+        strip_path: true
+        paths: ["/auth/v1/callback"]
+  - name: auth-v1-authorize
+    url: http://auth:9999/authorize
+    routes:
+      - name: auth-v1-authorize
+        strip_path: true
+        paths: ["/auth/v1/authorize"]
   - name: auth-v1
     url: http://auth:9999/
     routes:
@@ -46,6 +62,11 @@ services:
         strip_path: true
         paths:
           - /auth/v1/
+    plugins:
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: false
 
   - name: rest-v1
     url: http://rest:3000/
@@ -54,3 +75,8 @@ services:
         strip_path: true
         paths:
           - /rest/v1/
+    plugins:
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: false

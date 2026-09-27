@@ -5,7 +5,7 @@ enters, changes, or is exposed from a workspace:
 
 - Upload
 - Import
-- Integration
+- Synchronize
 - Access
 
 These words should not be used interchangeably. They describe different user
@@ -22,7 +22,7 @@ intent that created the work.
 | --- | --- | --- | --- |
 | Upload | Add local files or folders into a workspace | No | Upload / ETL pipeline |
 | Import | Copy a snapshot from an external source | No | ImportJob |
-| Integration | Bind an external service or system so it can be synced later | Yes | Integration service |
+| Synchronize | Bind an external service or system so it can be synced later | Yes | Synchronize service |
 | Access | Expose a workspace scope to a person, tool, or runtime | Yes | access surfaces |
 
 All four concepts may write to the Version Engine, but none of them owns
@@ -45,7 +45,7 @@ Upload is not a connector. It is not a durable relationship with the user's
 machine. It is a one-shot transfer from a local source.
 
 Folder upload is still Upload. It copies the selected folder contents once. It
-must not be confused with local-folder synchronize, which is an Integration flow
+must not be confused with local-folder synchronize, which is an Synchronize flow
 because it creates an ongoing relationship with a local filesystem client.
 
 Upload is allowed to have its own pipeline because it has concerns that other
@@ -112,12 +112,12 @@ Product placement:
 - Empty workspace entry: Import from GitHub / website / URL / template.
 - Activity entry: show active and recent import jobs.
 
-## Integration
+## Synchronize
 
-Integration means the user is creating a durable relationship between the
+Synchronize means the user is creating a durable relationship between the
 workspace and a third-party service, external system, or local filesystem sync
 client. Synchronize is the action that happens through that relationship;
-Integration is the product-level service category.
+Synchronize is the product-level service category.
 
 Examples:
 
@@ -146,7 +146,7 @@ ordinary product workflows; they should not become a fifth entry point.
 Backend shape:
 
 ```text
-Integration
+Synchronize
   -> connection record
   -> SyncRun(triggered_by=manual | scheduled | webhook | realtime)
   -> provider.fetch(...) or provider.push(...)
@@ -154,13 +154,13 @@ Integration
   -> update watermark / cursor / run history
 ```
 
-Integration may run an initial sync after creation, but that initial sync is still
+Synchronize may run an initial sync after creation, but that initial sync is still
 a SyncRun. It should not be represented as an ImportJob unless the user chose a
 one-shot import instead of a durable integration.
 
 Product placement:
 
-- Primary entry: Integrations.
+- Primary entry: Synchronize.
 - Per-integration actions: Sync now, Pause, Resume, Disconnect, View runs.
 - Status surfaces: Needs Action, failed runs, last synced time.
 
@@ -239,7 +239,7 @@ integrating, or accessing.
 Examples:
 
 - Import service may use a GitHub, URL, Notion, or template connector once.
-- Integration service may use GitHub, Google Drive, Gmail, database, or local
+- Synchronize service may use GitHub, Google Drive, Gmail, database, or local
   filesystem sync connectors over time.
 - Access service may use Git, CLI/AP-FS, Sandbox, or AI/runtime connectors to
   expose a scoped workspace surface.
@@ -282,12 +282,12 @@ GitHub has multiple product meanings. They must stay separate.
 | User action | Product concept | Backend model |
 | --- | --- | --- |
 | Paste `https://github.com/org/repo` and copy files once | Import | ImportJob(provider=github) |
-| Bind this project to `org/repo` branch `main` | Integration | GitHub connection record + SyncRuns |
+| Bind this project to `org/repo` branch `main` | Synchronize | GitHub connection record + SyncRuns |
 | Push and pull through PuppyOne Git remote | Access | repo_scope Git access surface |
 | Upload a local cloned repo folder | Upload | Upload pipeline; `.git/` is skipped |
 
 There should not be a third product path where `connectors[github]` creates an
-`import_once` sync binding. That combines Import and Integration and makes the
+`import_once` sync binding. That combines Import and Synchronize and makes the
 UI, run history, and deployment model ambiguous.
 
 ## Target Execution Model
@@ -344,14 +344,14 @@ Use these names consistently:
 
 - Use "Upload" only for local files/folders.
 - Use "Import" only for one-shot external snapshots.
-- Use "Integration" for durable external services, systems, or local sync
+- Use "Synchronize" for durable external services, systems, or local sync
   relationships.
 - Use "Sync" for executions or actions on an integration.
 - Use "Access" for workspace entry points and permissioned surfaces.
 - Use "connector" only as a second-level implementation adapter under a
   service.
 - Avoid using "Connect" as the architecture name. It may remain a UI verb where
-  appropriate, but the product category is Integration.
+  appropriate, but the product category is Synchronize.
 - Avoid showing one-shot imports inside Access.
 - Avoid creating `import_once` sync bindings for new flows.
 
@@ -363,7 +363,7 @@ migration rule is:
 1. Backfill existing legacy rows into target tables.
 2. Stop creating new `import_once` sync bindings.
 3. Route one-shot external sources through ImportJob.
-4. Route durable external relationships through Integration.
+4. Route durable external relationships through Synchronize.
 5. Route GitHub branch binding through the GitHub integration / connection
    model, not generic `connectors[github]`.
 6. Route webhook-triggered GitHub sync through sync_worker as a SyncRun, not
@@ -385,3 +385,20 @@ Integrations
 Access workspace
   Git remote / CLI/AP-FS / Sandbox
 ```
+
+
+## Phase-one implementation boundary
+
+ISSUE-048 organizes backend source under `platform/upload`, `platform/imports`,
+`platform/synchronize`, `platform/access`, and shared `provider`.
+`platform/synchronize/github` owns durable GitHub binding/pull/push; one-time
+GitHub snapshots use Import and `provider/github`. Git access to PuppyOne remains
+an Access transport through the existing Version Engine.
+
+Public `/integrations`, `/connectors`, `/access`, `/db-connector`, `/oauth` and
+`/ingest` contracts remain stable. Physical table/column names are unchanged.
+The GitHub job still uses the imports queue and the old serialized job name;
+its dispatcher delegates to `execute_github_sync_pull`. This preserves pending
+and retry jobs during mixed-version rollout. Database cleanup is ISSUE-049.
+The canonical implementation map and compatibility ledger are maintained in
+`puppy-issues:document/puppyone/architecture/entrypoints/phase-one-implementation.md`.

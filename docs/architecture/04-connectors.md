@@ -1,7 +1,7 @@
-# Connectors and Integration
+# Connectors and Synchronize
 
 This document is the single architecture source for connector boundaries and
-the durable Integration runtime.
+the durable Synchronize runtime.
 
 Connectors are second-level adapters under a product service. They can fetch
 external data, expose a scoped filesystem protocol, or run a workspace runtime,
@@ -14,19 +14,19 @@ Product entry points are named by product resource:
 
 - Upload
 - Import
-- Integration
+- Synchronize
 - Access
 
 Connector is an implementation capability, not a product entry point. A
 connector may be used by one or more services, but it must not decide which
 product flow is being executed.
 
-Implementation classes may use service names such as `IntegrationService`, but
-the product resource and architecture boundary are named `Integration`.
+Implementation classes may use service names such as `SynchronizeService`, but
+the product resource and architecture boundary are named `Synchronize`.
 
 ```text
 Product service
-  (Upload / Import / Integration / Access)
+  (Upload / Import / Synchronize / Access)
         |
         v
 Connector
@@ -64,36 +64,36 @@ Connector non-goals:
 - No connector-side last-writer-wins outside Version Engine.
 - No connector-owned product lifecycle.
 
-## Integration Runtime
+## Synchronize Runtime
 
-Integration is the durable relationship between a project and an external
-source. Integration sync execution uses `platform.integrations` only:
+Synchronize is the durable relationship between a project and an external
+source. Synchronize sync execution uses `platform.synchronize` only:
 
-- `IntegrationRepository`
-- `IntegrationService`
-- `IntegrationEngine`
+- `SynchronizeRepository`
+- `SynchronizeService`
+- `SynchronizeEngine`
 
 Do not add compatibility routes, `SyncService`, `SyncRepository`, or
-`SyncEngine` back under `connectors.datasource`.
+`SyncEngine` back under `provider`.
 
 Runtime flow:
 
 ```text
-Integration
+Synchronize
   -> connector.fetch(config, credentials)
   -> optional provider materializer
-  -> IntegrationEngine
+  -> SynchronizeEngine
   -> Version Engine write_bytes / bulk_write
   -> connection state update
 ```
 
 The connector fetches provider-shaped data. The materializer converts that data
-into a stable PuppyOne file layout. `IntegrationEngine` mounts the result under
+into a stable PuppyOne file layout. `SynchronizeEngine` mounts the result under
 `connections.target_path` and writes through Version Engine. Version Engine is
 the only publish authority.
 
 `connections.scope_id` may exist physically for root ownership, but application
-code must not use it to derive integration write paths. Integration write paths
+code must not use it to derive integration write paths. Synchronize write paths
 come from `connections.target_path`.
 
 ## Materialization
@@ -204,7 +204,7 @@ Legacy flat keys such as `source_url`, `site_url`, `days_past`, and
 rows should be migrated or recreated. New API writes and connector fetch code
 must use the structured shape only.
 
-Provider config validation lives in `platform.integrations.config_contract`.
+Provider config validation lives in `platform.synchronize.config_contract`.
 API routers must call that contract instead of embedding config shape rules
 inline.
 
@@ -280,7 +280,7 @@ authorization-required state rather than pretending the provider has no
 resources.
 
 Google Workspace resource pickers share the Drive files listing helper under
-`connectors.datasource.google_workspace.resources`.
+`provider.google_workspace.resources`.
 
 ## Provider Config Reference
 
@@ -461,3 +461,20 @@ Web Page is not OAuth-backed. The URL is the source identity.
   }
 }
 ```
+
+
+## Phase-one implementation boundary
+
+ISSUE-048 organizes backend source under `platform/upload`, `platform/imports`,
+`platform/synchronize`, `platform/access`, and shared `provider`.
+`platform/synchronize/github` owns durable GitHub binding/pull/push; one-time
+GitHub snapshots use Import and `provider/github`. Git access to PuppyOne remains
+an Access transport through the existing Version Engine.
+
+Public `/integrations`, `/connectors`, `/access`, `/db-connector`, `/oauth` and
+`/ingest` contracts remain stable. Physical table/column names are unchanged.
+The GitHub job still uses the imports queue and the old serialized job name;
+its dispatcher delegates to `execute_github_sync_pull`. This preserves pending
+and retry jobs during mixed-version rollout. Database cleanup is ISSUE-049.
+The canonical implementation map and compatibility ledger are maintained in
+`puppy-issues:document/puppyone/architecture/entrypoints/phase-one-implementation.md`.

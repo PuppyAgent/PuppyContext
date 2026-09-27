@@ -98,7 +98,7 @@ class DataMigrationManifest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_entrypoint(self) -> "DataMigrationManifest":
+    def validate_entrypoint(self) -> DataMigrationManifest:
         suffix = ".sql" if self.kind is MigrationKind.SQL else ".py"
         self.entrypoint = _validate_relative_file(
             self.entrypoint,
@@ -127,3 +127,4 @@ class MigrationPlan(BaseModel):
     missing_schema: list[str] = Field(default_factory=list)
     missing_environment: list[str] = Field(default_factory=list)
     completed_source_sha: str | None = None
+    retired: bool = False

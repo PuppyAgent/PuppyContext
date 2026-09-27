@@ -11,7 +11,7 @@ on:
           - staging
           - production
       migration_id:
-        description: Exact directory ID under supabase/data_migrations
+        description: Immutable data migration ID (active or archived)
         required: true
         type: string
       operation:
@@ -26,6 +26,11 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: database-release-${{ inputs.environment }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   validate_protected_ref:

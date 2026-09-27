@@ -4,13 +4,13 @@ from dataclasses import dataclass
 
 import pytest
 
-from src.platform.integrations.jobs import execute_sync_run
+from src.platform.synchronize.jobs import execute_sync_run
 
 
 @dataclass
 class FakeRun:
     id: str = "run-1"
-    access_point_id: str = "conn-1"
+    connection_id: str = "conn-1"
     status: str = "queued"
     trigger_type: str = "scheduled"
 
@@ -96,7 +96,7 @@ async def test_sync_worker_marks_unexecuted_queued_run_skipped():
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )
@@ -114,7 +114,7 @@ async def test_sync_worker_returns_completed_result_from_engine():
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )
@@ -138,7 +138,7 @@ async def test_sync_worker_marks_run_failed_when_engine_raises():
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )
@@ -160,7 +160,7 @@ async def test_sync_worker_skips_terminal_run_without_engine_call():
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )
@@ -182,7 +182,7 @@ async def test_sync_worker_skips_run_that_was_already_claimed():
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )
@@ -205,7 +205,7 @@ async def test_sync_worker_marks_stale_run_failed_without_engine_call():
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )
@@ -230,7 +230,7 @@ async def test_sync_worker_does_not_overwrite_terminal_status_set_by_engine(term
     result = await execute_sync_run(
         {
             "sync_run_repository": run_repo,
-            "integration_engine": engine,
+            "synchronize_engine": engine,
         },
         "run-1",
     )

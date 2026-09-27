@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from src.config import settings
-from src.connectors.manager.router import UnifiedConnectionCreate, _create_agent, _create_mcp
+from src.platform.access.router import UnifiedConnectionCreate, _create_agent, _create_mcp
 
 
 def test_unified_mcp_create_returns_one_time_bearer_contract(monkeypatch) -> None:
@@ -21,10 +21,10 @@ def test_unified_mcp_create_returns_one_time_bearer_contract(monkeypatch) -> Non
             }
 
     monkeypatch.setattr(
-        "src.connectors.mcp_endpoint.repository.McpEndpointRepository",
+        "src.platform.access.adapters.mcp_endpoint.repository.McpEndpointRepository",
         lambda: object(),
     )
-    monkeypatch.setattr("src.connectors.mcp_endpoint.service.McpEndpointService", Service)
+    monkeypatch.setattr("src.platform.access.adapters.mcp_endpoint.service.McpEndpointService", Service)
     monkeypatch.setattr(settings, "PUBLIC_URL", "https://api.example.test/")
 
     result = _create_mcp(
@@ -56,10 +56,10 @@ def test_unified_agent_create_preserves_one_time_mcp_bearer(monkeypatch) -> None
             )
 
     monkeypatch.setattr(
-        "src.connectors.agent.config.repository.AgentRepository",
+        "src.platform.access.adapters.agent.config.repository.AgentRepository",
         lambda: object(),
     )
-    monkeypatch.setattr("src.connectors.agent.config.service.AgentConfigService", Service)
+    monkeypatch.setattr("src.platform.access.adapters.agent.config.service.AgentConfigService", Service)
     monkeypatch.setattr(settings, "PUBLIC_URL", "https://api.example.test")
 
     result = _create_agent(

@@ -9,9 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: database-release-production
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   validate_ref:
     name: Validate protected production source
+    if: github.repository == 'puppyone-ai/puppyone-cloud'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -39,48 +45,7 @@ jobs:
       - name: Validate production migration pointer
         id: release
         shell: bash
-        run: |
-          set -euo pipefail
-          request="supabase/releases/production-data-migration.json"
-          migration_id=$(jq -er '.migration_id | select(type == "string")' "$request")
-          case "$migration_id" in
-            ''|*[!0-9A-Za-z_]*)
-              echo "::error::Invalid production data migration ID."
-              exit 1
-              ;;
-          esac
-          if [ ! -d "supabase/data_migrations/$migration_id" ]; then
-            echo "::error::Production data migration artifact does not exist."
-            exit 1
-          fi
-          execution_mode=$(jq -er '.execution_mode // "ci" | select(type == "string")' "$request")
-          case "$execution_mode" in
-            ci|operator_local) ;;
-            *)
-              echo "::error::Invalid production data migration execution mode."
-              exit 1
-              ;;
-          esac
-          repair_migration_id=$(jq -er '.repair_migration_id // "" | select(type == "string")' "$request")
-          if [ "$execution_mode" = "operator_local" ] && [ -n "$repair_migration_id" ]; then
-            echo "::error::Operator-local data migrations cannot declare a CI repair artifact."
-            exit 1
-          fi
-          if [ -n "$repair_migration_id" ]; then
-            case "$repair_migration_id" in
-              *[!0-9A-Za-z_]*)
-                echo "::error::Invalid production repair data migration ID."
-                exit 1
-                ;;
-            esac
-            if [ ! -d "supabase/data_migrations/$repair_migration_id" ]; then
-              echo "::error::Production repair data migration artifact does not exist."
-              exit 1
-            fi
-          fi
-          echo "migration_id=$migration_id" >> "$GITHUB_OUTPUT"
-          echo "repair_migration_id=$repair_migration_id" >> "$GITHUB_OUTPUT"
-          echo "execution_mode=$execution_mode" >> "$GITHUB_OUTPUT"
+        run: python3 scripts/database_history.py release --environment production
 
   historical_upgrade:
     name: Complete reviewed historical upgrade
@@ -91,6 +56,7 @@ jobs:
     concurrency:
       group: database-production
       cancel-in-progress: false
+      queue: max
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}

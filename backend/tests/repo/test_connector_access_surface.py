@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 import pytest
 
 from src.exceptions import BusinessException
-from src.repo.connector_service import ConnectorService
-from src.repo.models import Connector
+from src.platform.access.service import AccessService
+from src.platform.access.models import AccessSurface
 from src.platform.repository_target.models import ScopeTarget
 
 
@@ -14,19 +14,19 @@ NOW = datetime(2026, 5, 31, tzinfo=timezone.utc)
 
 
 def _connector(
-    provider: str,
+    kind: str,
     *,
     trigger: dict | None = None,
     connector_id: str | None = None,
-) -> Connector:
-    return Connector(
-        id=connector_id or f"c-{provider}",
+) -> AccessSurface:
+    return AccessSurface(
+        id=connector_id or f"c-{kind}",
         target=ScopeTarget(project_id="project-1", scope_id="scope-1"),
-        provider=provider,
-        name=provider.title(),
+        kind=kind,
+        name=kind.title(),
         direction=(
             "bidirectional"
-            if provider in {"git_remote", "cli", "agent"}
+            if kind in {"git_remote", "cli", "agent"}
             else "inbound"
         ),
         config={},
@@ -44,7 +44,7 @@ def _connector(
 
 
 class _FakeConnectorRepository:
-    def __init__(self, items: list[Connector] | None = None) -> None:
+    def __init__(self, items: list[AccessSurface] | None = None) -> None:
         self.items = items or []
 
     def list_by_project(
@@ -52,28 +52,28 @@ class _FakeConnectorRepository:
         project_id: str,
         *,
         scope_id: str | None = None,
-        provider: str | None = None,
+        kind: str | None = None,
         direction: str | None = None,
-    ) -> list[Connector]:
+    ) -> list[AccessSurface]:
         items = [item for item in self.items if item.project_id == project_id]
         if scope_id:
             items = [item for item in items if item.scope_id == scope_id]
-        if provider:
-            items = [item for item in items if item.provider == provider]
+        if kind:
+            items = [item for item in items if item.kind == kind]
         if direction:
             items = [item for item in items if item.direction == direction]
         return items
 
-    def insert(self, **_: object) -> Connector:
+    def insert(self, **_: object) -> AccessSurface:
         raise AssertionError("import-only connector creation should fail before insert")
 
-    def get(self, connector_id: str) -> Connector | None:
+    def get(self, connector_id: str) -> AccessSurface | None:
         for item in self.items:
             if item.id == connector_id:
                 return item
         return None
 
-    def update(self, connector_id: str, patch: dict) -> Connector | None:
+    def update(self, connector_id: str, patch: dict) -> AccessSurface | None:
         item = self.get(connector_id)
         if item is None:
             return None
@@ -86,7 +86,7 @@ class _FakeConnectorRepository:
 
 
 def test_list_defaults_to_access_surface_connectors() -> None:
-    service = ConnectorService(
+    service = AccessService(
         repository=_FakeConnectorRepository([
             _connector("git_remote"),
             _connector("cli"),
@@ -98,7 +98,7 @@ def test_list_defaults_to_access_surface_connectors() -> None:
     )
 
     visible = service.list("project-1")
-    assert [item.provider for item in visible] == [
+    assert [item.kind for item in visible] == [
         "git_remote",
         "cli",
         "notion",
@@ -106,7 +106,7 @@ def test_list_defaults_to_access_surface_connectors() -> None:
 
 
 def test_list_can_include_legacy_import_rows_for_migrations() -> None:
-    service = ConnectorService(
+    service = AccessService(
         repository=_FakeConnectorRepository([
             _connector("cli"),
             _connector("github", trigger={"type": "import_once"}),
@@ -115,17 +115,17 @@ def test_list_can_include_legacy_import_rows_for_migrations() -> None:
     )
 
     all_rows = service.list("project-1", access_surface_only=False)
-    assert [item.provider for item in all_rows] == ["cli", "github", "url"]
+    assert [item.kind for item in all_rows] == ["cli", "github", "url"]
 
 
 def test_create_rejects_github_access_connector() -> None:
-    service = ConnectorService(repository=_FakeConnectorRepository())
+    service = AccessService(repository=_FakeConnectorRepository())
 
     with pytest.raises(BusinessException, match="One-time imports are not Access connectors"):
         service.create(
             project_id="project-1",
             target=ScopeTarget(project_id="project-1", scope_id="scope-1"),
-            provider="github",
+            kind="github",
             direction="inbound",
             name="GitHub",
             config={},
@@ -137,13 +137,13 @@ def test_create_rejects_github_access_connector() -> None:
 
 
 def test_create_rejects_git_remote_connector() -> None:
-    service = ConnectorService(repository=_FakeConnectorRepository())
+    service = AccessService(repository=_FakeConnectorRepository())
 
     with pytest.raises(BusinessException, match="created per repository target"):
         service.create(
             project_id="project-1",
             target=ScopeTarget(project_id="project-1", scope_id="scope-1"),
-            provider="git_remote",
+            kind="git_remote",
             direction="bidirectional",
             name="Git Remote",
             config={},
@@ -155,13 +155,13 @@ def test_create_rejects_git_remote_connector() -> None:
 
 
 def test_create_rejects_import_once_connector() -> None:
-    service = ConnectorService(repository=_FakeConnectorRepository())
+    service = AccessService(repository=_FakeConnectorRepository())
 
     with pytest.raises(BusinessException, match="One-time imports are not Access connectors"):
         service.create(
             project_id="project-1",
             target=ScopeTarget(project_id="project-1", scope_id="scope-1"),
-            provider="url",
+            kind="url",
             direction="inbound",
             name="Imported URL",
             config={"source_url": "https://example.com"},
@@ -173,7 +173,7 @@ def test_create_rejects_import_once_connector() -> None:
 
 
 def test_delete_rejects_git_remote_builtin_surface() -> None:
-    service = ConnectorService(
+    service = AccessService(
         repository=_FakeConnectorRepository([
             _connector("git_remote", connector_id="surface-git"),
         ]),

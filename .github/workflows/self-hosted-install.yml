@@ -1,0 +1,53 @@
+name: Self-hosted Installation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Empty-stack installation (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, custom, upgrade]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Install deterministic browser tests
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Build, initialize, authenticate, write files and restart
+        run: python3 scripts/test_self_hosted_install.py --variant '${{ matrix.variant }}' --artifacts "$RUNNER_TEMP/install-results"
+      - name: Upload installation evidence (no environment or session files)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installation-${{ matrix.variant }}-${{ github.sha }}
+          path: ${{ runner.temp }}/install-results/
+          retention-days: 14
+  result:
+    name: Installation validation result
+    if: always()
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.install.result }}
+        run: test "$RESULT" = success

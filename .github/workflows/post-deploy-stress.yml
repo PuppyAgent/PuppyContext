@@ -33,32 +33,39 @@ on:
     # 04:00 UTC daily — low-traffic window
     - cron: '0 4 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   stress:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qubits'
+    environment: staging
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
       - name: Install uv
-        run: pip install uv
+        run: python -m pip install "uv==0.5.11"
 
       - name: Install backend deps (scripts only)
         working-directory: backend
-        run: uv sync
+        run: uv sync --locked
 
       - name: Run stress
         working-directory: backend
         env:
           QUBITS_TOKEN: ${{ secrets.QUBITS_TOKEN }}
+          STRESS_ITERATIONS: ${{ inputs.iterations || '30' }}
           PUPPYONE_API_URL: ${{ github.event.inputs.api_url || 'https://qubits-api.puppyone.ai' }}
         run: |
-          ITERS="${{ github.event.inputs.iterations || '30' }}"
-          uv run python scripts/railway_smoke.py --stress "$ITERS"
+          set -euo pipefail
+          python -c 'import os, re; value = os.environ["STRESS_ITERATIONS"]; assert re.fullmatch(r"[0-9]{1,3}", value) and 1 <= int(value) <= 100, "iterations must be 1..100"'
+          uv run python scripts/railway_smoke.py --stress "$STRESS_ITERATIONS"
 
       - name: Run 17-step canonical smoke
         working-directory: backend

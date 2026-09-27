@@ -4,15 +4,15 @@ from pathlib import Path
 
 MIGRATION = (
     Path(__file__).parents[3]
-    / "supabase/migrations/20260716020000_project_deletion_storage_and_org_guard.sql"
+    / "supabase/archive/before_b1/migrations/20260716020000_project_deletion_storage_and_org_guard.sql"
 )
 INVENTORY_REPAIR = (
     Path(__file__).parents[3]
-    / "supabase/migrations/20260718000000_repair_project_storage_inventory_control_plane.sql"
+    / "supabase/archive/before_b1/migrations/20260718000000_repair_project_storage_inventory_control_plane.sql"
 )
 INVENTORY_STATUS = (
     Path(__file__).parents[3]
-    / "supabase/migrations/20260720000000_project_storage_inventory_status_rpc.sql"
+    / "supabase/archive/before_b1/migrations/20260720000000_project_storage_inventory_status_rpc.sql"
 )
 REPOSITORY_TARGET_TEST = Path(__file__).parents[3] / "scripts/test-repository-target-migration.sh"
 

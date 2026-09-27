@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { createAuthServerClient } from '@/features/auth/supabase/server-client';
 import { cookies } from 'next/headers';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import {
-  getServerSupabaseUrl,
-  getSupabaseAnonKey,
   getRequestOrigin,
   isSafeRelativePath,
 } from '@/lib/server-env';
@@ -44,23 +42,13 @@ export async function GET(request: Request) {
 
   const cookieStore = await cookies();
 
-  const supabase = createServerClient(
-    getServerSupabaseUrl(),
-    getSupabaseAnonKey(),
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          cookieStore.delete({ name, ...options });
-        },
-      },
-    }
-  );
+  const supabase = createAuthServerClient({
+    cookies: {
+      getAll: () => cookieStore.getAll(),
+      setAll: values =>
+        values.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+    },
+  });
 
   const { error } = await supabase.auth.verifyOtp({ token_hash, type });
 

@@ -1,0 +1,35 @@
+# Isolated test-only SMTP sink. No messages leave the Compose network.
+services:
+  mail:
+    image: axllent/mailpit:v1.22.3
+    ports:
+      - "127.0.0.1:${MAIL_PORT:-18025}:8025"
+  auth:
+    environment:
+      API_EXTERNAL_URL: http://127.0.0.1:${SUPABASE_API_PORT}/auth/v1
+      GOTRUE_JWT_ISSUER: http://127.0.0.1:${SUPABASE_API_PORT}/auth/v1
+      GOTRUE_SITE_URL: http://127.0.0.1:${FRONTEND_PORT}
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_SMTP_HOST: mail
+      GOTRUE_SMTP_PORT: "1025"
+      GOTRUE_SMTP_ADMIN_EMAIL: auth@example.test
+      GOTRUE_SMTP_SENDER_NAME: PuppyOne Install Test
+      GOTRUE_SMTP_MAX_FREQUENCY: "1s"
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: "100"
+    depends_on:
+      mail:
+        condition: service_started
+  api:
+    environment:
+      SUPABASE_PUBLIC_URL: http://127.0.0.1:${SUPABASE_API_PORT}
+      FRONTEND_URL: http://127.0.0.1:${FRONTEND_PORT}
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_APP_URL: http://127.0.0.1:${FRONTEND_PORT}
+        NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:${SUPABASE_API_PORT}
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:${BACKEND_PORT}
+    environment:
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:${FRONTEND_PORT}
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:${SUPABASE_API_PORT}
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:${BACKEND_PORT}

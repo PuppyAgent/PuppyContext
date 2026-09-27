@@ -2,26 +2,29 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+history_tmp="$(mktemp -d "${TMPDIR:-/tmp}/puppy-history.XXXXXX")"
+history_workdir="$history_tmp/project"
+python3 "$repository_root/scripts/database_history.py" stage --output "$history_workdir"
 contract_rel="supabase/migrations/20260715000000_project_owned_repository_targets_contract_cutover.sql"
-contract_path="$repository_root/$contract_rel"
+contract_path="$history_workdir/$contract_rel"
 saved_contract="$(mktemp "${TMPDIR:-/tmp}/issue039-contract.XXXXXX.sql")"
 removal_rel="supabase/migrations/20260716000000_remove_workspace_binding.sql"
-removal_path="$repository_root/$removal_rel"
+removal_path="$history_workdir/$removal_rel"
 saved_removal="$(mktemp "${TMPDIR:-/tmp}/issue039-removal.XXXXXX.sql")"
 initialization_rel="supabase/migrations/20260716010000_project_initialization_control_plane.sql"
-initialization_path="$repository_root/$initialization_rel"
+initialization_path="$history_workdir/$initialization_rel"
 saved_initialization="$(mktemp "${TMPDIR:-/tmp}/issue039-initialization.XXXXXX.sql")"
 closure_rel="supabase/migrations/20260716020000_project_deletion_storage_and_org_guard.sql"
-closure_path="$repository_root/$closure_rel"
+closure_path="$history_workdir/$closure_rel"
 saved_closure="$(mktemp "${TMPDIR:-/tmp}/issue039-deletion-closure.XXXXXX.sql")"
 fence_rel="supabase/migrations/20260717000000_project_deletion_admission_fence.sql"
-fence_path="$repository_root/$fence_rel"
+fence_path="$history_workdir/$fence_rel"
 saved_fence="$(mktemp "${TMPDIR:-/tmp}/issue039-deletion-fence.XXXXXX.sql")"
 inventory_repair_rel="supabase/migrations/20260718000000_repair_project_storage_inventory_control_plane.sql"
-inventory_repair_path="$repository_root/$inventory_repair_rel"
+inventory_repair_path="$history_workdir/$inventory_repair_rel"
 saved_inventory_repair="$(mktemp "${TMPDIR:-/tmp}/issue039-inventory-repair.XXXXXX.sql")"
 inventory_status_rel="supabase/migrations/20260720000000_project_storage_inventory_status_rpc.sql"
-inventory_status_path="$repository_root/$inventory_status_rel"
+inventory_status_path="$history_workdir/$inventory_status_rel"
 saved_inventory_status="$(mktemp "${TMPDIR:-/tmp}/issue039-inventory-status.XXXXXX.sql")"
 database_url="${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
 export DATA_MIGRATION_DATABASE_URL="${DATA_MIGRATION_DATABASE_URL:-$database_url}"
@@ -83,6 +86,7 @@ cleanup() {
     restore_fence
     restore_inventory_repair
     restore_inventory_status
+    rm -rf "$history_tmp"
     rm -f "$saved_contract" "$saved_removal" "$saved_initialization" "$saved_closure" "$saved_fence" \
         "$saved_inventory_repair" "$saved_inventory_status"
 }
@@ -134,7 +138,7 @@ save_inventory_repair
 save_inventory_status
 (
     cd "$repository_root"
-    supabase db reset --no-seed
+    supabase db reset --local --no-seed --workdir "$history_workdir"
     psql "$database_url" -X -v ON_ERROR_STOP=1 \
         -f supabase/test_fixtures/repository_target_legacy_upgrade.sql
 )
@@ -147,7 +151,7 @@ run_data_migration 20260715_project_owned_repository_targets_preflight
 restore_contract
 (
     cd "$repository_root"
-    supabase migration up --local --include-all
+    supabase migration up --local --include-all --workdir "$history_workdir"
 
     psql "$database_url" -X -v ON_ERROR_STOP=1 \
         -c "INSERT INTO public.repository_scopes (id, project_id, name, path, exclude, max_mode) VALUES ('issue039-concurrent-scope', 'issue039-project', 'Concurrent Scope', 'concurrent/scope', '[]', 'rw')"
@@ -178,7 +182,7 @@ restore_inventory_repair
 restore_inventory_status
 (
     cd "$repository_root"
-    supabase migration up --local --include-all
+    supabase migration up --local --include-all --workdir "$history_workdir"
     psql "$database_url" -X -v ON_ERROR_STOP=1 \
         -f supabase/test_fixtures/workspace_binding_removal_assert.sql
 )
@@ -193,14 +197,14 @@ save_inventory_repair
 save_inventory_status
 (
     cd "$repository_root"
-    supabase db reset --no-seed
+    supabase db reset --local --no-seed --workdir "$history_workdir"
     psql "$database_url" -X -v ON_ERROR_STOP=1 \
         -f supabase/test_fixtures/repository_target_legacy_upgrade.sql
 )
 restore_contract
 if (
     cd "$repository_root"
-    supabase migration up --local --include-all
+    supabase migration up --local --include-all --workdir "$history_workdir"
 ); then
     echo "expected contract migration to reject a missing preflight receipt" >&2
     exit 1
@@ -226,7 +230,7 @@ save_inventory_repair
 save_inventory_status
 (
     cd "$repository_root"
-    supabase db reset --no-seed
+    supabase db reset --local --no-seed --workdir "$history_workdir"
     psql "$database_url" -X -v ON_ERROR_STOP=1 \
         -f supabase/test_fixtures/repository_target_corrupt_missing_root.sql
 )

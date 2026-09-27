@@ -10,6 +10,21 @@ schema files already shared through Qubits when this governance model was
 adopted. It permits exact historical promotion without exempting any new file
 from current policy.
 
+## Baseline archives
+
+All eight pre-B1 artifacts, including SQL and Python jobs, live unchanged in
+`../archive/before_b1/data_migrations/`. New artifacts are added here. The shared
+catalog resolves both locations by ID and rejects duplicates. Archive hashes
+are pinned in `../baselines/b1/manifest.json`; existing completion receipts keep
+their original IDs and checksums. Moving an artifact never marks it completed.
+B1-incompatible jobs are retired on B1 databases, but remain available to older
+installations that still satisfy their original schema prerequisites.
+
+`python3 scripts/database_history.py data-path <migration_id>` (repository root)
+resolves a location without connecting to a database. Release workflows use the
+same resolver. `puppyone-db verify-external-state <id>` verifies operator-run
+postconditions in a read-only transaction, without creating a completion receipt.
+
 ## Artifact contract
 
 Every released migration is an immutable directory:
@@ -43,8 +58,8 @@ DATA_MIGRATION_DATABASE_URL='postgresql://...' \
 ```
 
 `DATA_MIGRATION_DATABASE_URL` should use a session-mode pooler or direct
-PostgreSQL endpoint that supports advisory locks. The URI is passed to libpq via
-`PGDATABASE`, not on the process command line.
+PostgreSQL endpoint that supports advisory locks. Connection credentials are passed to libpq through
+environment variables, not on the process command line.
 
 Hosted runs bind the API URL and PostgreSQL URL to the same protected Supabase
 project ref. Direct and session-pooler URLs are supported; an unprovable target

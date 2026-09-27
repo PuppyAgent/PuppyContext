@@ -1,0 +1,10 @@
+# The upstream container registries no longer serve the community images.
+# Build the official security release from an immutable upstream commit.
+FROM golang:1.25.1-bookworm AS build
+RUN go install github.com/minio/minio@9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+COPY --from=build /go/bin/minio /usr/local/bin/minio
+EXPOSE 9000 9001
+ENTRYPOINT ["minio"]

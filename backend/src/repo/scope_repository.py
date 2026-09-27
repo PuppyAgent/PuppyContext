@@ -81,7 +81,7 @@ class RepositoryScopeRepository:
     ) -> Optional[ResolvedScopeCredential]:
         """Resolve one machine credential to its exact Scope target."""
 
-        from src.repo.access_surface_repository import AccessSurfaceRepository
+        from src.platform.access.surface_repository import AccessSurfaceRepository
 
         credential = AccessSurfaceRepository(self._client).resolve_scope_credential(
             access_key

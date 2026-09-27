@@ -15,6 +15,7 @@ from yaml.constructor import ConstructorError
 
 from .errors import ManifestError
 from .models import DataMigrationManifest
+from .schema_history import data_migration_directories, load_baseline
 
 TRANSACTION_CONTROL_RE = re.compile(
     r"^\s*(?:"
@@ -89,32 +90,45 @@ class DataMigrationCatalog:
     def load_all(self) -> list[DataMigrationArtifact]:
         if not self.root.is_dir():
             raise ManifestError(f"data migration directory does not exist: {self.root}")
-        symlinked_directories = [
-            path.name for path in sorted(self.root.iterdir()) if path.is_symlink()
-        ]
-        if symlinked_directories:
-            raise ManifestError(
-                "data migration entries cannot be symlinks: " + ", ".join(symlinked_directories)
-            )
-        missing_manifests = [
-            path.name
-            for path in sorted(self.root.iterdir())
-            if path.is_dir()
-            and not path.name.startswith(".")
-            and not (path / "manifest.yml").is_file()
-        ]
-        if missing_manifests:
-            raise ManifestError(
-                "data migration directories are missing manifest.yml: "
-                + ", ".join(missing_manifests)
-            )
+        directories = data_migration_directories(self.repository_root)
+        for directory in directories:
+            symlinked_directories = [
+                path.name for path in sorted(directory.iterdir()) if path.is_symlink()
+            ]
+            if symlinked_directories:
+                raise ManifestError(
+                    "data migration entries cannot be symlinks: " + ", ".join(symlinked_directories)
+                )
+            missing_manifests = [
+                path.name
+                for path in sorted(directory.iterdir())
+                if path.is_dir()
+                and not path.name.startswith(".")
+                and not (path / "manifest.yml").is_file()
+            ]
+            if missing_manifests:
+                raise ManifestError(
+                    "data migration directories are missing manifest.yml: "
+                    + ", ".join(missing_manifests)
+                )
         artifacts: list[DataMigrationArtifact] = []
         seen: set[str] = set()
-        for manifest_path in sorted(self.root.glob("*/manifest.yml")):
+        baseline = load_baseline(self.repository_root)
+        for manifest_path in sorted(
+            path for directory in directories for path in directory.glob("*/manifest.yml")
+        ):
             artifact = self._load(manifest_path)
             if artifact.manifest.id in seen:
                 raise ManifestError(f"duplicate migration id: {artifact.manifest.id}")
             seen.add(artifact.manifest.id)
+            if baseline and artifact.manifest.id in baseline["source_data_migrations"]:
+                expected = baseline["source_data_migrations"][artifact.manifest.id][
+                    "artifact_checksum"
+                ]
+                if artifact.checksum != expected:
+                    raise ManifestError(
+                        f"archived data artifact checksum changed: {artifact.manifest.id}"
+                    )
             artifacts.append(artifact)
         return artifacts
 

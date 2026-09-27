@@ -54,7 +54,7 @@ class ProjectCapability(StrEnum):
     SCOPE_MANAGE = "scope.manage"
     ACCESS_SURFACE_MANAGE = "access_surface.manage"
     ACCESS_SURFACE_ROTATE_SECRET = "access_surface.rotate_secret"
-    INTEGRATION_MANAGE = "integration.manage"
+    SYNCHRONIZE_MANAGE = "integration.manage"
 
 
 class ProjectAction(StrEnum):
@@ -80,7 +80,8 @@ class ProjectAction(StrEnum):
     CREDENTIAL_MANAGE = "access_surface.rotate_secret"
     MCP_MANAGE = "mcp.manage"
     SANDBOX_MANAGE = "sandbox.manage"
-    INTEGRATION_MANAGE = "integration.manage"
+    SYNCHRONIZE_MANAGE = "integration.manage"
+    IMPORT_SOURCE_MANAGE = "import.source.manage"
     INGEST_WRITE = "ingest.write"
     TOOL_USE = "tool.use"
 
@@ -113,7 +114,7 @@ _ADMIN_CAPABILITIES = _EDITOR_CAPABILITIES | frozenset(
         ProjectCapability.SCOPE_MANAGE,
         ProjectCapability.ACCESS_SURFACE_MANAGE,
         ProjectCapability.ACCESS_SURFACE_ROTATE_SECRET,
-        ProjectCapability.INTEGRATION_MANAGE,
+        ProjectCapability.SYNCHRONIZE_MANAGE,
     }
 )
 
@@ -146,7 +147,8 @@ ACTION_CAPABILITY: dict[ProjectAction, ProjectCapability] = {
     ProjectAction.CREDENTIAL_MANAGE: ProjectCapability.ACCESS_SURFACE_ROTATE_SECRET,
     ProjectAction.MCP_MANAGE: ProjectCapability.ACCESS_SURFACE_MANAGE,
     ProjectAction.SANDBOX_MANAGE: ProjectCapability.ACCESS_SURFACE_MANAGE,
-    ProjectAction.INTEGRATION_MANAGE: ProjectCapability.INTEGRATION_MANAGE,
+    ProjectAction.SYNCHRONIZE_MANAGE: ProjectCapability.SYNCHRONIZE_MANAGE,
+    ProjectAction.IMPORT_SOURCE_MANAGE: ProjectCapability.SYNCHRONIZE_MANAGE,
     ProjectAction.INGEST_WRITE: ProjectCapability.CONTENT_WRITE,
     ProjectAction.TOOL_USE: ProjectCapability.AGENT_RUN,
 }

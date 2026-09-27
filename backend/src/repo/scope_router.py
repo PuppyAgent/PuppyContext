@@ -147,8 +147,8 @@ def delete_scope(
         raise HTTPException(status_code=404, detail="Scope not found")
     # Refuse deletion while user-configured Surfaces or external Connections
     # still target the Scope. Standard Git/CLI Surfaces cascade with it.
-    from src.repo.connector_repository import ConnectorRepository
-    conn_repo = ConnectorRepository()
+    from src.platform.access.model_repository import AccessModelRepository
+    conn_repo = AccessModelRepository()
     n_third_party = conn_repo.count_third_party_for_scope(scope_id)
     service.delete(scope_id, has_bound_connectors=n_third_party > 0)
 

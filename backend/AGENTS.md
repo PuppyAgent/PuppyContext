@@ -84,17 +84,13 @@ backend/
 │   │   └── table/             # 结构化数据表 (JSON Pointer)
 │   ├── tool/                  # 工具注册 & 搜索索引
 │   │
-│   ├── connectors/            # 连接器
-│   │   ├── manager/           # Access surface CRUD (Project-root / Scope target)
-│   │   ├── agent/             # AI Agent (config/chat/MCP 绑定)
-│   │   ├── datasource/        # SaaS 数据源 (Gmail/GitHub/Notion/...)
-│   │   │   └── oauth/         # OAuth 授权流程 & token 存储
-│   │   ├── filesystem/        # 双向本地文件夹同步 (OpenClaw)
-│   │   ├── database/          # 外部数据库连接
-│   │   ├── mcp_endpoint/      # MCP 端点 CRUD & API key
-│   │   └── sandbox_endpoint/  # Sandbox 端点 CRUD & exec
+│   ├── provider/              # 共用外部来源能力：适配器、OAuth、数据库 query
 │   │
 │   ├── platform/              # 平台服务
+│   │   ├── upload/            # 上传业务、旧 ingest 上传 URL 的实现
+│   │   ├── imports/           # 一次性导入，含数据库保存
+│   │   ├── synchronize/       # 持续绑定/SyncRun；github/ 在这里
+│   │   ├── access/            # AccessSurface；agent/MCP/sandbox 在 adapters/
 │   │   ├── auth/              # JWT 认证
 │   │   ├── organization/      # 组织管理
 │   │   ├── project/           # 项目管理
@@ -208,11 +204,11 @@ audit/transaction/outbox。
 | `/api/v1/projects` | platform/project | 项目管理 |
 | `/api/v1/organizations` | platform/organization | 组织管理 |
 | `/api/v1/tools` | tool | 工具注册 |
-| `/api/v1/agents` | connectors/agent | Agent SSE 聊天 |
-| `/api/v1/agent-config` | connectors/agent/config | Agent CRUD |
-| `/api/v1/mcp` | connectors/agent/mcp | MCP v3 工具绑定 |
-| `/api/v1/sync` | connectors/datasource | 数据源同步 |
-| `/api/v1/access` | connectors/manager | 统一 Access 管理 |
+| `/api/v1/agents` | platform/access/adapters/agent | Agent SSE 聊天 |
+| `/api/v1/agent-config` | platform/access/adapters/agent/config | Agent CRUD |
+| `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 工具绑定 |
+| `/api/v1/integrations` | platform/synchronize | 数据源同步 |
+| `/api/v1/access` | platform/access | 统一 Access 管理 |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |
 | `/internal` | internal | 内部 API |
@@ -300,7 +296,7 @@ Nixpacks 也会触发 Python 检测并尝试默认安装流程，把上面的 bu
 | 未设置 / `api` | `uvicorn src.main:app` (FastAPI) |
 | `file_worker` | `arq src.ingest.file.jobs.worker.WorkerSettings` |
 | `import_worker` | `arq src.platform.imports.worker.WorkerSettings` |
-| `sync_worker` | `arq src.platform.integrations.worker.WorkerSettings` |
+| `sync_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
 | `mcp_server` | `uvicorn mcp_service.server:app` |
 
 每个 Railway service 在 Variables 里设 `SERVICE_ROLE` 即可，不需要复制代码。

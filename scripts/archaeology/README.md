@@ -67,8 +67,8 @@ The 2026-04-18 archaeology produced ~10 one-shot scripts (`apply-alignment.sh`, 
 
 If you ever need to look at how the alignment was actually done, see:
 
-- [`supabase/migrations/20260418040000_align_legacy_drift.sql`](../../supabase/migrations/20260418040000_align_legacy_drift.sql) — the bulk reconciliation
-- [`supabase/migrations/20260418050000_soften_access_points_user_fk.sql`](../../supabase/migrations/20260418050000_soften_access_points_user_fk.sql) — the FK softening
+- [`supabase/archive/before_b1/migrations/20260418040000_align_legacy_drift.sql`](../../supabase/archive/before_b1/migrations/20260418040000_align_legacy_drift.sql) — the bulk reconciliation
+- [`supabase/archive/before_b1/migrations/20260418050000_soften_access_points_user_fk.sql`](../../supabase/archive/before_b1/migrations/20260418050000_soften_access_points_user_fk.sql) — the FK softening
 - [`docs/archaeology/ALIGNMENT_COMPLETE.md`](../../docs/archaeology/ALIGNMENT_COMPLETE.md) — full narrative
 
 The deleted scripts can also be recovered from git history if needed.

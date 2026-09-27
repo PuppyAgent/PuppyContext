@@ -25,6 +25,7 @@ jobs:
     concurrency:
       group: database-${{ inputs.environment }}
       cancel-in-progress: false
+      queue: max
     env:
       TARGET_ENVIRONMENT: ${{ inputs.environment }}
       MIGRATION_ID: ${{ inputs.migration_id }}

@@ -18,8 +18,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.connectors.manager import router as access_router_mod
-from src.connectors.manager.router import router as access_router
+from src.platform.access import router as access_router_mod
+from src.platform.access.router import router as access_router
 from src.exception_handler import app_exception_handler
 from src.exceptions import AppException
 from src.platform.auth.dependencies import get_current_user

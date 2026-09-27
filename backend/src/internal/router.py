@@ -908,7 +908,7 @@ async def move_node_internal(
     dependencies=[Depends(verify_internal_secret)],
 )
 async def get_sandbox_endpoint_by_key(access_key: str = Body(..., embed=True)):
-    from src.connectors.sandbox_endpoint.repository import SandboxEndpointRepository
+    from src.platform.access.adapters.sandbox_endpoint.repository import SandboxEndpointRepository
 
     repo = SandboxEndpointRepository()
     endpoint = repo.get_by_access_key(access_key)

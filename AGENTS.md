@@ -62,7 +62,7 @@ It aggregates information scattered across various sources into a unified Contex
 
 - **Agent management** — Create agents, bind tools, control access scope, SSE streaming chat
 - **Full CLI coverage** — Every operation available via command line, enabling AI coding tools like Claude Code to drive the platform directly
-- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through a single `/api/v1/access` entry point. `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external SaaS data sources live separately in `connectors`.
+- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through a single `/api/v1/access` entry point. `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external source relationships live in `connections`.
 
 ## Active Development Directories
 
@@ -110,25 +110,7 @@ backend/
 │   │   └── table/             #     Structured data tables (JSON Pointer)
 │   ├── tool/                  # Tool registration & search index
 │   │
-│   ├── connectors/            # Access types
-│   │   ├── manager/           #   Access surface CRUD (Project-root or Scope target)
-│   │   ├── datasource/        #   SaaS data source providers (Gmail/GitHub/Notion/...)
-│   │   │   ├── gmail/         #     Gmail connector
-│   │   │   ├── github/        #     GitHub connector
-│   │   │   ├── google_drive/  #     Google Drive connector
-│   │   │   ├── google_docs/   #     Google Docs connector
-│   │   │   ├── google_sheets/ #     Google Sheets connector
-│   │   │   ├── google_calendar/ #   Google Calendar connector
-│   │   │   ├── google_search_console/ # GSC connector
-│   │   │   ├── url/           #     URL/web page connector
-│   │   │   └── _base.py       #     BaseConnector & ConnectorSpec
-│   │   ├── filesystem/        #   Bidirectional local folder sync via Git Remote / CLI
-│   │   ├── database/          #   External database connector
-│   │   ├── agent/             #   AI agents (config, chat, MCP tool binding)
-│   │   │   ├── config/        #     Agent CRUD & access permissions
-│   │   │   └── mcp/           #     MCP v3 tool binding & proxy
-│   │   ├── mcp_endpoint/      #   MCP endpoint CRUD & API key
-│   │   └── sandbox_endpoint/  #   Sandbox endpoint CRUD & exec
+│   ├── provider/              # External-source adapters, OAuth, database capabilities
 │   │
 │   ├── platform/              # Platform services
 │   │   ├── auth/              #   JWT auth (Supabase Auth)
@@ -173,7 +155,7 @@ backend/
 
 ### Database Tables
 
-All tables use plural snake_case names. The "unified access" architecture serves agents, MCP endpoints, sandbox endpoints, and Git-remote/CLI credentials through `access_surfaces`, differentiated by `kind` and targeted by `(project_id, nullable scope_id)`. NULL means the Project-owned root; a non-NULL value references a true non-empty-path row in `repository_scopes`. Every machine secret lives hash-only in `access_surface_credentials` and is revealed only on issuance. Provider config must never contain credentials. External SaaS data-source integrations live separately in `connectors`.
+All tables use plural snake_case names. The "unified access" architecture serves agents, MCP endpoints, sandbox endpoints, and Git-remote/CLI credentials through `access_surfaces`, differentiated by `kind` and targeted by `(project_id, nullable scope_id)`. NULL means the Project-owned root; a non-NULL value references a true non-empty-path row in `repository_scopes`. Every machine secret lives hash-only in `access_surface_credentials` and is revealed only on issuance. Provider config must never contain credentials. External source relationships live in `connections`, and executions in `sync_runs`.
 
 | Table | Repository | Description |
 |-------|-----------|-------------|
@@ -183,11 +165,11 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `org_members` | `organization/repository.py` | Organization membership |
 | `org_invitations` | `organization/repository.py` | Organization invitations |
 | `profiles` | `profile/repository.py` | User profiles |
-| `access_surfaces` | `connectors/manager/router.py`, `repo/access_surface_repository.py` | Unified access surfaces keyed by `kind`, targeting Project root or one Scope through nullable `scope_id` |
+| `access_surfaces` | `platform/access/router.py`, `platform/access/surface_repository.py` | Unified access surfaces keyed by `kind`, targeting Project root or one Scope through nullable `scope_id` |
 | `repository_scopes` | `repo/scope_repository.py`, `repo/scope_service.py` | Non-root subtree geometry (`path`, `exclude`, `max_mode`); never a repository or credential owner |
-| `connectors` | `repo/connector_repository.py`, `repo/connector_service.py` | External SaaS data-source integrations (Gmail/GitHub/Notion/...) |
-| `access_permissions` | `connectors/agent/config/repository.py` | Access surface ↔ content node permissions |
-| `access_tools` | `connectors/agent/config/repository.py`, `tool/service.py` | Access surface ↔ tool bindings |
+| `connections` / `sync_runs` | `platform/synchronize/repository.py`, `platform/synchronize/run_repository.py` | External source relationships and their executions |
+| `access_permissions` | `platform/access/adapters/agent/config/repository.py` | Access surface ↔ content node permissions |
+| `access_tools` | `platform/access/adapters/agent/config/repository.py`, `tool/service.py` | Access surface ↔ tool bindings |
 | `content_nodes` | _(dropped — replaced by Version Engine Git trees in object storage)_ | Legacy content tree |
 | `tools` | `supabase/tools/repository.py` | Registered tools |
 | `access_surface_credentials` | `repo/access_credentials.py` | Hash-only runtime credentials, including independently revocable user Git credentials; never stores a device, folder, or checkout identity |
@@ -195,7 +177,7 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `uploads` | `upload/file/tasks/repository.py` | File upload/ingest tasks |
 | `etl_rules` | `upload/file/rules/repository_supabase.py` | ETL transformation rules |
 | `context_publishes` | `supabase/context_publish/repository.py` | Public JSON short links |
-| `oauth_connections` | `connectors/datasource/oauth/repository.py` | OAuth integrations |
+| `oauth_connections` | `provider/oauth/repository.py` | OAuth integrations |
 | `chat_sessions` | `agent/chat/repository.py` | Agent chat sessions |
 | `chat_messages` | `agent/chat/repository.py` | Agent chat messages |
 | `agent_execution_logs` | `agent/config/repository.py`, `scheduler/jobs/agent_job.py` | Scheduled agent execution logs |
@@ -217,13 +199,13 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `/api/v1/content/{project_id}` | version_engine/routers/content_router | Versioned content tree, write, history, diff, rollback |
 | `/api/v1/tables` | table | Data tables & JSON Pointer operations |
 | `/api/v1/tools` | tool | Tool registration & search index |
-| `/api/v1/agents` | connectors/agent | Agent SSE streaming chat |
-| `/api/v1/agent-config` | connectors/agent/config | Agent CRUD & access permissions |
-| `/api/v1/mcp` | connectors/agent/mcp | MCP v3 tool binding & proxy |
-| `/api/v1/mcp-endpoints` | connectors/mcp_endpoint | MCP endpoint CRUD & API key |
-| `/api/v1/sandbox-endpoints` | connectors/sandbox_endpoint | Sandbox endpoint CRUD & exec |
-| `/api/v1/access` | connectors/manager | Unified access management (all types) |
-| `/api/v1/sync` | connectors/datasource | Data source sync |
+| `/api/v1/agents` | platform/access/adapters/agent | Agent SSE streaming chat |
+| `/api/v1/agent-config` | platform/access/adapters/agent/config | Agent CRUD & access permissions |
+| `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 tool binding & proxy |
+| `/api/v1/mcp-endpoints` | platform/access/adapters/mcp_endpoint | MCP endpoint CRUD & API key |
+| `/api/v1/sandbox-endpoints` | platform/access/adapters/sandbox_endpoint | Sandbox endpoint CRUD & exec |
+| `/api/v1/access` | platform/access | Unified access management (all types) |
+| `/api/v1/integrations` | platform/synchronize | Data source sync |
 | `/api/v1/filesystem` | connectors/filesystem | Filesystem access lifecycle |
 | `/api/v1/ingest` | upload | File/URL ingestion ETL |
 | `/api/v1/ap-fs` | version_engine/routers/access_point_fs | Puppyone CLI scoped filesystem API |
@@ -232,7 +214,7 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `/api/v1/workspace` | workspace | Workspace management |
 | `/api/v1/db-connector` | db_connector | External database access |
 | `/api/v1/publishes` | context_publish | Public JSON short links |
-| `/api/v1/oauth` | connectors/datasource/oauth | OAuth authorization (9+ platforms) |
+| `/api/v1/oauth` | provider/oauth | OAuth authorization (9+ platforms) |
 | `/api/v1/auth` | auth | Authentication (login/refresh) |
 | `/api/v1/analytics` | analytics | Usage statistics |
 | `/api/v1/profile` | profile | User profile & onboarding |
@@ -450,3 +432,17 @@ Both the frontend (`app/api/sandbox/route.ts`) and backend (`src/infra/sandbox/`
 | `scripts/` | Utility scripts |
 | `todo/` | Todo items |
 | `.github/` | GitHub Actions & CI |
+
+
+## Four entrypoint ownership rules (ISSUE-048)
+
+- `platform/upload`: local uploads; `platform/imports`: external snapshots.
+- `platform/synchronize`: durable source bindings and runs, including `github/`.
+- `platform/access`: AccessSurface (`kind`, `surface_id`), Git/CLI/Agent/MCP/Sandbox access.
+- Shared `provider/` supplies adapters to Import and Synchronize; it never imports
+  these entrypoint lifecycles or publishes Version Engine writes.
+- Old HTTP names are wire contracts. Do not restore old Python business modules.
+- Do not rename physical tables or serialized job names as part of a source move.
+  Database/internal compatibility cleanup is separately tracked by ISSUE-049.
+- Run `uv run pytest -q -m 'not e2e and not integration and not network'` from
+  `backend/`; this includes dependency, OpenAPI and ARQ compatibility gates.

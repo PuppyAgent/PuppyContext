@@ -1,0 +1,55 @@
+name: Verify Database Baseline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'supabase/baselines/**'
+      - 'supabase/archive/**'
+      - 'backend/src/infra/data_migrations/**'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - 'supabase/test_fixtures/**'
+      - 'scripts/database_baseline.py'
+      - 'backend/tests/infra/data_migrations/test_baseline.py'
+      - '.github/workflows/prepare-baseline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Baseline fresh-install and upgrade equivalence
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1
+        with:
+          version: '2.107.0'
+      - name: Use the pinned Supabase images from Docker Hub
+        run: echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io" >> "$GITHUB_ENV"
+      - name: Rebuild the committed baseline and verify upgrades
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Main validates the reviewed source. It must never regenerate B1.
+          test -f supabase/baselines/b1/manifest.json
+          python3 scripts/database_baseline.py --evidence "$RUNNER_TEMP/baseline-verification.json" verify --candidate supabase/baselines/b1
+      - name: Upload successfully verified candidate
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: database-baseline-b1
+          path: |
+            ${{ runner.temp }}/baseline-b1/
+            ${{ runner.temp }}/baseline-verification.json
+          if-no-files-found: ignore
+          retention-days: 14

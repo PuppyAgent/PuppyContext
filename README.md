@@ -47,12 +47,14 @@ Run the full stack locally with Docker. The only prerequisite is [Docker](https:
 
 ```bash
 git clone https://github.com/puppyone-ai/puppyone-cloud.git
-cd puppyone/docker
+cd puppyone-cloud/docker
 cp .env.example .env
-docker compose up -d
+docker compose up --build -d --wait
 ```
 
-This starts everything — PostgreSQL, Auth, API gateway, Redis, MinIO, backend, and frontend — in a single command. The database schema is applied automatically on first run.
+This starts PostgreSQL 17, Auth, API gateway, Redis, MinIO, backend, and frontend. A separate migration task applies the committed B1 baseline and all subsequent files in `supabase/migrations`, using Supabase's migration history. The API waits for migration and storage initialization to succeed. No PuppyPay checkout or paid API key is required for core file operations.
+
+The supplied configuration is for local use. Existing PostgreSQL 15 data volumes require an explicit database upgrade; do not replace their image or delete their volumes to make startup succeed. See [installation and upgrade validation](docs/architecture/14-self-hosted-installation.md).
 
 The Docker defaults already separate browser-facing URLs (`localhost`) from container-internal service URLs (`api`, `kong`), so the same setup works for both client-side and Next.js server-side requests.
 
@@ -67,7 +69,7 @@ The backend container also mounts the host Docker socket and a dedicated sandbox
 
 > **Security note:** The local Docker stack enables Docker-backed sandboxes by sharing the host Docker daemon with the backend container. This is convenient for local self-hosting, but for remote or multi-tenant deployments you should prefer `SANDBOX_TYPE=e2b` with an `E2B_API_KEY`.
 
-The first startup may take 1-2 minutes. Then open `http://localhost:3000`. If the web app is not reachable yet, run `docker compose ps`.
+The first startup builds both application images and may take several minutes. Once the command succeeds, open `http://localhost:3000`. If startup fails, inspect `docker compose ps -a` and `docker compose logs migrate storage-init api`.
 
 Optional: to enable agent chat in the self-hosted stack, add your `ANTHROPIC_API_KEY` to `docker/.env` and restart:
 

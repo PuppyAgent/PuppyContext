@@ -11,7 +11,7 @@ from src.exceptions import (
     NotFoundException,
     PermissionException,
 )
-from src.connectors.mcp_cache import invalidate_mcp_surface_cache
+from src.platform.access.adapters.mcp_cache import invalidate_mcp_surface_cache
 from src.infra.supabase.dependencies import get_supabase_repository
 from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 from src.platform.authorization.models import ProjectAction
@@ -120,13 +120,13 @@ class ToolService:
         - Invalidate by access-surface id, so rotation never needs to retrieve
           a stored plaintext key.
         """
-        from src.connectors.agent.config.repository import AgentRepository
+        from src.platform.access.adapters.agent.config.repository import AgentRepository
 
         try:
             agent_repo = AgentRepository()
             seen_surfaces = set()
 
-            for conn_id in agent_repo.list_access_point_ids_by_tool(tool_id):
+            for conn_id in agent_repo.list_access_surface_ids_by_tool(tool_id):
                 agent = agent_repo.get_by_id(conn_id)
                 if not agent or not agent.mcp_enabled:
                     continue
@@ -160,12 +160,12 @@ class ToolService:
         Check if updating tool name would conflict with sibling tools
         in the same connection (Agent or MCP).
         """
-        from src.connectors.agent.config.repository import AgentRepository
+        from src.platform.access.adapters.agent.config.repository import AgentRepository
 
         try:
             agent_repo = AgentRepository()
 
-            for conn_id in agent_repo.list_access_point_ids_by_tool(tool_id):
+            for conn_id in agent_repo.list_access_surface_ids_by_tool(tool_id):
                 agent_tools = agent_repo.get_tools_by_agent_id(conn_id)
                 self._check_sibling_name_conflict(tool_id, user_id, new_name, conn_id, agent_tools)
         except BusinessException:

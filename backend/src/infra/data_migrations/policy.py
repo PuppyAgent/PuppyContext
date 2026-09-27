@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .catalog import DataMigrationCatalog
 from .errors import ManifestError
+from .schema_history import historical_source, load_baseline
 
 SCHEMA_BASELINE_RELATIVE = Path("supabase/data_migrations/schema_history_baseline.json")
 EXTERNAL_STEP_RE = re.compile(r"(?:\bpython\b|\.py\b|\bscripts?/)", re.IGNORECASE)
@@ -51,7 +52,7 @@ def historical_compatibility(repository: Path) -> set[str]:
         for name, checksum in hashes.items():
             if SCHEMA_MIGRATION_NAME_RE.fullmatch(name) is None:
                 raise ValueError("invalid schema filename")
-            source = repository / "supabase/migrations" / name
+            source = historical_source(repository, name)
             if hashlib.sha256(source.read_bytes()).hexdigest() != checksum:
                 raise ValueError(f"historical schema checksum changed: {name}")
         if not names <= hashes.keys():
@@ -91,6 +92,7 @@ def _schema_history_baseline(catalog: DataMigrationCatalog) -> dict[str, str]:
 
 
 def git_changed_paths(repository_root: Path, base_ref: str) -> list[ChangedPath]:
+    validate_baseline_transition(repository_root, base_ref)
     result = subprocess.run(
         [
             "git",
@@ -102,6 +104,8 @@ def git_changed_paths(repository_root: Path, base_ref: str) -> list[ChangedPath]
             "supabase/migrations",
             "supabase/data_migrations",
             "supabase/releases",
+            "supabase/archive",
+            "supabase/baselines",
         ],
         cwd=repository_root,
         check=False,
@@ -122,6 +126,71 @@ def git_changed_paths(repository_root: Path, base_ref: str) -> list[ChangedPath]
     return changes
 
 
+def validate_baseline_transition(root: Path, base_ref: str) -> None:
+    """An archive move cannot rewrite released bytes by changing its manifest."""
+    baseline = load_baseline(root)
+    if not baseline:
+        return
+    ancestor = subprocess.run(
+        ["git", "merge-base", base_ref, "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    old_manifest = subprocess.run(
+        ["git", "show", f"{ancestor}:supabase/baselines/b1/manifest.json"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if old_manifest.returncode == 0:
+        previous = json.loads(old_manifest.stdout)
+        if previous.get("status") == "active" and previous != baseline:
+            raise ManifestError("active baseline manifest is immutable; introduce a new baseline")
+        if (
+            previous["source_migrations"] != baseline["source_migrations"]
+            or previous["files"] != baseline["files"]
+        ):
+            raise ManifestError("baseline source inventory or SQL changed during activation")
+    for name, expected in baseline["source_migrations"].items():
+        directory = (
+            baseline["archive"]
+            if old_manifest.returncode == 0 and previous.get("status") == "active"
+            else "supabase/migrations"
+        )
+        source = subprocess.run(
+            ["git", "show", f"{ancestor}:{directory}/{name}"],
+            cwd=root,
+            capture_output=True,
+        )
+        if source.returncode or hashlib.sha256(source.stdout).hexdigest() != expected:
+            raise ManifestError(f"baseline archive does not preserve base-branch SQL: {name}")
+    for migration_id, record in baseline["source_data_migrations"].items():
+        directory = (
+            previous["data_archive"]
+            if old_manifest.returncode == 0 and previous.get("data_archive")
+            else "supabase/data_migrations"
+        )
+        prefix = f"{directory}/{migration_id}"
+        names = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", f"{ancestor}:{prefix}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        if names.returncode or set(names.stdout.splitlines()) != set(record["files"]):
+            raise ManifestError(f"data archive differs from base-branch inventory: {migration_id}")
+        for name, expected in record["files"].items():
+            source = subprocess.run(
+                ["git", "show", f"{ancestor}:{prefix}/{name}"], cwd=root, capture_output=True
+            )
+            if source.returncode or hashlib.sha256(source.stdout).hexdigest() != expected:
+                raise ManifestError(
+                    f"data archive does not preserve base-branch bytes: {migration_id}/{name}"
+                )
+
+
 def validate_repository_policy(
     catalog: DataMigrationCatalog,
     changes: list[ChangedPath],
@@ -130,6 +199,15 @@ def validate_repository_policy(
     violations: list[str] = []
     baseline = _schema_history_baseline(catalog)
     historical = historical_compatibility(catalog.repository_root)
+    active_baseline = load_baseline(catalog.repository_root)
+    archived = active_baseline["source_migrations"] if active_baseline else {}
+    archived_data_paths = {
+        f"{active_baseline['data_archive']}/{migration_id}/{name}"
+        for migration_id, record in (active_baseline or {})
+        .get("source_data_migrations", {})
+        .items()
+        for name in record["files"]
+    }
 
     versions: dict[str, list[str]] = {}
     for migration_path in sorted(
@@ -143,13 +221,22 @@ def validate_repository_policy(
             )
             continue
         versions.setdefault(match.group("version"), []).append(migration_path.name)
+        if (
+            active_baseline
+            and migration_path.name != Path(active_baseline["migration"]).name
+            and match.group("version") <= Path(active_baseline["migration"]).name[:14]
+        ):
+            violations.append(
+                f"new schema migrations must follow the active baseline: {migration_path.name}"
+            )
     for version, names in versions.items():
         if len(names) > 1:
             violations.append(f"duplicate schema migration version {version}: {', '.join(names)}")
 
     for name, expected_checksum in baseline.items():
-        migration_path = catalog.repository_root / "supabase" / "migrations" / name
-        if not migration_path.is_file():
+        try:
+            migration_path = historical_source(catalog.repository_root, name)
+        except ManifestError:
             violations.append(f"grandfathered schema migration is missing: {name}")
             continue
         actual_checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
@@ -159,6 +246,18 @@ def validate_repository_policy(
     for change in changes:
         path = change.path
         status = change.status[0]
+        if path in archived_data_paths:
+            if change.status not in {"A", "R100"}:
+                violations.append(f"archived data artifact is immutable: {path}")
+            continue
+        if path.startswith("supabase/archive/before_b1/data_migrations/"):
+            violations.append(f"unregistered data archive: {path}")
+            continue
+        if path.startswith("supabase/archive/") and path.endswith(".sql"):
+            if not active_baseline or path != f"{active_baseline['archive']}/{Path(path).name}":
+                violations.append(f"unregistered schema archive: {path}")
+            elif Path(path).name not in archived or status not in {"A", "R"}:
+                violations.append(f"archived schema SQL is immutable: {path}")
         if path == HISTORICAL_RELEASE.as_posix() and status != "A":
             violations.append("historical release plan is immutable after adoption")
         if path.startswith("supabase/migrations/") and path.endswith(".sql"):
@@ -167,6 +266,19 @@ def validate_repository_policy(
                 violations.append(f"schema migrations must be direct files: {path}")
                 continue
             if status != "A":
+                if (
+                    active_baseline
+                    and path == active_baseline["migration"]
+                    and change.status == "R100"
+                ):
+                    continue
+                if (
+                    relative_schema_path.name in archived
+                    and change.status in {"D", "R100"}
+                    and not (catalog.repository_root / path).exists()
+                ):
+                    # Exact bytes have already been checked in the archive.
+                    continue
                 violations.append(
                     f"applied/shared schema migrations are immutable; add a forward file: {path}"
                 )
@@ -180,6 +292,9 @@ def validate_repository_policy(
             if full_path.name in baseline or full_path.name in historical:
                 # Pre-governance files may contain legacy patterns, but the
                 # baseline permits only their exact, already-shared bytes.
+                continue
+            if active_baseline and path == active_baseline["migration"]:
+                # Generated, verified schema replacement, not a new data step.
                 continue
             text = full_path.read_text(encoding="utf-8")
             external_match = EXTERNAL_STEP_RE.search(text)
@@ -230,6 +345,14 @@ def validate_repository_policy(
                     violations.append("schema history baseline is immutable after adoption")
                 continue
             full_path = catalog.repository_root / relative
+            if (
+                active_baseline
+                and change.status in {"D", "R100"}
+                and not full_path.exists()
+                and f"{active_baseline['data_archive']}/{'/'.join(relative.parts[2:])}"
+                in archived_data_paths
+            ):
+                continue
             if full_path.is_symlink():
                 violations.append(f"data migration artifacts cannot be symlinks: {path}")
             # An artifact may be assembled freely in its introducing PR. Once

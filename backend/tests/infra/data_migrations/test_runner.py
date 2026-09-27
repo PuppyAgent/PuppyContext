@@ -124,6 +124,37 @@ def test_verify_requires_a_durable_completion_receipt(tmp_path: Path) -> None:
         runner.verify("20260712_example")
 
 
+def test_external_verification_checks_state_without_creating_a_receipt(tmp_path: Path):
+    catalog = DataMigrationCatalog(_repository(tmp_path))
+    database = FakeDatabase()
+    runner = DataMigrationRunner(catalog, database, environment={}, source_sha="exact-head")
+    result = runner.verify_external_state("20260712_example")
+    assert result["artifact_checksum"] == catalog.get("20260712_example").checksum
+    assert result["source_sha"] == "exact-head"
+    assert result["verification"] == "external_state"
+    assert database.verified == [catalog.get("20260712_example").verify_path]
+    assert not database.receipts and not database.sql_runs
+
+
+def test_external_verification_rejects_missing_schema_and_failed_postcondition(tmp_path: Path):
+    catalog = DataMigrationCatalog(_repository(tmp_path))
+    database = FakeDatabase()
+    runner = DataMigrationRunner(catalog, database, environment={}, source_sha="test")
+    database.versions.clear()
+    with pytest.raises(PrerequisiteError, match="schema is missing"):
+        runner.verify_external_state("20260712_example")
+    assert not database.verified
+    database.versions = {"20260712010000"}
+
+    def fail(*args, **kwargs):
+        raise PrerequisiteError("postcondition failed")
+
+    database.verify = fail
+    with pytest.raises(PrerequisiteError, match="postcondition failed"):
+        runner.verify_external_state("20260712_example")
+    assert not database.receipts
+
+
 def test_explicit_empty_environment_does_not_inherit_process_secrets(
     tmp_path: Path, monkeypatch
 ) -> None:

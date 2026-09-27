@@ -1,0 +1,282 @@
+"""HTTP API for connectors CRUD + run orchestration.
+
+Mounted at /api/v1/projects/{project_id}/connectors.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from src.common_schemas import ApiResponse
+from src.exceptions import AppException
+from src.platform.auth.dependencies import get_current_user
+from src.platform.auth.models import CurrentUser
+from src.platform.authorization.dependencies import AuthorizedProject, require_project_action
+from src.platform.authorization.models import ProjectAction
+from src.platform.repository_target.protocol import require_repository_target_contract
+from src.platform.repository_target.schemas import repository_target_domain, repository_target_schema
+from src.platform.access.service import AccessService
+from src.platform.access.models import AccessSurface
+from src.repo.schemas import (
+    ConnectorIn, ConnectorPatch, ConnectorOut, TargetAccessEnableIn,
+)
+
+
+router = APIRouter(
+    prefix="/projects/{project_id}/connectors",
+    tags=["connectors"],
+    dependencies=[Depends(require_repository_target_contract)],
+)
+
+
+def get_access_service() -> AccessService:
+    return AccessService()
+
+
+def _to_out(c: AccessSurface) -> ConnectorOut:
+    return ConnectorOut(
+        id=c.id,
+        target=repository_target_schema(c.target),
+        provider=c.kind,
+        name=c.name,
+        direction=c.direction,                    # type: ignore[arg-type]
+        config=c.config,
+        policy=c.policy,
+        oauth_connection_id=c.oauth_connection_id,
+        trigger=c.trigger,
+        status=c.status,
+        last_run_at=c.last_run_at,
+        last_run_id=c.last_run_id,
+        error_message=c.error_message,
+        created_by=c.created_by,
+        created_at=c.created_at,
+        updated_at=c.updated_at,
+    )
+
+
+@router.get(
+    "",
+    response_model=ApiResponse[list[ConnectorOut]],
+    summary="List connectors (optionally filtered)",
+)
+def list_connectors(
+    provider: Optional[str] = Query(None),
+    direction: Optional[str] = Query(None),
+    include_non_access: bool = Query(
+        False,
+        description=(
+            "Include legacy import-only connector rows. The default response "
+            "contains only ongoing Access methods."
+        ),
+    ),
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_READ)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    items = service.list(
+        str(authorized.project.id),
+        kind=provider,
+        direction=direction,
+        access_surface_only=not include_non_access,
+    )
+    return ApiResponse.success(data=[_to_out(c) for c in items], message="Connectors listed")
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[ConnectorOut],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a third-party connector",
+)
+def create_connector(
+    payload: ConnectorIn,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_MANAGE)
+    ),
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AccessService = Depends(get_access_service),
+):
+    try:
+        c = service.create(
+            project_id=str(authorized.project.id),
+            target=repository_target_domain(payload.target),
+            kind=payload.provider,
+            direction=payload.direction,
+            name=payload.name,
+            config=payload.config,
+            policy=payload.policy,
+            oauth_connection_id=payload.oauth_connection_id,
+            trigger=(payload.trigger.model_dump() if payload.trigger else None),
+            created_by=current_user.user_id,
+        )
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return ApiResponse.success(data=_to_out(c), message="Connector created")
+
+
+@router.post(
+    "/enable-target",
+    response_model=ApiResponse[list[ConnectorOut]],
+    summary="Enable Git and CLI for one repository target",
+)
+def enable_target_access(
+    payload: TargetAccessEnableIn,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_MANAGE)
+    ),
+    current_user: CurrentUser = Depends(get_current_user),
+    service: AccessService = Depends(get_access_service),
+):
+    try:
+        connectors = service.enable_target_defaults(
+            project_id=str(authorized.project.id),
+            target=repository_target_domain(payload.target),
+            created_by=current_user.user_id,
+        )
+    except AppException as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        ) from error
+    return ApiResponse.success(
+        data=[_to_out(connector) for connector in connectors],
+        message="Repository target access enabled",
+    )
+
+
+@router.patch(
+    "/{connector_id}",
+    response_model=ApiResponse[ConnectorOut],
+    summary="Update connector fields",
+)
+def update_connector(
+    connector_id: str,
+    payload: ConnectorPatch,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_MANAGE)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    existing = service.get(connector_id)
+    if existing is None or existing.project_id != str(authorized.project.id):
+        raise HTTPException(status_code=404, detail="Connector not found")
+    patch = payload.model_dump(exclude_unset=True)
+    if "trigger" in patch and patch["trigger"] is not None:
+        # Pydantic gave us a TriggerSpec dict-like; pass through.
+        patch["trigger"] = dict(patch["trigger"])
+    try:
+        updated = service.update(connector_id, patch)
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Connector not found after update")
+    return ApiResponse.success(data=_to_out(updated), message="Connector updated")
+
+
+@router.post(
+    "/{connector_id}/activate-agent",
+    response_model=ApiResponse[ConnectorOut],
+    summary="Activate the built-in AI Agent connector",
+)
+def activate_agent_connector(
+    connector_id: str,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.AGENT_MANAGE)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    existing = service.get(connector_id)
+    if existing is None or existing.project_id != str(authorized.project.id):
+        raise HTTPException(status_code=404, detail="Connector not found")
+    try:
+        updated = service.activate_agent_surface(connector_id)
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Connector not found after activation")
+    return ApiResponse.success(data=_to_out(updated), message="Agent connector activated")
+
+
+@router.post(
+    "/{connector_id}/run",
+    response_model=ApiResponse[dict],
+    summary="Trigger a connector run now",
+)
+async def run_connector(
+    connector_id: str,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.AUTOMATION_RUN)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    existing = service.get(connector_id)
+    if existing is None or existing.project_id != str(authorized.project.id):
+        raise HTTPException(status_code=404, detail="Connector not found")
+    try:
+        run_id = await service.run_now(connector_id)
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return ApiResponse.success(data={"run_id": run_id}, message="Run triggered")
+
+
+@router.post(
+    "/{connector_id}/pause",
+    response_model=ApiResponse[None],
+    summary="Pause a connector",
+)
+def pause_connector(
+    connector_id: str,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_MANAGE)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    existing = service.get(connector_id)
+    if existing is None or existing.project_id != str(authorized.project.id):
+        raise HTTPException(status_code=404, detail="Connector not found")
+    service.pause(connector_id)
+    return ApiResponse.success(message="Connector paused")
+
+
+@router.post(
+    "/{connector_id}/resume",
+    response_model=ApiResponse[None],
+    summary="Resume a connector",
+)
+def resume_connector(
+    connector_id: str,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_MANAGE)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    existing = service.get(connector_id)
+    if existing is None or existing.project_id != str(authorized.project.id):
+        raise HTTPException(status_code=404, detail="Connector not found")
+    service.resume(connector_id)
+    return ApiResponse.success(message="Connector resumed")
+
+
+@router.delete(
+    "/{connector_id}",
+    response_model=ApiResponse[None],
+    summary="Delete a non-builtin connector",
+)
+def delete_connector(
+    connector_id: str,
+    authorized: AuthorizedProject = Depends(
+        require_project_action(ProjectAction.ACCESS_MANAGE)
+    ),
+    service: AccessService = Depends(get_access_service),
+):
+    existing = service.get(connector_id)
+    if existing is None or existing.project_id != str(authorized.project.id):
+        raise HTTPException(status_code=404, detail="Connector not found")
+    try:
+        service.delete(connector_id)
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return ApiResponse.success(message="Connector deleted")

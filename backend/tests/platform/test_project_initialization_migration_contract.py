@@ -4,7 +4,7 @@ from pathlib import Path
 
 MIGRATION = (
     Path(__file__).parents[3]
-    / "supabase/migrations/20260716010000_project_initialization_control_plane.sql"
+    / "supabase/archive/before_b1/migrations/20260716010000_project_initialization_control_plane.sql"
 )
 
 
@@ -147,9 +147,7 @@ def test_legacy_projects_are_preserved_ready_without_empty_or_age_heuristics():
         "renew_project_initialization_claim",
     )
 
-    assert backfill.count(
-        "UPDATE public.projects SET lifecycle_status = 'ready';"
-    ) == 1
+    assert backfill.count("UPDATE public.projects SET lifecycle_status = 'ready';") == 1
     assert "WHERE" not in backfill.upper()
     assert "FROM public.project_create_operations operation" in claims
     assert "version_root_hash IS NULL" not in claims
@@ -159,9 +157,9 @@ def test_legacy_projects_are_preserved_ready_without_empty_or_age_heuristics():
 
 def test_service_role_cannot_bypass_project_creation_or_publication_gate():
     sql = _sql()
-    grants = sql.split(
-        "-- The service role is an application transport principal", 1
-    )[1].split("COMMIT;", 1)[0]
+    grants = sql.split("-- The service role is an application transport principal", 1)[1].split(
+        "COMMIT;", 1
+    )[0]
 
     assert "REVOKE INSERT, UPDATE ON public.projects FROM service_role;" in grants
     assert "GRANT UPDATE (" in grants
@@ -189,8 +187,7 @@ def test_service_role_cannot_forge_lifecycle_or_deletion_journals():
         "project_deletion_jobs",
     ):
         assert (
-            f"REVOKE ALL ON public.{table}\n"
-            "    FROM PUBLIC, anon, authenticated, service_role;"
+            f"REVOKE ALL ON public.{table}\n    FROM PUBLIC, anon, authenticated, service_role;"
         ) in sql
         assert f"GRANT ALL ON public.{table}" not in sql
         assert f"{table}_service_role_all" not in sql
