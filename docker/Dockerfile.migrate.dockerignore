@@ -3,6 +3,7 @@
 !docker/Dockerfile.migrate
 !backend/
 !backend/pyproject.toml
+!backend/uv.lock
 !backend/src/
 !backend/src/infra/
 !backend/src/infra/data_migrations/
@@ -14,3 +15,4 @@ supabase/.branches/
 !scripts/
 !scripts/database_history.py
 !scripts/self_hosted_migrate.py
+!scripts/migration_dependencies.py

@@ -29,6 +29,8 @@ Supabase PostgreSQL / Auth / REST / gateway + Redis + MinIO
                          |
                  native schema migration task
                          |
+                explicit data run + verify
+                         |
                   storage initialization
                          |
                  API dependency readiness
@@ -48,12 +50,16 @@ existing completion state, or pretends an old data task succeeded. Non-empty
 legacy storage needs the explicit inventory operator described in
 [database release governance](13-database-release-governance.md).
 
-The current B1 release needs no post-B1 application-data task. Future data
-cutovers still use the portable `puppyone-db` runner and its reviewed
-Expand/Data/Contract release sequence. Do not hide that work in B1, seed.sql,
-container startup hooks, or an unconditional replay of archived jobs. A release
-introducing such a task must extend its self-hosted upgrade instructions and
-the executable upgrade fixture before its Contract can ship.
+The explicit `supabase/releases/standalone-data-migration.json` selects the
+public data task for this release. After schema admission, the migration task
+invokes the same portable runner as hosted CI, then verifies current rows even
+when a completion receipt already exists. Failure prevents application startup.
+The current task backfills entrypoint identifiers and search tasks; it requires
+no hosted credentials or private PuppyPay dependency. The installer image takes
+its minimal runner dependencies and distribution hashes from `backend/uv.lock`.
+An operator-only release is rejected rather than silently skipped. Historical
+data artifacts are not replayed unconditionally, and final Contract cleanup is
+still a separate release after old processes and queued jobs have drained.
 
 ## Supported paths and boundaries
 
@@ -106,6 +112,7 @@ npx playwright install chromium
 cd ..
 python3 scripts/test_self_hosted_install.py --variant default --artifacts /tmp/puppyone-install-default
 python3 scripts/test_self_hosted_install.py --variant custom --artifacts /tmp/puppyone-install-custom
+python3 scripts/test_self_hosted_install.py --variant upgrade --artifacts /tmp/puppyone-install-upgrade
 ```
 
 Run variants sequentially on one host (they use the same isolated ports). Each
@@ -113,6 +120,10 @@ run creates a random Compose project and deletes only that project's test
 volumes. Never point the test at an existing installation. The custom variant
 rotates JWT/API/DB/storage credentials and changes the bucket. The tests use no
 production credentials, Pay checkout, existing login session or LLM API.
+The upgrade variant first builds the pinned pre-refactor revision `c28e38a3`,
+creates real accounts and files, and populates the old storage names. It then
+upgrades the same volumes to the candidate release and verifies session cookies,
+refresh tokens, file bytes, permissions, and old/new PostgREST storage clients.
 
 PRs publish `Installation validation result`; all main pushes and version tags
 run the installation matrix again. Main also runs database rebuild/upgrade and

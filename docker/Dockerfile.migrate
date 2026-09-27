@@ -12,6 +12,10 @@ RUN case "$TARGETARCH" in \
     && rm /tmp/cli.tar.gz \
     && supabase --version
 WORKDIR /app
+COPY backend/uv.lock /tmp/migration-uv.lock
+COPY scripts/migration_dependencies.py /tmp/migration_dependencies.py
+RUN python /tmp/migration_dependencies.py /tmp/migration-uv.lock > /tmp/migration-requirements.txt \
+    && pip install --no-cache-dir --require-hashes -r /tmp/migration-requirements.txt
 COPY backend/src/infra/data_migrations /app/backend/src/infra/data_migrations
 COPY backend/pyproject.toml /app/backend/pyproject.toml
 COPY supabase /app/supabase

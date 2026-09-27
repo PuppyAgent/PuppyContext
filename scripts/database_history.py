@@ -38,7 +38,7 @@ def stage_history(destination: Path) -> None:
 
 
 def resolve_release(root: Path, environment: str) -> dict[str, str]:
-    if environment not in {"staging", "production"}:
+    if environment not in {"staging", "production", "standalone"}:
         raise ValueError("invalid release environment")
     selection = json.loads(
         (root / f"supabase/releases/{environment}-data-migration.json").read_text()
@@ -75,7 +75,7 @@ def main() -> None:
     data_path.add_argument("migration_id")
     release = commands.add_parser("release", help="validate the selected data release")
     release.add_argument(
-        "--environment", choices=("staging", "production"), required=True
+        "--environment", choices=("staging", "production", "standalone"), required=True
     )
     commands.add_parser("check", help="verify admission without committing any changes")
     commands.add_parser(

@@ -9,15 +9,20 @@ import argparse
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import secrets
 import subprocess
+import tarfile
 import tempfile
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Last installer-capable revision before the entrypoint/backend/schema refactor.
+# Pin the source, rather than silently testing today's app against itself.
+UPGRADE_BASE = "c28e38a3e44f1106f58ce6ae6cfdf6255a51f495"
 
 
 def jwt(role, secret):
@@ -41,7 +46,9 @@ def jwt(role, secret):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=["default", "custom"], default="default")
+    parser.add_argument(
+        "--variant", choices=["default", "custom", "upgrade"], default="default"
+    )
     parser.add_argument("--artifacts", type=Path, required=True)
     args = parser.parse_args()
     args.artifacts.mkdir(parents=True, exist_ok=True)
@@ -63,7 +70,7 @@ def main():
             MINIO_CONSOLE_PORT="19001",
             MAIL_PORT="18025",
         )
-        if args.variant == "custom":
+        if args.variant in {"custom", "upgrade"}:
             secret = secrets.token_hex(32)
             values.update(
                 JWT_SECRET=secret,
@@ -77,18 +84,33 @@ def main():
         env_file = directory / "compose.env"
         env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
         env_file.chmod(0o600)
-        compose = [
-            "docker",
-            "compose",
-            "--project-name",
-            project,
-            "--env-file",
-            str(env_file),
-            "-f",
-            str(ROOT / "docker/docker-compose.yml"),
-            "-f",
-            str(ROOT / "docker/compose.install-test.yml"),
-        ]
+
+        def compose_for(root):
+            return [
+                "docker",
+                "compose",
+                "--project-name",
+                project,
+                "--env-file",
+                str(env_file),
+                "-f",
+                str(root / "docker/docker-compose.yml"),
+                "-f",
+                str(root / "docker/compose.install-test.yml"),
+            ]
+
+        previous_root = ROOT
+        if args.variant == "upgrade":
+            previous_root = directory / "previous-release"
+            previous_root.mkdir()
+            archive = subprocess.check_output(
+                ["git", "archive", "--format=tar", UPGRADE_BASE],
+                cwd=ROOT,
+                timeout=60,
+            )
+            with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+                source.extractall(previous_root, filter="data")
+        compose = compose_for(previous_root)
 
         def run(*command, **kwargs):
             subprocess.run(command, check=True, cwd=ROOT, timeout=1800, **kwargs)
@@ -104,13 +126,48 @@ def main():
                 "INSTALL_WEB": "http://127.0.0.1:13000",
                 "INSTALL_MAIL": "http://127.0.0.1:18025",
                 "INSTALL_ANON_KEY": values["ANON_KEY"],
+                "INSTALL_SERVICE_ROLE_KEY": values["SERVICE_ROLE_KEY"],
                 "INSTALL_STATE": str(directory / "state.json"),
             }
             for phase in ("seed", "verify"):
                 if phase == "verify":
+                    if args.variant == "upgrade":
+                        # Populate the old names while the old application is live.
+                        # The same database, object bucket, users and sessions survive.
+                        run(
+                            *compose,
+                            "exec",
+                            "-T",
+                            "db",
+                            "psql",
+                            "-U",
+                            "postgres",
+                            "-d",
+                            "postgres",
+                            "-X",
+                            "-v",
+                            "ON_ERROR_STOP=1",
+                            input=(
+                                ROOT / "supabase/test_fixtures/entrypoint_storage.sql"
+                            ).read_bytes(),
+                        )
                     # Preserve volumes, recreate every service, and rerun the
                     # same installer. Auth, DB rows and object bytes must survive.
                     run(*compose, "down")
+                    if args.variant == "upgrade":
+                        compose = compose_for(ROOT)
+                        run(*compose, "build")
+                        run(
+                            *compose,
+                            "up",
+                            "--detach",
+                            "--wait",
+                            "--wait-timeout",
+                            "420",
+                        )
+                        # Exercise repeat execution after a populated upgrade.
+                        run(*compose, "run", "--rm", "migrate")
+                        run(*compose, "down")
                     # A broken pending migration must roll back and block the
                     # new application, while preserving existing user data.
                     broken = directory / "29991231000000_install_failure_probe.sql"
@@ -208,6 +265,9 @@ def main():
                     env={
                         **test_env,
                         "INSTALL_PHASE": phase,
+                        "INSTALL_UPGRADED": "true"
+                        if args.variant == "upgrade"
+                        else "false",
                         "INSTALL_REPORT": str(
                             args.artifacts.resolve() / f"{phase}.json"
                         ),
@@ -220,6 +280,9 @@ def main():
                         "result": "passed",
                         "schema_source": "supabase/migrations",
                         "restart_verified": True,
+                        "upgrade_from": UPGRADE_BASE
+                        if args.variant == "upgrade"
+                        else None,
                     }
                 )
                 + "\n"

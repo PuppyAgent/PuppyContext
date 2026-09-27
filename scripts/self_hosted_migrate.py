@@ -18,6 +18,28 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from src.infra.data_migrations.baseline_adoption import adoption_sql
 from src.infra.data_migrations.database import PsqlClient
+from src.infra.data_migrations.catalog import DataMigrationCatalog
+from src.infra.data_migrations.runner import DataMigrationRunner
+from database_history import resolve_release
+
+
+def migrate_data(root: Path, db: PsqlClient) -> None:
+    selection = resolve_release(root, "standalone")
+    if selection["execution_mode"] != "ci":
+        raise RuntimeError(
+            "Standalone data migration requires explicit operator completion"
+        )
+    runner = DataMigrationRunner(
+        DataMigrationCatalog(root),
+        db,
+        environment={},
+        source_sha="standalone-release",
+    )
+    for migration_id in (selection["repair_migration_id"], selection["migration_id"]):
+        if migration_id:
+            runner.run(migration_id)
+            # A receipt does not prove the current data still satisfies the contract.
+            runner.verify(migration_id)
 
 
 def migrate() -> None:
@@ -74,6 +96,7 @@ def migrate() -> None:
             input_text=adoption_sql(ROOT, apply=False),
             timeout=180,
         )
+        migrate_data(ROOT, db)
         db.scalar("NOTIFY pgrst, 'reload schema';")
     print(
         "Public schema is at the checked-out release; no demo data or private billing schema installed."
