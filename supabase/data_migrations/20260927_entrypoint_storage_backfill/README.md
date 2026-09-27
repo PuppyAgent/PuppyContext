@@ -35,5 +35,10 @@ single mirrored table.
 
 Local proof: `backend/.venv/bin/python scripts/test_entrypoint_migration.py` owns
 its temporary Supabase stack, uses synthetic records, and accepts no hosted DB URL.
+For a supplementary SQL rehearsal without Docker, run
+`backend/.venv/bin/python scripts/test_entrypoint_migration_native.py`. It owns a
+PostgreSQL 17 cluster, supplies an auth schema stub, and omits only the pg_graphql,
+pg_net and supabase_vault extension declarations. It does not replace Supabase
+or full installer acceptance.
 This code delivery does not attest that any shared environment has been migrated
 or that its workers have drained.

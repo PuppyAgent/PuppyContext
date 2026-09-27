@@ -4,7 +4,7 @@
 - [x] Emit the canonical GitHub ARQ job name, preserving queue and dedup identity.
 - [x] Prepare a separately promoted, guarded cleanup Contract.
 - [ ] Complete real Supabase fresh/upgrade/cleanup and installation rehearsals.
-- [ ] Document exact validation evidence and remaining operational gates.
+- [x] Document exact validation evidence and remaining operational gates (ISSUE-049 in puppy-issues).
 
 ## Separate cleanup release
 - [ ] Verify old producers/processes and delayed/retry jobs have drained.
