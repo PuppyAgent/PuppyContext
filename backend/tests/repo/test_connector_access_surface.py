@@ -101,7 +101,6 @@ def test_list_defaults_to_access_surface_connectors() -> None:
     assert [item.kind for item in visible] == [
         "git_remote",
         "cli",
-        "notion",
     ]
 
 

@@ -4,7 +4,7 @@ Responsibilities:
   - Refuse to create built-in Access surfaces via the legacy API.
   - Default `name` from kind if not given.
   - Validate direction against Access kind capabilities.
-  - Coordinate execution (Step 2-Run-Now): hand off to engine.execute().
+  - Reject legacy source execution: Access IDs are never Synchronize IDs.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any, Optional
 from src.exceptions import AppException, BusinessException, ErrorCode, NotFoundException
 from src.platform.access.surface_repository import AccessSurfaceRepository
 from src.platform.access.model_repository import AccessModelRepository
-from src.platform.access.models import AccessSurface
+from src.platform.access.models import ACCESS_KINDS, AccessSurface
 from src.repo.scope_repository import RepositoryScopeRepository
 from src.platform.repository_target.models import (
     ProjectRootTarget,
@@ -24,14 +24,6 @@ from src.platform.repository_target.models import (
 
 
 PROVIDERS_BIDIRECTIONAL = frozenset({"git_remote", "cli", "agent"})
-# Built-in Access surfaces are explicitly enabled per repository target and
-# cannot be created through the third-party connector endpoint.
-PROVIDERS_OAUTH_BACKED = frozenset({
-    "notion", "gmail", "google_sheets", "google_docs",
-    "google_calendar", "google_drive", "google_search_console",
-    "github", "linear", "airtable",
-})
-
 # Providers whose rows represent import/integration history, not an ongoing
 # access method bound to a scope. GitHub repository import now lives under
 # ImportJob / project GitHub integration flows instead of Access connectors.
@@ -131,19 +123,18 @@ class AccessService:
                 "job or sync binding instead of a repo connector."
             )
 
+        if kind not in ACCESS_KINDS:
+            raise BusinessException(
+                "External sources belong to Import or Synchronize, not Access. "
+                "Create an ImportJob or a SynchronizeBinding through its own API."
+            )
+
         # Direction validation.
         if direction == "bidirectional":
             raise BusinessException(
                 "Only built-in Access surfaces "
                 "are bidirectional. Third-party providers must choose "
                 "'inbound' (import) or 'outbound' (export)."
-            )
-
-        if kind in PROVIDERS_OAUTH_BACKED and not oauth_connection_id:
-            raise BusinessException(
-                f"Provider '{kind}' requires an oauth_connection_id. "
-                "Connect this provider via the /connections page first, "
-                "then re-create this connector."
             )
 
         if target.project_id != project_id:
@@ -319,15 +310,10 @@ class AccessService:
     # ── Run orchestration ────────────────────────────────────────────────
 
     async def run_now(self, surface_id: str) -> Optional[str]:
-        """Manually trigger a connector run. Returns the connector_run_id.
+        """Reject the retired source-run facade without guessing an ID mapping.
 
-        Heavy lifting lives in platform/synchronize/engine.py — we just
-        kick it off here and return the run id.
-
-        Built-in cli/agent/git_remote connectors don't have a "run now"
-        semantic — they're conduits for the user's own writes, not pollers.
-        The engine returns None for those; we surface a clear 400 here so
-        the UI doesn't render a useless run button.
+        Legacy rows remain readable for inventory. Their IDs never authorize or
+        identify a durable Synchronize binding, even if two UUIDs happen to match.
         """
         surface = self._repo.get(surface_id)
         if surface is None:
@@ -340,10 +326,9 @@ class AccessService:
         if surface.status == "paused":
             raise BusinessException("Connector is paused; resume it first")
 
-        # Lazy imports to avoid pulling the heavy engine module on
-        # read-only routes. Use the non-DI factory because we may be
-        # called from background contexts (scheduled triggers) too.
-        from src.platform.synchronize.dependencies import create_synchronize_engine
-        engine = create_synchronize_engine()
-        run_id = await engine.execute_for_access_surface(surface)
-        return run_id
+        raise BusinessException(
+            "Access surfaces cannot execute source synchronization. "
+            "Use the SynchronizeBinding ID from the project's Synchronize list. "
+            "Legacy source records need an explicit migration; their Access ID "
+            "must not be reused as a binding ID."
+        )
