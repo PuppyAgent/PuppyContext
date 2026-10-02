@@ -236,8 +236,10 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 9090 --reload --log-level info
 uv run pytest
 uv run pytest -m "not e2e"      # Exclude e2e tests
 
-# Start file worker (ETL / OCR)
-uv run arq src.upload.file.jobs.worker.WorkerSettings
+# Start domain workers (coordinate queue drain before changing deployments)
+uv run arq src.platform.upload.worker.WorkerSettings
+uv run arq src.platform.imports.worker.WorkerSettings
+uv run arq src.platform.synchronize.worker.WorkerSettings
 ```
 
 ### Deployment
@@ -245,7 +247,9 @@ uv run arq src.upload.file.jobs.worker.WorkerSettings
 Railway multi-service deployment (shared codebase, differentiated by `SERVICE_ROLE`):
 
 - **api** (default): Main API service
-- **file_worker**: File ETL Worker (ARQ)
+- **upload_worker**: Upload completion / file processing (ARQ)
+- **import_worker**: One-time ImportJob execution (ARQ)
+- **synchronize_worker**: Synchronize runs and dedicated GitHub pulls (ARQ)
 - **mcp_server**: MCP protocol service (FastMCP)
 
 ---
@@ -390,14 +394,20 @@ cli/
 
 ### Key Commands
 
+Source-tree commands below require the matching backend; they are not a claim
+that npm `0.2.1` has been republished. See `docs/cli/ENTRYPOINTS-UNRELEASED.md`.
+Never send an external source to Access creation, or substitute an Access ID for
+a Synchronize binding ID. Do not silently turn snapshots into persistent jobs.
+
 ```bash
 puppyone auth login                    # Sign in
 puppyone project use "My Project"      # Set active project
-puppyone access add notion <url>       # Connect a SaaS data source
+puppyone import create <url> --provider notion --folder /notes  # One-time snapshot
+puppyone synchronize add gmail <url> --folder /mail --mode manual  # Durable binding
+puppyone synchronize providers        # Server-admitted persistent sources
 puppyone access add agent "Bot"        # Create an AI agent
-puppyone access add mcp "Data API"     # Create MCP endpoint
-puppyone access add filesystem /docs   # Mount local folder sync
-puppyone access ls                     # List all access points
+puppyone access add mcp "Data API"      # Create MCP endpoint
+puppyone access ls                     # List Access surfaces
 puppyone status                        # Project dashboard
 puppyone chat                          # Chat with an agent
 puppyone fs semantics                  # Unix compatibility notes + resource limits for agents

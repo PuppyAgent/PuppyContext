@@ -267,11 +267,15 @@ fi
 if section "access"; then
   assert_exit 0 "access providers --help" $CLI access providers --help
   assert_exit 0 "access add --help" $CLI access add --help
-  assert_output_contains "Context Drive path scope" "access add help describes scoped Context Drive access" $CLI access add --help
+  assert_output_contains "agent.*mcp.*sandbox" "access add help describes surface kinds" $CLI access add --help
+  assert_exit 0 "import create --help" $CLI import create --help
+  assert_exit 0 "synchronize add --help" $CLI synchronize add --help
 
   if $LOGGED_IN; then
     assert_exit 0 "access providers lists providers" $CLI access providers
-    assert_output_contains "gmail\|notion\|github" "providers output contains known providers" $CLI access providers
+    assert_output_contains "agent\|mcp\|sandbox" "access providers contains surface kinds, not sources" $CLI access providers
+    assert_exit 0 "Import provider discovery matches server" $CLI import providers
+    assert_exit 0 "Synchronize provider discovery matches server" $CLI synchronize providers
 
     assert_exit 0 "access auth-status gmail does not crash" $CLI access auth-status gmail
 
