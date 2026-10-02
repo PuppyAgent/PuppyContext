@@ -1,0 +1,55 @@
+name: Frontend Resource Regression
+
+on:
+  pull_request:
+    paths: ['frontend/**', '.github/workflows/frontend-resource-regression.yml']
+  push:
+    branches: [qubits, main]
+    paths: ['frontend/**', '.github/workflows/frontend-resource-regression.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-resources-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  memory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: synthetic-memory-test-key
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:9
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test:unit -- --maxWorkers=1 tests/health
+      - run: npm run build:local-login
+      - name: Bounded production liveness and login retention
+        run: |
+          npm run test:server-memory -- --scenario=health --samples=30 --interval-ms=1000 --requests-per-sample=10 --heap-mb=768 --rss-mb=1024 --timeout-ms=120000
+          npm run test:server-memory -- --scenario=login --samples=30 --interval-ms=1000 --requests-per-sample=10 --heap-mb=768 --rss-mb=1024 --timeout-ms=120000
+      - name: Upload synthetic receipts (no heaps or credentials)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: frontend-resources-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/puppyone-web-memory-*/report.json
+            ${{ runner.temp }}/puppyone-web-memory-*/server.log
+          if-no-files-found: warn
+          retention-days: 14

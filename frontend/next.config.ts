@@ -29,6 +29,8 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_APP_VERSION: loadVersion(),
   },
   experimental: {
+    // Explicit local preview builds must not fan out across the workstation.
+    cpus: process.env.PUPPYONE_LOCAL_BUILD === '1' ? 1 : undefined,
     optimizePackageImports: [
       'lucide-react',
       'framer-motion',

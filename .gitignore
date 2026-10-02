@@ -44,6 +44,7 @@ mypy.ini
 # next.js
 **/.next/
 **/.next-check/
+**/.next-desktop-login/
 **/.next.broken-*/
 /out/
 

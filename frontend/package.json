@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:local-login": "node scripts/build-local-login.mjs",
+    "test:server-memory": "node scripts/check-server-memory.mjs",
     "start": "next start",
     "test:unit": "vitest run",
     "test:bff-contract": "node scripts/test-bff-contract-forwarding.mjs",
