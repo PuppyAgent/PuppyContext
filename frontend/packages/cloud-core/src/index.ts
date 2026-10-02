@@ -27,6 +27,9 @@ export type {
 // ── Access-provider registry (pure domain data + helpers) ────────────────
 export * from "./accessProviders";
 
+// ── Synchronize bindings and runs ────────────────────────────────────────
+export * from "./endpoints/synchronize";
+
 // ── MCP endpoints ─────────────────────────────────────────────────────────
 export { createMcpEndpointsApi } from "./endpoints/mcpEndpoints";
 export type {

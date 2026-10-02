@@ -4,15 +4,8 @@ import type { Tool } from '@/lib/mcpApi';
 import type { Connector, RepoIdentity, RepositoryTarget, RepositoryView } from '@/lib/repoApi';
 import { createContext, useContext } from 'react';
 
-export interface SyncStatusSync {
-  id: string;
-  path: string | null;
-  provider: string;
-  direction: string;
-  status: string;
-  name?: string;
-  access_key?: string;
-}
+export type { SynchronizeStatusItem as SyncStatusSync } from '@/lib/synchronizeApi';
+import type { SynchronizeStatus } from '@/lib/synchronizeApi';
 
 export interface SyncEndpointInfo {
   syncId: string;
@@ -25,7 +18,7 @@ export interface SyncEndpointInfo {
 }
 
 export interface DataLayoutContextValue {
-  syncStatusData: { syncs: SyncStatusSync[] } | undefined;
+  syncStatusData: SynchronizeStatus | undefined;
   mutateSyncStatus: () => Promise<any>;
   projectTools: Tool[];
   syncEndpoints: Map<string, SyncEndpointInfo>;

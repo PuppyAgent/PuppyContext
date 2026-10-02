@@ -201,6 +201,13 @@ def test_runtime_has_no_local_checkout_registration_module_or_identity_fields():
         source_root / "version_engine/entrypoints/git/auth.py",
     ]
     combined = "\n".join(path.read_text(encoding="utf-8") for path in identity_sources)
+    # External-source bindings are not local checkout registrations. Allow only
+    # this exact canonical HTTP placeholder; keep rejecting binding_id in all
+    # other identity sources and routes (including workspace/device records).
+    combined = combined.replace(
+        "/api/v1/synchronize/bindings/{synchronize_binding_id}",
+        "/api/v1/synchronize/bindings/{id}",
+    )
     for forbidden in (
         "WorkspaceBinding",
         "workspace_binding",

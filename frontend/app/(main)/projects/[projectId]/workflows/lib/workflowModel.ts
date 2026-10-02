@@ -1,14 +1,14 @@
 import type { SaasType } from '@/lib/oauthApi';
 import type {
-  CreateWorkflowRequest,
-  WorkflowConfigField,
-  WorkflowConnection,
-  WorkflowFailedRunRow,
-  WorkflowMaterializationSchema,
-  WorkflowProviderSpec,
-  WorkflowSourceResource,
-  WorkflowStatusItem,
-} from '@/lib/workflowApi';
+  SynchronizeBindingCreate as CreateWorkflowRequest,
+  SynchronizeConfigField as WorkflowConfigField,
+  SynchronizeBinding as WorkflowConnection,
+  SynchronizeFailedRun as WorkflowFailedRunRow,
+  SynchronizeMaterializationSchema as WorkflowMaterializationSchema,
+  SynchronizeProviderSpec as WorkflowProviderSpec,
+  SynchronizeSourceResource as WorkflowSourceResource,
+  SynchronizeStatusItem as WorkflowStatusItem,
+} from '@/lib/synchronizeApi';
 
 export type BusyAction = 'refresh' | 'pause' | 'resume' | 'delete' | null;
 export type DetailMode = 'new' | 'detail';
@@ -64,6 +64,8 @@ const INTERNAL_CONFIG_KEYS = new Set([
   'external_resource_id',
   'external_resource',
   'last_sync_commit_id',
+  'last_synchronize_commit_id',
+  'synchronize_binding_id',
   'name',
   'oauth_user_id',
   'provider',
@@ -489,7 +491,7 @@ export function buildRecentRuns(
       duration: '-',
     });
   }
-  for (const run of failedRuns.filter((item) => item.connection_id === selectedConnectionId)) {
+  for (const run of failedRuns.filter((item) => item.synchronize_binding_id === selectedConnectionId)) {
     rows.push({
       id: run.id,
       time: formatDate(run.finished_at || run.started_at),

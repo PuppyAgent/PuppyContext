@@ -9,7 +9,7 @@ import {
   type NeedsActionRenderContext,
 } from '@/lib/needsActionRegistry';
 import { snoozeUntil } from '@/lib/needsActionSnooze';
-import { listFailedSyncRuns, retrySyncAccessPoint } from '@/lib/syncApi';
+import { listFailedSynchronizeRuns, resumeSynchronizeBinding } from '@/lib/synchronizeApi';
 import React, { useState } from 'react';
 
 /**
@@ -17,9 +17,9 @@ import React, { useState } from 'react';
  * PUP-5 gap G1 — sync jobs always existed in the connectors layer
  * but had no list endpoint exposed to the frontend.
  *
- * The row shows the access point name + provider; the detail pane
+ * The row shows the binding name + provider; the detail pane
  * shows the captured ``error`` so the user can see what broke. The
- * primary action is "Retry" (POST resume on the access point); the
+ * primary action is "Retry" (POST resume on the binding); the
  * secondary is "Snooze 24h" (client-only — sync runs naturally clear
  * from the list as new successful runs arrive).
  */
@@ -28,14 +28,14 @@ const KIND_LABEL = 'Failed sync';
 const ACCENT_VAR = 'var(--po-danger)';
 
 async function fetchItems(projectId: string): Promise<FailedSyncItem[]> {
-  const rows = await listFailedSyncRuns(projectId);
+  const rows = await listFailedSynchronizeRuns(projectId);
   return rows.map<FailedSyncItem>((r) => ({
     kind: 'failed-sync',
     id: r.id,
-    // Scope path on the row is the access-point's local path. Falls
+    // Scope path on the row is the binding destination. Falls
     // back to the provider label so the row never renders blank when
     // a sync was configured without an explicit path.
-    scope_path: r.access_point_path || `(${r.provider})`,
+    scope_path: r.target_path || `(${r.provider})`,
     created_at: r.started_at || r.finished_at || undefined,
     source: r,
   }));
@@ -69,7 +69,7 @@ function FailedSyncRow({
   item: FailedSyncItem;
   ctx: NeedsActionRenderContext;
 }) {
-  const apName = item.source.access_point_name || item.source.provider;
+  const apName = item.source.synchronize_binding_name || item.source.provider;
   return (
     <button
       type="button"
@@ -85,7 +85,7 @@ function FailedSyncRow({
         </div>
         <div className="truncate text-[11px] text-[var(--po-text-subtle)]">
           {item.source.direction || 'sync'}
-          {item.source.access_point_path ? ` · ${item.source.access_point_path}` : ''}
+          {item.source.target_path ? ` · ${item.source.target_path}` : ''}
           {item.created_at ? ` · ${formatRelative(item.created_at)}` : ''}
         </div>
       </div>
@@ -112,7 +112,7 @@ function FailedSyncDetail({
     setBusy('retry');
     setError(null);
     try {
-      await retrySyncAccessPoint(item.source.access_point_id);
+      await resumeSynchronizeBinding(item.source.synchronize_binding_id);
       // Resume returns immediately; the run kicks off async. Treat
       // this as "dismissed" — the row will reappear if the new run
       // also fails, and disappear when a successful run lands.
@@ -128,7 +128,7 @@ function FailedSyncDetail({
     ctx.onSnoozed();
   };
 
-  const apName = item.source.access_point_name || item.source.provider;
+  const apName = item.source.synchronize_binding_name || item.source.provider;
   const started = item.source.started_at ? formatDateTime(item.source.started_at) : '';
   const finished = item.source.finished_at ? formatDateTime(item.source.finished_at) : '';
 
@@ -212,8 +212,8 @@ function FailedSyncDetail({
         <ul style={kvListStyle}>
           <KV label="Provider" value={item.source.provider} />
           <KV label="Direction" value={item.source.direction} />
-          {item.source.access_point_path && (
-            <KV label="Path" value={item.source.access_point_path} mono />
+          {item.source.target_path && (
+            <KV label="Path" value={item.source.target_path} mono />
           )}
           {started && <KV label="Started" value={started} />}
           {finished && <KV label="Finished" value={finished} />}
