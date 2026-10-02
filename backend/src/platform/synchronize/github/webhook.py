@@ -67,7 +67,7 @@ async def handle_webhook(
         4. If the push was for the wrong branch, ack-and-skip.
         5. Idempotency on ``git_sha``: if already imported, ack.
         6. Enqueue the import onto the durable ``imports`` worker queue
-           (``execute_github_import``) and ack — the import runs out of
+           (``execute_synchronize_github_pull``) and ack — the import runs out of
            process, surviving API deploys/crashes.
     """
     event_type = headers.get("x-github-event", "").lower()

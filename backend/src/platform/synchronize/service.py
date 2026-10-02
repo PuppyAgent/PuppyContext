@@ -263,6 +263,19 @@ class SynchronizeService:
         )
         return connection
 
+    def update_trigger(self, connection_id: str, *, mode: str, trigger: dict | None = None):
+        connection = self.repository.get_by_id(connection_id)
+        if connection is None:
+            raise ValueError("Synchronize binding not found")
+        trigger_data = dict(trigger or {})
+        if not trigger_data.get("type"):
+            trigger_data["type"] = mode
+        require_synchronize_provider(
+            self._get_provider(connection.provider), mode=mode,
+            direction=connection.direction, trigger=trigger_data, config=connection.config,
+        )
+        return self.repository.update(connection_id, trigger=trigger_data)
+
     async def pull_sync(self, connection_id: str) -> Optional[dict]:
         raise RuntimeError(
             "Integration pull runs must be queued through the sync worker"

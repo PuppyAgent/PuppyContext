@@ -27,6 +27,22 @@ def require_import_provider(registry: ProviderRegistry, provider: str):
     return adapter
 
 
+def import_specs(registry: ProviderRegistry) -> list[dict]:
+    specs = []
+    for spec in registry.specs_to_dicts():
+        try:
+            require_import_provider(registry, spec["provider"])
+        except ValueError:
+            continue
+        specs.append(spec)
+    by_provider = {spec["provider"]: spec for spec in specs}
+    for alias, target in IMPORT_ALIASES.items():
+        if target in by_provider:
+            specs.append({**by_provider[target], "provider": alias,
+                          "display_name": "Notion (public snapshot)"})
+    return specs
+
+
 def get_import_provider_registry() -> ProviderRegistry:
     registry = get_provider_registry()
     return registry.select(

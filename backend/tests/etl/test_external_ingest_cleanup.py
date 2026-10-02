@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from src.ingest.file.ocr.base import (
+from src.infra.file_processing.ocr.base import (
     OCRExternalJob,
     OCRExternalJobCompletion,
     OCRProvider,
@@ -18,14 +18,14 @@ from src.ingest.file.ocr.base import (
     ParsedDocument,
     parse_document_with_external_lifecycle,
 )
-from src.ingest.file.ocr.external_cleanup import (
+from src.infra.file_processing.ocr.external_cleanup import (
     ExternalIngestCleanup,
     ExternalIngestCleanupSnapshot,
     ExternalProviderHandle,
     MineRUCacheCleanup,
 )
-from src.ingest.file.ocr.lifecycle import run_ocr_lifecycle_under_project_lease
-from src.ingest.file.tasks.models import ETLTask
+from src.infra.file_processing.ocr.lifecycle import run_ocr_lifecycle_under_project_lease
+from src.infra.file_processing.tasks.models import ETLTask
 
 
 class FakeTaskSource:

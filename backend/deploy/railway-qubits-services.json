@@ -10,9 +10,9 @@
   },
   "services": [
     { "service_role": "api", "requires_qubits_schema": true },
-    { "service_role": "file_worker", "requires_qubits_schema": true },
+    { "service_role": "upload_worker", "requires_qubits_schema": true },
     { "service_role": "import_worker", "requires_qubits_schema": true },
-    { "service_role": "sync_worker", "requires_qubits_schema": true },
+    { "service_role": "synchronize_worker", "requires_qubits_schema": true },
     { "service_role": "mcp_server", "requires_qubits_schema": true }
   ]
 }

@@ -12,7 +12,7 @@ from src.config import settings
 from src.infra.s3.service import S3Service, get_s3_service_instance
 from src.infra.supabase.client import SupabaseClient
 from src.infra.turbopuffer.service import TurbopufferSearchService
-from src.ingest.file.ocr.external_cleanup import (
+from src.infra.file_processing.ocr.external_cleanup import (
     ExternalIngestCleanup,
     ExternalIngestCleanupSnapshot,
 )
@@ -669,9 +669,9 @@ async def process_project_deletion_cleanup() -> dict[str, int | str]:
     # Import lazily so ordinary API startup does not construct provider SDKs
     # or Redis connections. Historical providers remain registered forever:
     # old durable handles must stay cancellable after the default changes.
-    from src.ingest.file.dependencies import get_etl_arq_pool
-    from src.ingest.file.ocr.factory import get_ocr_provider
-    from src.ingest.file.tasks.repository import ETLTaskRepositorySupabase
+    from src.infra.file_processing.dependencies import get_etl_arq_pool
+    from src.infra.file_processing.ocr.factory import get_ocr_provider
+    from src.infra.file_processing.tasks.repository import ETLTaskRepositorySupabase
 
     external_ingest = ExternalIngestCleanup(
         task_source=ETLTaskRepositorySupabase(),

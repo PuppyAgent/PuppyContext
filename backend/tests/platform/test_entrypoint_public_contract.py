@@ -34,7 +34,10 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
     from src.main import app
 
     expected = json.loads((Path(__file__).with_name("entrypoint_contract_c28e38a3.json")).read_text())
-    assert contract(app.openapi()) == expected["contract"]
+    actual = contract(app.openapi())
+    # Additive authenticated Import discovery; existing contracts stay exact.
+    assert actual["paths"].pop("/api/v1/imports/providers")
+    assert actual == expected["contract"]
 
 
 def test_access_domain_kind_is_serialized_as_legacy_provider():

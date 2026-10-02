@@ -25,6 +25,15 @@ def require_synchronize_provider(adapter, *, mode="manual", direction="inbound",
     trigger = trigger or {}
     if trigger.get("type") and trigger["type"] != mode:
         raise ValueError("Synchronize trigger.type must match sync_mode")
+    if mode == "scheduled" and trigger.get("schedule"):
+        # Validate explicit cron before persisting a binding; scheduler setup
+        # must not silently turn malformed schedules into inert relationships.
+        from apscheduler.triggers.cron import CronTrigger
+
+        try:
+            CronTrigger.from_crontab(trigger["schedule"], timezone=trigger.get("timezone", "UTC"))
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise ValueError(f"Invalid Synchronize schedule: {exc}") from exc
     if direction not in spec.supported_directions:
         raise ValueError(f"Unsupported Synchronize direction: {direction!r}")
     required = {

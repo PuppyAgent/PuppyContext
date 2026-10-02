@@ -581,7 +581,10 @@ async def update_connection_trigger(
     trigger_data = dict(body.trigger or {})
     if not trigger_data.get("type"):
         trigger_data["type"] = body.sync_mode
-    service.repository.update(connection_id, trigger=trigger_data)
+    try:
+        service.update_trigger(connection_id, mode=body.sync_mode, trigger=trigger_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         from src.infra.scheduler.service import get_scheduler_service

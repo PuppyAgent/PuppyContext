@@ -11,6 +11,7 @@ OLD_MODULES = (
     "src.connectors", "src.platform.integrations", "src.repo.github_integration",
     "src.repo.connector_service", "src.repo.connector_repository",
     "src.repo.connector_router", "src.repo.access_surface_repository",
+    "src.ingest.file", "src.ingest.upload_jobs", "src.ingest.policy.upload_policy",
 )
 
 
@@ -55,6 +56,19 @@ def test_shared_dtos_contain_no_entrypoint_lifecycle_or_workspace_state():
     }
     assert SynchronizeBinding.__module__ == "src.platform.synchronize.models"
     assert SyncResult.__module__ == "src.platform.workspace.sync_models"
+
+
+def test_moved_upload_contracts_repository_and_policy_are_domain_owned():
+    from src.platform.upload import schemas, repository, policy, jobs
+    from src.ingest import schemas as legacy
+
+    assert schemas.UploadInitRequest.__module__ == "src.platform.upload.schemas"
+    assert repository.UploadJobRepository.__module__ == "src.platform.upload.repository"
+    assert policy.evaluate_batch_limits.__module__ == "src.platform.upload.policy"
+    assert jobs.finalize_upload_to_version.__module__ == "src.platform.upload.jobs"
+    assert not hasattr(legacy, "UploadInitRequest")
+    # This protects the completed extraction; legacy single-file orchestration
+    # and Upload queue policy remain separate, explicit A4 work.
 
 
 def test_business_models_use_canonical_names():

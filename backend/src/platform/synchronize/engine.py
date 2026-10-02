@@ -98,7 +98,7 @@ class SynchronizeEngine:
         # a per-invocation identity; when they have a run repository, prepare
         # that durable run before reserving so crash retries reuse the same id.
         if settings.RUNTIME_METERING_MODE != "disabled" and not _runtime_accounted:
-            from src.ingest.file.config import etl_config
+            from src.platform.synchronize.config import synchronize_config
 
             prepared_run_id = run_id
             if prepared_run_id is None and self.run_repo is not None:
@@ -133,7 +133,7 @@ class SynchronizeEngine:
                     "user_id": connection.created_by,
                     "maximum_runtime_units": max(
                         1,
-                        etl_config.sync_task_timeout // 60 + 1,
+                        synchronize_config.synchronize_task_timeout // 60 + 1,
                     ),
                 },
                 operation=lambda: self.execute(

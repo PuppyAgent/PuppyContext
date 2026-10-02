@@ -53,6 +53,7 @@ async def test_import_only_github_rejected_before_binding_persistence(mode):
 @pytest.mark.parametrize("options", [
     {"sync_mode": "scheduled", "trigger": {"type": "import_once"}},
     {"sync_mode": "manual", "trigger": {"type": "scheduled"}},
+    {"sync_mode": "scheduled", "trigger": {"type": "scheduled", "schedule": "a b c d e"}},
     {"sync_mode": "realtime"},
     {"direction": "outbound"},
 ])
@@ -65,6 +66,22 @@ async def test_mode_direction_and_trigger_cannot_bypass_service_admission(option
             "source": {"resource_url": "https://example.com"}, "options": {},
         }, **options)
     repo.create.assert_not_called()
+
+
+@pytest.mark.parametrize("mode,trigger", [
+    ("import_once", {}), ("realtime", {}),
+    ("manual", {"type": "scheduled"}),
+    ("scheduled", {"schedule": "a b c d e"}),
+])
+def test_trigger_update_cannot_bypass_domain_admission(mode, trigger):
+    repo = Mock()
+    repo.get_by_id.return_value = SimpleNamespace(provider="url", direction="inbound",
+        config={"source": {"resource_url": "https://example.com"}, "options": {}})
+    service = SynchronizeService(repo)
+    service.register_provider(Adapter())
+    with pytest.raises(ValueError):
+        service.update_trigger("binding-1", mode=mode, trigger=trigger)
+    repo.update.assert_not_called()
 
 
 @pytest.mark.asyncio

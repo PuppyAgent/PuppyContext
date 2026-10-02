@@ -36,17 +36,17 @@ from src.infra.s3.exceptions import S3Error, S3FileSizeExceededError, S3Multipar
 from src.infra.s3.service import S3Service
 
 # Import underlying services for file processing
-from src.ingest.file.dependencies import get_etl_service
-from src.ingest.file.exceptions import RuleNotFoundError
-from src.ingest.file.service import ETLService
-from src.ingest.file.tasks.models import ETLTaskStatus
-from src.ingest.policy.upload_policy import (
+from src.infra.file_processing.dependencies import get_etl_service
+from src.infra.file_processing.exceptions import RuleNotFoundError
+from src.infra.file_processing.service import ETLService
+from src.infra.file_processing.tasks.models import ETLTaskStatus
+from src.platform.upload.policy import (
     PER_BATCH_MAX_BYTES as POLICY_PER_BATCH_MAX_BYTES,
 )
-from src.ingest.policy.upload_policy import (
+from src.platform.upload.policy import (
     PER_FILE_MAX_BYTES as POLICY_PER_FILE_MAX_BYTES,
 )
-from src.ingest.policy.upload_policy import (
+from src.platform.upload.policy import (
     evaluate_batch_limits,
     path_has_blocked_segment,
 )
@@ -56,6 +56,8 @@ from src.ingest.schemas import (
     IngestSubmitResponse,
     IngestType,
     SourceType,
+)
+from src.platform.upload.schemas import (
     UploadAbortRequest,
     UploadAbortResponse,
     UploadCompleteBatchRequest,
@@ -69,7 +71,7 @@ from src.ingest.schemas import (
     UploadPartResponse,
 )
 from src.ingest.shared.task.normalizers import detect_file_ingest_type
-from src.ingest.upload_jobs import UploadJobRepository
+from src.platform.upload.repository import UploadJobRepository
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import get_authorization_service
@@ -700,7 +702,7 @@ async def init_multipart_upload(
     # Defense-in-depth (Q8): the client also enforces these but a
     # third-party tool / future SDK / curl request could bypass the
     # client. The numbers come from the policy module
-    # (``src.ingest.policy.upload_policy``); see
+    # (``src.platform.upload.policy``); see
     # ``docs/proposals/PUP-3-folder-upload-policy.md`` Q4.
     for violation in evaluate_batch_limits(
         (f.size for f in request.files),
@@ -1267,7 +1269,7 @@ async def complete_upload(
     # Run finalize INLINE: download from S3, write into ObjectStore, mark
     # task COMPLETED. The helper is also the body of the ARQ worker
     # job, so behaviour and runtime-state transitions are identical.
-    from src.ingest.file.jobs.jobs import finalize_upload_to_version
+    from src.platform.upload.jobs import finalize_upload_to_version
 
     try:
         result = await finalize_upload_to_version(
@@ -1526,7 +1528,7 @@ async def complete_upload_batch(
     # Phase 3: ONE bulk finalize for everything that made it this far.
     # ────────────────────────────────────────────────────────────────
     if completed_task_ids:
-        from src.ingest.file.jobs.jobs import finalize_uploads_to_version_batch
+        from src.platform.upload.jobs import finalize_uploads_to_version_batch
 
         try:
             batch_results = await finalize_uploads_to_version_batch(
