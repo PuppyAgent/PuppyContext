@@ -2,8 +2,9 @@
 """ISSUE-053: fresh/upgrade rehearsal in an owned Docker Supabase only.
 
 Run with the locked backend Python and Supabase CLI 2.107.0 on PATH. No DSN,
-linked project, production .env, or shared database is accepted. Ports 56390-94
-are reserved for this rehearsal; --port-base selects another isolated range.
+linked project, production .env, or shared database is accepted. Ports 26390-94
+are below the usual ephemeral client-port range to avoid TIME_WAIT collisions;
+--port-base selects another isolated range.
 """
 from __future__ import annotations
 
@@ -215,7 +216,7 @@ def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port-base", type=int, default=56390)
+    parser.add_argument("--port-base", type=int, default=26390)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     check(1024 <= args.port_base <= 65530, "Invalid isolated port range")

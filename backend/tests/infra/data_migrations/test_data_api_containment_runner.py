@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import yaml
 
 
 @pytest.fixture
@@ -66,3 +67,15 @@ def test_http_probe_uses_filters_and_rejects_non_acl_denials(runner, monkeypatch
 def test_http_probe_cannot_target_hosted_database(runner):
     with pytest.raises(AssertionError, match="Nonlocal API refused"):
         runner.rest_matrix({"API_URL": "https://hosted.example.test"}, before=False)
+
+
+def test_real_rehearsal_is_part_of_stable_database_gate():
+    root = Path(__file__).resolve().parents[4]
+    jobs = yaml.safe_load((root / ".github/workflows/validate-migrations.yml").read_text())["jobs"]
+    rehearsal = jobs["validate_data_api_containment"]
+    assert rehearsal["if"] == "needs.database_change_scope.outputs.changed == 'true'"
+    assert any("scripts/test_data_api_containment.py" in step.get("run", "") for step in rehearsal["steps"])
+    gate = jobs["database_validation_result"]
+    assert "validate_data_api_containment" in gate["needs"]
+    assert gate["env"]["CONTAINMENT_RESULT"] == "${{ needs.validate_data_api_containment.result }}"
+    assert '"$CONTAINMENT_RESULT"' in gate["steps"][0]["run"]
