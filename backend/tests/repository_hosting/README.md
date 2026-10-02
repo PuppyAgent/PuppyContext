@@ -45,6 +45,8 @@ tests/repository_hosting/
 | `hosting_component` | 生产对象/写入/路由代码；真实 Git HTTP；控制面用内存替身，S3 用 moto | 不代表真实 PG/S3 联合事务、生产耐久性已验收 |
 | `hosting_live` | 临时 PostgreSQL 的真实产品迁移、RPC、并发 CAS、回滚、旧新命名兼容；`--live` 使用 Supabase，`--native-pg` 使用 auth stub，run.json 区分环境 | native PG 不代表 Supabase Auth/PostgREST/安装器验收；两者都不代表真实 S3 或未来迁移已安全 |
 
+**无需先合并到 qubits。** 运行器使用当前工作树的代码和 migrations，记录实际 commit、dirty 状态和 SQL 哈希；隔离测试通过才具备后续集成依据，不反过来依赖集成或部署才能测试。
+
 `--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。多数数据库用例中的 OID 是合成值；新 ref 事务另以原生 Git 产生的 SHA-1/SHA-256 同树提交做 CAS/原子性对照。receipt 都由 fixture owner 插入，没有真实 S3 闭包验证。升级用例在所属临时栈内另外创建并清理空数据库，应用真实产品迁移，但 Auth 使用 stub（即使宿主是 Supabase）；不把它算作真实 Auth 升级验收。
 
 现在能检查的关键结果：
@@ -59,6 +61,14 @@ tests/repository_hosting/
 - 真实 PG 用例验证根 CAS、整笔事务回滚、重复提交事件、旧 RPC/新 RPC 与旧列/新列兼容。
 - `integration/test_ref_authority*.py` 验证尚未接入流量的 refs/HEAD SQL 原语：旧 OID/符号目标/不存在状态 CAS、并发创建、多 ref 原子性、结果重放与查询、字节名称、receipt 边界、reflog/audit/outbox 同事务、角色 ACL 和旧写入 fence。
 - 新增 Expand 前后对比既有用户/成员/项目/root/history/ref/audit/outbox 行及 RPC ACL；注入末尾 DDL 失败验证全部回滚，再应用原 migration 验证可重试。只验证合成存量 fixture，不代表已完成 07 的真实数据迁移。
+
+### 本地 Supabase 启动故障
+
+`docker version` 成功不代表 Docker 能执行容器。2026-10-03 的排查发现，DB 容器持续处于 `created`，PostgreSQL 尚未执行；最小 Alpine `/bin/true` 探针（包括 `--network none`）同样无法启动。该证据指向本机 Docker 启动链路，而不是需要合入 qubits 或放宽产品测试。
+
+运行器现在区分镜像拉取/服务就绪超时与容器未启动：仅检查自建 DB 的安全状态字段，连续 `created` 达 60 秒即失败（通常约 65 秒），整体启动仍有 300 秒上限。诊断写入 `run.json.supabase_startup`，不记录 Env、CLI 密钥、原始日志或 health 输出；中断会回收自身 CLI 子进程，由外层清理所属栈。CLI 和测试子进程均不继承环境中的 Supabase/S3 凭据。`--live` 还要求明确的 pgTAP 执行标记与退出码，不能只有 pytest 成功就算通过。
+
+需要重启共享 Docker Desktop 时先协调/取得授权；工具不自行重启 daemon、不 prune 镜像或数据卷、不修改其他容器。恢复后重跑同一分支的 `--live --target`。启动失败保留 NOT_VERIFIED，不改成 native-PG 或替身“验收通过”。
 
 已知缺口由测试里的 `hosting_gap` 标记逐项说明。普通模式使用 **strict XFAIL**：能力修好后出现 XPASS，要求移除标记；`--target` 则直接作为失败报告。初始化/清理错误不会被缺口标记隐藏。
 

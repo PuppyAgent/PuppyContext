@@ -74,3 +74,17 @@ def test_external_failures_cannot_be_masked_by_passing_junit(tmp_path, field, va
     result = {"pytest_exit": 0, "target": True, field: value}
     runner.record_tests(path, result)
     assert runner.result_exit_code(result) != 0
+
+
+@pytest.mark.parametrize("executed,sql_exit,expected", [
+    (False, None, 1), (True, None, 1), (False, 0, 1), (True, 0, 0),
+])
+def test_live_requires_explicit_sql_execution_and_exit(executed, sql_exit, expected):
+    result = {
+        "live": True, "target": True, "pytest_exit": 0,
+        "supabase_sql_suite_executed": executed,
+        "layers": {"hosting_live": {"passed": 1}},
+    }
+    if sql_exit is not None:
+        result["sql_exit"] = sql_exit
+    assert runner.result_exit_code(result) == expected

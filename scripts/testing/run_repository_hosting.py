@@ -12,10 +12,12 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import datetime, timezone
@@ -81,6 +83,10 @@ def result_exit_code(result):
     code = max(result.get("pytest_exit", 1), result.get("sql_exit", 0))
     if result.get("infrastructure_error") or result.get("evidence_error"):
         return max(1, code)
+    if result.get("live") and (
+        result.get("supabase_sql_suite_executed") is not True or "sql_exit" not in result
+    ):
+        return max(1, code)
     layers = result.get("layers", {})
     if not layers or any(counts.get("failed", 0) for counts in layers.values()):
         return max(1, code)
@@ -90,6 +96,110 @@ def result_exit_code(result):
     ):
         return max(1, code)
     return code
+
+
+class SupabaseStartupError(RuntimeError):
+    def __init__(self, message, diagnostics):
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+def supabase_database_state(container, *, env):
+    """Inspect only our DB's safe state fields, never Env, logs, or health output."""
+    if not re.fullmatch(r"supabase_db_puppy-baseline-[a-z0-9]{8}", container):
+        raise ValueError("Startup diagnostics require an owned Supabase container")
+    template = (
+        '{"status":"{{.State.Status}}","running":{{.State.Running}},'
+        '"exit_code":{{.State.ExitCode}},"oom_killed":{{.State.OOMKilled}},'
+        '"health":"{{if .State.Health}}{{.State.Health.Status}}{{end}}"}'
+    )
+    try:
+        response = subprocess.run(
+            ["docker", "inspect", "--format", template, container],
+            env=env, text=True, capture_output=True, timeout=5, check=False,
+        )
+        if response.returncode:
+            return {"status": "unavailable"}
+        raw = json.loads(response.stdout)
+        if not isinstance(raw, dict) or raw.get("status") not in {
+            "created", "running", "paused", "restarting", "removing", "exited", "dead",
+        }:
+            return {"status": "unavailable"}
+        if (
+            type(raw.get("running")) is not bool
+            or type(raw.get("exit_code")) is not int
+            or type(raw.get("oom_killed")) is not bool
+            or raw.get("health") not in {"", "starting", "healthy", "unhealthy"}
+        ):
+            return {"status": "unavailable"}
+        return {key: raw[key] for key in ("status", "running", "exit_code", "oom_killed", "health")}
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return {"status": "unavailable"}
+
+
+def start_local_supabase(
+    command, container, *, env, timeout=300, created_timeout=60, poll_interval=5,
+):
+    """Bound startup and distinguish a Docker start stall from service readiness.
+
+    Inspect before reaping our CLI child, then let the caller stop its owned
+    stack. Never restart the shared daemon or remove someone else's resources.
+    CLI output can contain local API keys: consume it, but do not put it in
+    exceptions, console output, or diagnostic evidence.
+    """
+    if not re.fullmatch(r"supabase_db_puppy-baseline-[a-z0-9]{8}", container):
+        raise ValueError("Startup requires an owned Supabase container")
+    started = time.monotonic()
+    created_since = None
+    diagnostics = {
+        "container": container, "timeout_seconds": timeout,
+        "created_timeout_seconds": created_timeout,
+        "database": {"status": "unavailable"},
+    }
+    process = subprocess.Popen(
+        command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    try:
+        while True:
+            elapsed = time.monotonic() - started
+            diagnostics["elapsed_seconds"] = round(elapsed, 3)
+            if elapsed >= timeout:
+                diagnostics["reason"] = "supabase_startup_timeout"
+                raise SupabaseStartupError("Local Supabase startup timed out", diagnostics)
+            try:
+                output, _ = process.communicate(timeout=min(poll_interval, timeout - elapsed))
+            except subprocess.TimeoutExpired:
+                state = supabase_database_state(container, env=env)
+                diagnostics["database"] = state
+                now = time.monotonic()
+                diagnostics["elapsed_seconds"] = round(now - started, 3)
+                if state["status"] == "created":
+                    if created_since is None:
+                        created_since = now
+                    elif now - created_since >= created_timeout:
+                        diagnostics["reason"] = "docker_container_not_started"
+                        raise SupabaseStartupError(
+                            "Owned Docker database container never started "
+                            f"within {created_timeout}s of observation (state=created); "
+                            "verify Docker can execute a container before retrying Supabase",
+                            diagnostics,
+                        ) from None
+                else:
+                    created_since = None
+                continue
+            diagnostics["elapsed_seconds"] = round(time.monotonic() - started, 3)
+            if process.returncode:
+                diagnostics["database"] = supabase_database_state(container, env=env)
+                diagnostics["reason"] = "supabase_cli_failed"
+                raise SupabaseStartupError(
+                    f"Local Supabase startup failed (exit {process.returncode})", diagnostics,
+                )
+            diagnostics["reason"] = "started"
+            return output, diagnostics
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
 
 
 def main():
@@ -114,6 +224,7 @@ def main():
         for k, v in os.environ.items()
         if not k.startswith(("SUPABASE_", "AWS_", "S3_", "GIT_", "HOSTING_TEST_"))
     }
+    cli_env = env.copy()  # No ambient Supabase/S3 credentials reach the CLI either.
     env.update(
         APP_ENV="test",
         MANAGED_AI_ENABLED="false",
@@ -182,9 +293,23 @@ def main():
                 stack = module.LocalStack(Path(temp), [])
                 db, shadow, api, mail = free_ports()
 
+                result["supabase_sql_suite_executed"] = False
+
                 def cli(*parts, capture=False):
+                    cli_command = ["supabase", *parts, "--workdir", temp]
+                    if parts[0] == "start":
+                        try:
+                            output, diagnostics = start_local_supabase(
+                                cli_command, stack.container, env=cli_env,
+                            )
+                        except SupabaseStartupError as exc:
+                            result["supabase_startup"] = exc.diagnostics
+                            raise
+                        result["supabase_startup"] = diagnostics
+                        return output
                     completed = subprocess.run(
-                        ["supabase", *parts, "--workdir", temp],
+                        cli_command,
+                        env=cli_env,
                         text=True,
                         stdout=subprocess.PIPE,
                         check=True,
@@ -229,8 +354,9 @@ def main():
                     result["pytest_exit"] = subprocess.call(
                         command, cwd=ROOT / "backend", env=env
                     )
+                    result["supabase_sql_suite_executed"] = True
                     result["sql_exit"] = subprocess.call(
-                        ["supabase", "test", "db", "--workdir", temp], cwd=ROOT, env=env
+                        ["supabase", "test", "db", "--workdir", temp], cwd=ROOT, env=cli_env
                     )
                 finally:
                     stack.cli("stop", "--no-backup")

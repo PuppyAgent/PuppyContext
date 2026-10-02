@@ -7,6 +7,12 @@
 - [x] Harden evidence/strict-mode handling; run isolated PostgreSQL validation.
   Supplementary native PG: 5 passed, 1 known head-CAS failure. Supabase startup
   timed out and its owned containers were stopped; real Supabase/S3 gate remains open.
+- [x] Diagnose Docker-level startup stalls with owned containers; add bounded,
+  secret-free startup diagnostics, child cleanup and explicit live SQL evidence
+  gates. A minimum Alpine process also cannot start; do not restart shared Docker
+  or relabel native PG as Supabase acceptance.
+- [ ] Restore local Docker execution with operator coordination, then rerun actual
+  Supabase/PostgREST and real-object service gates on the isolated task branch.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
 
