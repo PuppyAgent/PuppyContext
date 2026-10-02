@@ -34,6 +34,7 @@ Product and frontend design:
 - [July 2026 Database Migration Transition](ops/database-migration-transition-2026-07.md)
 - [ISSUE-039 Repository Target Cutover](ops/issue-039-repository-target-cutover.md)
 - [Workspace Binding Removal](ops/workspace-binding-removal.md)
+- [Local Web Preview and Resource Regression](ops/local-web-resource-lifecycle.md)
 
 Document-level constructs:
 
