@@ -13,7 +13,12 @@ def pytest_addoption(parser):
     group.addoption(
         "--hosting-live",
         action="store_true",
-        help="Run isolated real PostgreSQL integration tests (requires local Supabase stack)",
+        help="Run isolated PostgreSQL integration tests (native PG or Supabase)",
+    )
+    group.addoption(
+        "--hosting-supabase",
+        action="store_true",
+        help="Run real local Supabase Auth/PostgREST tests; native PG is insufficient",
     )
 
 
@@ -21,7 +26,8 @@ def pytest_configure(config):
     for marker in (
         "hosting_native: stock Git workspace/oracle, not Cloud acceptance",
         "hosting_component: production Python code with explicitly substituted control plane",
-        "hosting_live: real isolated PostgreSQL/Supabase",
+        "hosting_live: real isolated PostgreSQL/Supabase SQL",
+        "hosting_supabase: actual local Supabase Auth/PostgREST, no auth doubles",
         "hosting_gap(reason): executable unmet target contract; never counted as support",
     ):
         config.addinivalue_line("markers", marker)
@@ -31,7 +37,7 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "repository_hosting" not in str(item.path):
             continue
-        for name in ("hosting_native", "hosting_component", "hosting_live"):
+        for name in ("hosting_native", "hosting_component", "hosting_live", "hosting_supabase"):
             if item.get_closest_marker(name):
                 item.user_properties.append(("execution_layer", name))
         gap = item.get_closest_marker("hosting_gap")
@@ -42,6 +48,10 @@ def pytest_collection_modifyitems(config, items):
         if item.get_closest_marker("hosting_live") and not config.getoption("--hosting-live"):
             item.add_marker(
                 pytest.mark.skip(reason="real PG requires --hosting-live; not acceptance evidence")
+            )
+        if item.get_closest_marker("hosting_supabase") and not config.getoption("--hosting-supabase"):
+            item.add_marker(
+                pytest.mark.skip(reason="real Auth/PostgREST requires --live; not acceptance evidence")
             )
 
 

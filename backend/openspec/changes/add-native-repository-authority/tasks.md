@@ -11,8 +11,14 @@
   secret-free startup diagnostics, child cleanup and explicit live SQL evidence
   gates. A minimum Alpine process also cannot start; do not restart shared Docker
   or relabel native PG as Supabase acceptance.
-- [ ] Restore local Docker execution with operator coordination, then rerun actual
-  Supabase/PostgREST and real-object service gates on the isolated task branch.
+- [x] Restore local Docker execution with user-authorized, process-scoped clean-env
+  startup; retain existing containers/volumes/images and global proxy settings.
+- [x] Run actual Supabase migrations, all 9 pgTAP files / 329 tests, and 44 real
+  GoTrue/PostgREST boundary cases. Fix new-definer search paths in a forward
+  migration; run SQL before Python tenants with one org to exercise GC smoke.
+- [ ] Resolve the observed stock-Git prefix/reflog create race without weakening
+  the original oracle; 6/100 standalone attempts had two failed writers.
+- [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
 
@@ -24,7 +30,10 @@
 - [x] Test the primitive with native PG17, SHA-1/SHA-256 Git oracles, real SQL roles,
   concurrent create/replay, late publication rollback, populated expansion and
   injected DDL failure/retry. Auth and object-closure receipts are fixture stubs.
-- [ ] Verify expansion/ACLs through actual Supabase/PostgREST and deployment gates.
+- [x] Verify dormant expansion/ACLs through actual owned Supabase/PostgREST;
+  preserve old SQL files and assert new-definer hardening rollback/data/ACL safety.
+- [ ] Complete target-environment security/deployment gates; local fixture success
+  does not authorize activation or prove real-user upgrade compatibility.
 - [ ] Implement durable object receipts/pins and GC-publication coordination.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including
   ref policy, lifecycle leases, non-atomic orchestration and result-query consumers.

@@ -18,7 +18,8 @@ backend/.venv/bin/python scripts/testing/run_repository_hosting.py --target -q
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live -q
 
 # 补充：独立本机 PostgreSQL 17，auth schema 为 stub，没有 Supabase/S3 服务
-backend/.venv/bin/python scripts/testing/run_repository_hosting.py --native-pg -q
+backend/.venv/bin/python scripts/testing/run_repository_hosting.py --native-pg -q -m 'not hosting_supabase'
+# 上述显式排除真实 Auth/PostgREST；不是完整验收。没有 --live 时这些用例不会执行。
 
 # 迁移前的严格目标入口（当前测试范围尚不完整，不能独自批准迁移）
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live --target -q
@@ -44,6 +45,7 @@ tests/repository_hosting/
 | `hosting_native` | 系统 Git 的工作区、bare ref 事务、SHA-1/SHA-256、mirror/bundle 行为 | 不代表 Cloud 已经支持 |
 | `hosting_component` | 生产对象/写入/路由代码；真实 Git HTTP；控制面用内存替身，S3 用 moto | 不代表真实 PG/S3 联合事务、生产耐久性已验收 |
 | `hosting_live` | 临时 PostgreSQL 的真实产品迁移、RPC、并发 CAS、回滚、旧新命名兼容；`--live` 使用 Supabase，`--native-pg` 使用 auth stub，run.json 区分环境 | native PG 不代表 Supabase Auth/PostgREST/安装器验收；两者都不代表真实 S3 或未来迁移已安全 |
+| `hosting_supabase` | 真正 GoTrue 创建/登录测试用户并核验 JWT；PostgREST 实测六张表的客户端读取拒绝、backend 只读、DML 拒绝和两项 RPC 的发布/重放/查询 | 无 auth mock，但 repository/receipt 仍是 owner fixture；不代表 admitted 应用服务、真实 S3、用户数据迁移或生产配置 |
 
 **无需先合并到 qubits。** 运行器使用当前工作树的代码和 migrations，记录实际 commit、dirty 状态和 SQL 哈希；隔离测试通过才具备后续集成依据，不反过来依赖集成或部署才能测试。
 
@@ -61,14 +63,22 @@ tests/repository_hosting/
 - 真实 PG 用例验证根 CAS、整笔事务回滚、重复提交事件、旧 RPC/新 RPC 与旧列/新列兼容。
 - `integration/test_ref_authority*.py` 验证尚未接入流量的 refs/HEAD SQL 原语：旧 OID/符号目标/不存在状态 CAS、并发创建、多 ref 原子性、结果重放与查询、字节名称、receipt 边界、reflog/audit/outbox 同事务、角色 ACL 和旧写入 fence。
 - 新增 Expand 前后对比既有用户/成员/项目/root/history/ref/audit/outbox 行及 RPC ACL；注入末尾 DDL 失败验证全部回滚，再应用原 migration 验证可重试。只验证合成存量 fixture，不代表已完成 07 的真实数据迁移。
+- `20261003020000_harden_repository_authority_search_path.sql` 追加修复三项 SECURITY DEFINER 的 `pg_catalog, public, pg_temp` 路径，与既有 ISSUE-053 安全门禁一致，不改原 migration、数据或 ACL；验证带数据重试、失败回滚、函数身份/定义/权限不变。
+- `integration/test_supabase_data_api.py` 的 44 项真实 HTTP 用例只连本工具的 loopback 栈，不走 shell 代理或重定向，不使用开发账号；有效 authenticated JWT 也不能读取/调用 backend-only authority。
 
 ### 本地 Supabase 启动故障
 
 `docker version` 成功不代表 Docker 能执行容器。2026-10-03 的排查发现，DB 容器持续处于 `created`，PostgreSQL 尚未执行；最小 Alpine `/bin/true` 探针（包括 `--network none`）同样无法启动。该证据指向本机 Docker 启动链路，而不是需要合入 qubits 或放宽产品测试。
 
-运行器现在区分镜像拉取/服务就绪超时与容器未启动：仅检查自建 DB 的安全状态字段，连续 `created` 达 60 秒即失败（通常约 65 秒），整体启动仍有 300 秒上限。诊断写入 `run.json.supabase_startup`，不记录 Env、CLI 密钥、原始日志或 health 输出；中断会回收自身 CLI 子进程，由外层清理所属栈。CLI 和测试子进程均不继承环境中的 Supabase/S3 凭据。`--live` 还要求明确的 pgTAP 执行标记与退出码，不能只有 pytest 成功就算通过。
+运行器现在区分镜像拉取/服务就绪超时与容器未启动：仅检查自建 DB 的安全状态字段，连续 `created` 达 60 秒即失败（通常约 65 秒），整体启动仍有 300 秒上限。诊断写入 `run.json.supabase_startup`，不记录 Env、CLI 密钥、原始日志或 health 输出；中断会回收自身 CLI 子进程，由外层清理所属栈。CLI 和测试子进程均不继承环境中的 Supabase/S3 凭据。`--live` 还要求 pgTAP 执行标记、退出码、非空 PASS 汇总和未报告 skip/TODO，不能只有 pytest 成功就算通过。
 
-需要重启共享 Docker Desktop 时先协调/取得授权；工具不自行重启 daemon、不 prune 镜像或数据卷、不修改其他容器。恢复后重跑同一分支的 `--live --target`。启动失败保留 NOT_VERIFIED，不改成 native-PG 或替身“验收通过”。
+需要重启共享 Docker Desktop 时先协调/取得授权；工具不自行重启 daemon、不 prune 镜像或数据卷、不修改其他容器。启动失败保留 NOT_VERIFIED，不改成 native-PG 或替身“验收通过”。
+
+2026-10-03 获用户授权后恢复：普通重启仍阻塞；内部 gRPC 等待与进程继承的代理变量相关，清空本次 Docker 启动进程的代理环境后，Alpine `/bin/true` 约 0.22 秒成功。全局代理设置未改，原有 10 个容器、20 个卷、36 个镜像保留。ECR 的 pg_prove 拉取超时后，运行器与既有数据库 CI 对齐，显式使用官方 Docker Hub registry，不继承任意 registry/云凭据。
+
+真实 pgTAP 曾暴露新函数 search_path 不符合 ISSUE-053（由前向 migration 修复），以及 Python 大量租户污染全局 billing claim 队列。现在先用一个合成 org 让 GC smoke probe 必定运行，再执行全部原 SQL 文件，最后跑 Python；不放宽原 SQL 断言。9 个文件 / 329 项 pgTAP 与定向 147 项测试（含 44 项真实 Auth/PostgREST）已通过；均非全量托管、真实 S3 或部署验收。
+
+额外观察：本机 Git 2.50.1 的 prefix-ref 并发创建会偶发两个请求都失败（100 次独立试验中 6 次，reflog 目录冲突，无新 ref）。原 `test_ref_prefix_create_race_has_one_winner` 断言未放宽，仅增加 stderr 诊断；不能用某次重跑通过宣称该 oracle 已稳定。
 
 已知缺口由测试里的 `hosting_gap` 标记逐项说明。普通模式使用 **strict XFAIL**：能力修好后出现 XPASS，要求移除标记；`--target` 则直接作为失败报告。初始化/清理错误不会被缺口标记隐藏。
 

@@ -84,7 +84,8 @@ def result_exit_code(result):
     if result.get("infrastructure_error") or result.get("evidence_error"):
         return max(1, code)
     if result.get("live") and (
-        result.get("supabase_sql_suite_executed") is not True or "sql_exit" not in result
+        result.get("supabase_sql_suite_executed") is not True
+        or result.get("supabase_sql_complete") is not True or "sql_exit" not in result
     ):
         return max(1, code)
     layers = result.get("layers", {})
@@ -202,6 +203,57 @@ def start_local_supabase(
             process.communicate(timeout=10)
 
 
+def local_supabase_environment(environ):
+    """Same official registry as database CI; never inherit hosted credentials."""
+    env = {
+        k: v for k, v in environ.items()
+        if not k.startswith(("SUPABASE_", "AWS_", "S3_", "GIT_", "HOSTING_TEST_"))
+    }
+    env["SUPABASE_INTERNAL_IMAGE_REGISTRY"] = "docker.io"
+    return env
+
+
+def prepare_supabase_sql_fixture(stack, cli_env):
+    if not re.fullmatch(r"supabase_db_puppy-baseline-[a-z0-9]{8}", stack.container):
+        raise ValueError("SQL probe fixture requires an owned Supabase container")
+    subprocess.run(
+        ["docker", "exec", "-i", stack.container, "psql", "-U", "postgres", "-d", "postgres",
+         "-X", "-q", "--single-transaction", "-v", "ON_ERROR_STOP=1"],
+        input=(ROOT / "scripts/testing/supabase_sql_fixture.sql").read_text(),
+        env=cli_env, text=True, capture_output=True, check=True, timeout=30,
+    )
+
+
+def record_sql_tests(output, result):
+    summary = re.search(r"Files=(\d+), Tests=(\d+),", output)
+    skipped = bool(re.search(r"SMOKE TEST SKIPPED|#\s*(?:SKIP|TODO)\b|\bSkipped:", output, re.IGNORECASE))
+    result["supabase_sql_counts"] = {
+        "files": int(summary[1]) if summary else 0,
+        "tests": int(summary[2]) if summary else 0,
+    }
+    result["supabase_sql_skip_or_todo_reported"] = skipped
+    result["supabase_sql_complete"] = bool(
+        summary and int(summary[1]) > 0 and int(summary[2]) > 0
+        and re.search(r"^Result: PASS\s*$", output, re.MULTILINE) and not skipped
+    )
+
+
+def run_supabase_suites(stack, command, env, cli_env, result):
+    # Existing pgTAP contracts assume a nearly empty DB (global claim batch=25).
+    # Seed one org so the GC smoke probe runs, then test SQL before Python tenants.
+    prepare_supabase_sql_fixture(stack, cli_env)
+    result["supabase_sql_suite_executed"] = True
+    sql = subprocess.run(
+        ["supabase", "test", "db", "--workdir", str(stack.directory)], cwd=ROOT, env=cli_env,
+        capture_output=True, text=True, timeout=300, check=False,
+    )
+    output = sql.stdout + "\n" + sql.stderr
+    print(output, flush=True)
+    result["sql_exit"] = sql.returncode
+    record_sql_tests(output, result)
+    result["pytest_exit"] = subprocess.call(command, cwd=ROOT / "backend", env=env)
+
+
 def main():
     parser = argparse.ArgumentParser()
     services = parser.add_mutually_exclusive_group()
@@ -219,12 +271,9 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     # Do not accidentally attribute an older successful artifact to a failed startup.
     (args.output / "junit.xml").unlink(missing_ok=True)
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("SUPABASE_", "AWS_", "S3_", "GIT_", "HOSTING_TEST_"))
-    }
-    cli_env = env.copy()  # No ambient Supabase/S3 credentials reach the CLI either.
+    cli_env = local_supabase_environment(os.environ)
+    env = cli_env.copy()
+    env.pop("SUPABASE_INTERNAL_IMAGE_REGISTRY")
     env.update(
         APP_ENV="test",
         MANAGED_AI_ENABLED="false",
@@ -294,6 +343,11 @@ def main():
                 db, shadow, api, mail = free_ports()
 
                 result["supabase_sql_suite_executed"] = False
+                result["supabase_image_registry"] = cli_env["SUPABASE_INTERNAL_IMAGE_REGISTRY"]
+                result["supabase_cli_version"] = subprocess.check_output(
+                    ["supabase", "--version"], env=cli_env, text=True,
+                    stderr=subprocess.DEVNULL, timeout=15,
+                ).strip()
 
                 def cli(*parts, capture=False):
                     cli_command = ["supabase", *parts, "--workdir", temp]
@@ -346,18 +400,14 @@ def main():
                     env.update(
                         HOSTING_TEST_STACK=stack.project,
                         HOSTING_TEST_DB_URL=f"postgresql://postgres:postgres@127.0.0.1:{db}/postgres",
+                        HOSTING_TEST_SUPABASE="1",
+                        HOSTING_TEST_ANON_KEY=status["ANON_KEY"],
                         SUPABASE_URL=status["API_URL"],
                         SUPABASE_KEY=status["SERVICE_ROLE_KEY"],
                         SUPABASE_SERVICE_ROLE_KEY=status["SERVICE_ROLE_KEY"],
                     )
-                    command.append("--hosting-live")
-                    result["pytest_exit"] = subprocess.call(
-                        command, cwd=ROOT / "backend", env=env
-                    )
-                    result["supabase_sql_suite_executed"] = True
-                    result["sql_exit"] = subprocess.call(
-                        ["supabase", "test", "db", "--workdir", temp], cwd=ROOT, env=cli_env
-                    )
+                    command.extend(["--hosting-live", "--hosting-supabase"])
+                    run_supabase_suites(stack, command, env, cli_env, result)
                 finally:
                     stack.cli("stop", "--no-backup")
     except Exception as exc:

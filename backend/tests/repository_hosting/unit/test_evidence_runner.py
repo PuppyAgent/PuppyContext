@@ -83,8 +83,74 @@ def test_live_requires_explicit_sql_execution_and_exit(executed, sql_exit, expec
     result = {
         "live": True, "target": True, "pytest_exit": 0,
         "supabase_sql_suite_executed": executed,
+        "supabase_sql_complete": True,
         "layers": {"hosting_live": {"passed": 1}},
     }
     if sql_exit is not None:
         result["sql_exit"] = sql_exit
     assert runner.result_exit_code(result) == expected
+
+
+def test_cli_registry_matches_database_ci_without_inheriting_credentials():
+    env = runner.local_supabase_environment({
+        "PATH": "/fixture", "SUPABASE_ACCESS_TOKEN": "private",
+        "SUPABASE_DB_PASSWORD": "private", "AWS_SECRET_ACCESS_KEY": "private",
+        "S3_BUCKET": "production", "SUPABASE_INTERNAL_IMAGE_REGISTRY": "untrusted.test",
+    })
+    assert env == {"PATH": "/fixture", "SUPABASE_INTERNAL_IMAGE_REGISTRY": "docker.io"}
+
+
+@pytest.mark.parametrize("sql_exit", [0, 1])
+def test_live_sql_precedes_tenant_fixtures_and_cannot_be_masked(monkeypatch, tmp_path, sql_exit):
+    # Use the real stack object's filesystem contract, without starting Docker.
+    spec = importlib.util.spec_from_file_location("hosting_baseline", ROOT / "scripts/database_baseline.py")
+    baseline = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(baseline)
+    stack = baseline.LocalStack(tmp_path, [])
+    calls = []
+
+    def run(args, **kwargs):
+        from subprocess import CompletedProcess
+        calls.append((args, kwargs))
+        return CompletedProcess(args, sql_exit, "Files=9, Tests=329, 1 wallclock secs\nResult: PASS\n", "")
+
+    def call(args, **kwargs):
+        calls.append((args, kwargs))
+        return 0
+
+    monkeypatch.setattr(runner, "prepare_supabase_sql_fixture", lambda s, e: calls.append((s, e)))
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    monkeypatch.setattr(runner.subprocess, "call", call)
+    result = {"live": True, "target": True, "layers": {"hosting_component": {"passed": 1}}}
+    runner.run_supabase_suites(stack, ["pytest"],
+                               {"phase": "pytest"}, {"phase": "sql"}, result)
+    assert calls == [
+        (stack, {"phase": "sql"}),
+        (["supabase", "test", "db", "--workdir", str(tmp_path)],
+         {"cwd": runner.ROOT, "env": {"phase": "sql"}, "capture_output": True, "text": True, "timeout": 300, "check": False}),
+        (["pytest"], {"cwd": runner.ROOT / "backend", "env": {"phase": "pytest"}}),
+    ]
+    assert result["supabase_sql_suite_executed"] is True
+    assert result["sql_exit"] == sql_exit
+    assert result["pytest_exit"] == 0
+    assert runner.result_exit_code(result) == sql_exit
+
+
+@pytest.mark.parametrize("output", [
+    "", "Result: PASS", "Files=0, Tests=0,\nResult: PASS",
+    "Files=9, Tests=329,\nResult: FAIL",
+    "Files=9, Tests=329,\nResult: PASS\nSMOKE TEST SKIPPED: no organization",
+    "Files=9, Tests=329,\nResult: PASS\nok 1 # SKIP missing fixture",
+    "Files=9, Tests=329,\nResult: PASS\nnot ok 1 # TODO pending contract",
+])
+def test_incomplete_or_skipped_sql_cannot_pass_live_gate(output):
+    result = {"live": True, "target": True, "pytest_exit": 0, "sql_exit": 0,
+              "supabase_sql_suite_executed": True, "layers": {"hosting_live": {"passed": 1}}}
+    runner.record_sql_tests(output, result)
+    assert runner.result_exit_code(result) == 1
+
+
+def test_live_gate_requires_sql_report_even_with_zero_exit():
+    result = {"live": True, "target": True, "pytest_exit": 0, "sql_exit": 0,
+              "supabase_sql_suite_executed": True, "layers": {"hosting_live": {"passed": 1}}}
+    assert runner.result_exit_code(result) == 1

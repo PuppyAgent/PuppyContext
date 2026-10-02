@@ -76,6 +76,12 @@ backend SELECT. Definer helpers are owner-only; only the two public RPCs gain
 service_role EXECUTE. All legacy table ACLs and RPC signatures are preserved.
 No migration grants broad new permissions or uses user JWT fields as SQL auth.
 
+Actual pgTAP exposed a missing explicit `pg_temp` search-path entry. The forward
+`20261003020000_harden_repository_authority_search_path.sql` sets all three
+new definers to the existing ISSUE-053 contract `pg_catalog, public, pg_temp`.
+It preserves the preceding migration, function identity/body, ACLs and data;
+transaction rollback and unchanged-SQL retry are tested on populated fixtures.
+
 ## Release properties and remaining gates
 
 Phase: Expand only. Existing data rows rewritten: zero. Runtime: small DDL plus
@@ -84,9 +90,20 @@ Migration is transactional: failure rolls back and can be retried through the
 normal release runner. Forward repair requires a new migration once shared.
 No destructive Contract and no S3 operation. Qubits deployment evidence: none.
 
-Tests use native PG17/auth stubs as supplementary evidence, native Git for
-semantic comparison, and role-switched SQL for ACLs. Actual Supabase/PostgREST,
-real S3 receipts, collector interleavings, protected-ref policy, lifecycle lease
-integration, consumers, restore/migration/performance and full acceptance remain
-open. Passing these foundation tests MUST NOT enable receive-pack capabilities
-or mark M02/M04, much less ISSUE-062, complete.
+Tests use native PG17/auth stubs as supplementary evidence and native Git for
+semantic comparison. Actual local Supabase now applies the real migrations and
+runs all nine pgTAP files (329 assertions), including the existing GC smoke probe.
+Forty-four real GoTrue/PostgREST cases verify client denial, backend read-only
+access, RPC commit/rejection replay, actor-bound queries, byte refs and HEAD.
+No HTTP/auth mock is used there; repository metadata and receipts remain
+owner-installed synthetic fixtures. SQL tests run before Python's many tenants
+so global reconciliation batches are not polluted; one probe org prevents a
+silent no-org GC smoke skip. The runner records SQL counts/skip diagnostics and
+uses the same official Docker Hub registry as database CI.
+
+Real S3 receipts, collector interleavings, admitted/ref policy, lifecycle leases,
+consumers, restore/migration/performance and environment deployment gates remain
+open. A separately observed native Git prefix/reflog race remains unresolved;
+its existing target assertion is retained. Passing these foundation tests MUST
+NOT enable receive-pack capabilities or mark M02/M04, much less ISSUE-062,
+complete.

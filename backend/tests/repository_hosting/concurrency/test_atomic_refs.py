@@ -44,9 +44,11 @@ def test_ref_prefix_create_race_has_one_winner(git_repo):
 
     def create(name):
         gate.wait(timeout=10)
-        return git_repo.run("update-ref", name, oid, "0" * 40, check=False).returncode
+        return git_repo.run("update-ref", name, oid, "0" * 40, check=False)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(create, ["refs/heads/topic", "refs/heads/topic/child"]))
-    assert sorted(rc == 0 for rc in results) == [False, True]
+    assert sorted(p.returncode == 0 for p in results) == [False, True], [
+        p.stderr.decode(errors="replace") for p in results
+    ]
     assert len([name for name in git_repo.refs() if name.startswith("refs/heads/topic")]) == 1

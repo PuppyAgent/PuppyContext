@@ -13,82 +13,38 @@ from threading import Barrier
 import pytest
 
 from tests.repository_hosting.harness.postgres import literal
-
-pytestmark = pytest.mark.hosting_live
-
-ABSENT = {"kind": "absent"}
-A, B, C = (char * 40 for char in "abc")
-TABLES = (
-    "version_repositories", "version_repository_refs", "version_publication_receipts",
-    "version_ref_transactions", "version_reflog_entries", "version_ref_events",
+from tests.repository_hosting.harness.ref_authority import (
+    ABSENT,
+    TABLES,
+    A,
+    Authority,
+    B,
+    C,
+    b64,
+    oid,
+    symbolic,
+    update,
 )
 
-
-def b64(name):
-    return base64.b64encode(name).decode("ascii")
-
-
-def oid(value):
-    return {"kind": "oid", "oid": value}
-
-
-def symbolic(name):
-    return {"kind": "symbolic", "target_b64": b64(name)}
-
-
-def update(name=b"refs/heads/main", old=ABSENT, new=None):
-    result = {"name_b64": b64(name), "expected": old}
-    if new is not None:
-        result["new"] = new
-    return result
-
-
-class Authority:
-    def __init__(self, pg, project, *, object_format="sha1", roots=None):
-        self.pg, self.project = pg, project
-        self.receipt = str(uuid.uuid4())
-        roots = roots or {A: "commit", B: "commit", C: "commit", "d" * 40: "blob", "e" * 40: "tag"}
-        pg.sql(f"""
-          INSERT INTO public.version_repositories(project_id, authority, object_format)
-          VALUES ({literal(project)}, 'native', {literal(object_format)});
-          INSERT INTO public.version_repository_refs(project_id, name, object_format, symbolic_target)
-          VALUES ({literal(project)}, decode('48454144','hex'), {literal(object_format)}, decode({literal(b'refs/heads/main'.hex())},'hex'));
-          INSERT INTO public.version_publication_receipts
-            (id, project_id, object_format, generation, gc_epoch, roots, manifest_sha256, verified_at, expires_at)
-          VALUES ({literal(self.receipt)}, {literal(project)}, {literal(object_format)}, 1, 1,
-            {literal(roots)},
-            {literal('f' * 64)}, now(), now() + interval '1 hour');
-        """)
-
-    def query(self, updates, *, key=None, actor="test:writer", generation=1, receipt=True):
-        args = [self.project, actor, key or str(uuid.uuid4()), generation, updates,
-                self.receipt if receipt else None, "SQL fixture"]
-        return (
-            "SET ROLE service_role; SELECT public.apply_version_ref_transaction("
-            + ",".join(literal(arg) for arg in args) + ");"
-        )
-
-    def apply(self, updates, **kwargs):
-        return json.loads(self.pg.value(self.query(updates, **kwargs)))
-
-    def state(self, name=b"refs/heads/main"):
-        value = self.pg.value(f"""
-          SELECT jsonb_build_object('oid', target_oid, 'target', encode(symbolic_target,'hex'))
-          FROM public.version_repository_refs WHERE project_id={literal(self.project)}
-          AND name=decode({literal(name.hex())},'hex');
-        """)
-        return json.loads(value) if value else None
-
-    def count(self, table):
-        assert table in (*TABLES, "audit_logs")
-        return int(self.pg.value(
-            f"SELECT count(*) FROM public.{table} WHERE project_id={literal(self.project)}"
-        ))
+pytestmark = pytest.mark.hosting_live
 
 
 @pytest.fixture
 def authority(pg_project):
     return Authority(*pg_project)
+
+
+@pytest.mark.parametrize("signature", [
+    "apply_version_ref_transaction(text,text,uuid,bigint,jsonb,uuid,text)",
+    "get_version_ref_transaction(text,text,uuid)",
+    "_version_fence_legacy_publication()",
+])
+def test_ref_authority_definer_path_matches_security_contract(pg_project, signature):
+    pg, _ = pg_project
+    assert pg.value(f"""
+      SELECT prosecdef AND proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp']
+      FROM pg_proc WHERE oid={literal('public.' + signature)}::regprocedure;
+    """) == "t"
 
 
 def test_ref_authority_same_tree_heads_use_oid_cas(authority):
