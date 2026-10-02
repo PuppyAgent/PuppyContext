@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -51,7 +52,7 @@ def expect_guard_failure(stack: LocalStack, sql: str) -> None:
          "-X", "-qAt", "-v", "ON_ERROR_STOP=1"],
         input=sql, text=True, capture_output=True, timeout=60,
     )
-    check(result.returncode != 0 and "ISSUE-053:" in result.stderr,
+    check(result.returncode != 0 and re.search(r"(?:^|\n)ERROR:\s+ISSUE-053:", result.stderr),
           "Expected security rejection, not success, syntax error or infrastructure failure: " + result.stderr)
 
 
@@ -69,7 +70,8 @@ def rest_matrix(status: dict, *, before: bool) -> int:
             for table in (*TABLES, "version_activity_feed"):
                 result = client.get(table, headers=headers, params={"select": "*"})
                 if before:
-                    check(result.status_code == 200 and len(result.json()) >= 2, f"Baseline leak not reproduced: {table}")
+                    check(result.status_code == 200 and len(result.json()) >= 2,
+                          f"Baseline leak not reproduced: {table}, HTTP {result.status_code}")
                 else:
                     check(result.status_code in (401, 403) and result.json().get("code") == "42501",
                           f"Read denial is not a PostgreSQL permission failure: {table}, {result.status_code}")
@@ -79,9 +81,15 @@ def rest_matrix(status: dict, *, before: bool) -> int:
             for table in TABLES:
                 column = "connector_id" if table == "connector_runs" else "project_id"
                 for method, body in (("POST", {}), ("PATCH", {column: "issue053-project-a"}), ("DELETE", None)):
-                    result = client.request(method, table, headers=headers, json=body)
-                    check(result.status_code in (401, 403) and result.json().get("code") == "42501",
-                          f"Write denial is not a PostgreSQL permission failure: {method} {table}, {result.status_code}")
+                    # Supabase's pg_safeupdate rejects unfiltered PATCH/DELETE
+                    # before ACL checks. Use a valid tenant filter, never accept
+                    # that query-safety 400 as proof of authorization denial.
+                    value = "issue053-legacy-a" if table == "connector_runs" else "issue053-project-a"
+                    params = {column: "eq." + value} if method != "POST" else None
+                    result = client.request(method, table, headers=headers, json=body, params=params)
+                    code = result.json().get("code")
+                    check(result.status_code in (401, 403) and code == "42501",
+                          f"Write denial is not a PostgreSQL permission failure: {method} {table}, {result.status_code}, {code}")
                     count += 1
             for name, body in (
                 ("repository_target_integrity_report", {}),
@@ -185,7 +193,8 @@ def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
         "ALTER TABLE public.tables DISABLE ROW LEVEL SECURITY;",
         "ALTER VIEW public.version_activity_feed SET (security_invoker = false);",
         "GRANT EXECUTE ON FUNCTION public.repository_target_integrity_report() TO PUBLIC;",
-        "GRANT EXECUTE ON FUNCTION public.issue_user_git_http_credential(text,text,text,text,text,uuid,text,text,text,text,text) TO service_role;" ,
+        "GRANT EXECUTE ON FUNCTION public.issue_user_git_http_credential(text,text,text,text,text,uuid,text,text,text,text,text) TO service_role;",
+        "CREATE ROLE issue053_bridge; GRANT SELECT ON public.audit_logs TO issue053_bridge; GRANT issue053_bridge TO authenticated WITH INHERIT FALSE;",
         "CREATE VIEW public.issue053_leaky_view AS SELECT * FROM public.audit_logs; GRANT SELECT ON public.issue053_leaky_view TO anon;",
         "CREATE FUNCTION public.issue053_leaky_rpc() RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS 'SELECT public.repository_target_integrity_report()'; GRANT EXECUTE ON FUNCTION public.issue053_leaky_rpc() TO PUBLIC;",
     ]

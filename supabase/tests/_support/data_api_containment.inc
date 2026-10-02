@@ -6,6 +6,7 @@ DO $$
 DECLARE
     object record;
     client text;
+    client_roles text[];
     role_oid oid;
     signature regprocedure;
     protected_relations oid[] := ARRAY[
@@ -15,7 +16,11 @@ DECLARE
         'public.version_activity_feed'::regclass
     ];
 BEGIN
-    FOREACH client IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    -- Effective ACL checks alone miss NOINHERIT memberships that permit SET ROLE.
+    SELECT array_agg(rolname::text) INTO client_roles FROM pg_roles
+    WHERE rolname IN ('anon', 'authenticated')
+       OR pg_has_role('anon', oid, 'SET') OR pg_has_role('authenticated', oid, 'SET');
+    FOREACH client IN ARRAY client_roles LOOP
         SELECT oid INTO STRICT role_oid FROM pg_roles WHERE rolname = client;
         IF EXISTS (SELECT FROM pg_roles WHERE oid = role_oid AND (rolsuper OR rolbypassrls))
            OR pg_has_role(client, 'service_role', 'MEMBER')
@@ -93,8 +98,8 @@ BEGIN
         SELECT f.* FROM reachable JOIN functions f USING (oid)
     LOOP
         signature := object.oid::regprocedure;
-        IF has_function_privilege('anon', object.oid, 'EXECUTE')
-           OR has_function_privilege('authenticated', object.oid, 'EXECUTE')
+        IF EXISTS (SELECT FROM unnest(client_roles) reachable_role
+                   WHERE has_function_privilege(reachable_role, object.oid, 'EXECUTE'))
            OR EXISTS (SELECT FROM aclexplode(coalesce(object.proacl, acldefault('f', object.proowner)))
                       WHERE grantee = 0 AND privilege_type = 'EXECUTE') THEN
             RAISE EXCEPTION 'ISSUE-053: client can invoke protected function %', signature;
