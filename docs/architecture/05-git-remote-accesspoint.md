@@ -38,22 +38,29 @@ Scope view:   /git/{project_id}/scopes/{scope_id}.git
 The URL contains only non-secret target identity. Credentials are supplied by
 Git HTTP authentication and must never appear in a newly generated URL.
 
-Desktop accepts a canonical remote as Cloud context only when all of these hold:
+Desktop accepts a canonical remote as an automatic local-to-Cloud association
+only when all of these hold:
 
 - exactly one PuppyOne canonical target is present;
 - its origin matches the configured Cloud Git origin;
 - the URL parses to a normal Project-root or Scope target;
 - the current JWT authorizes that Project and exact target.
 
-No canonical remote means `local-only`. Desktop makes no repository-context API
-request and renders no Cloud error. A legacy secret-bearing route may still be
-served by the Git transport during its bounded compatibility window, but it is
-never a Cloud UI locator.
+No canonical remote means `local-only` for the local association resolver. That
+resolver makes no repository-context request and renders no association error.
+This does not prohibit account-level Cloud navigation: a signed-in Desktop user
+may list accessible Projects using the existing `GET /api/v1/projects/` and
+explicitly open one after exact-target authorization and file preflight. An
+untrusted or malformed local remote must not block that independent catalog.
+A legacy secret-bearing route may still be served by the Git transport during
+its bounded compatibility window, but it is never a Cloud UI locator.
 
 ## Cloud UI resolution
 
+Automatic association for an open local repository:
+
 ```text
-User opens Cloud view
+User asks for the local repository's Cloud association
   -> Desktop reads actual Git remotes
   -> no unique canonical PuppyOne remote?
        -> local-only; stop; no Cloud request
@@ -68,9 +75,29 @@ User opens Cloud view
   -> render Project content
 ```
 
-The backend does not receive a local path, workspace ID, device ID, checkout
-ID, Git credential, or raw remote URL on this path. The canonical URL is a
-locator, not proof. A stale project ID in any local manifest is not a fallback.
+Independent account navigation:
+
+```text
+Current configured Cloud connection + authenticated human session
+  -> GET /api/v1/projects/ (existing authorization-filtered catalog)
+  -> explicit Project selection (not a local-folder binding)
+  -> POST /api/v1/projects/{project_id}/repository-context { target }
+  -> authorize exact Project / optional Scope, as above
+  -> read the authorized file root
+  -> open the hosted workspace; leave local files and Git remotes unchanged
+```
+
+Both paths use the same existing Project and authorization contracts. Empty
+Project creation remains `POST /api/v1/projects/` with an explicit `org_id` and
+`Idempotency-Key`; it does not publish local content. This Desktop navigation
+change requires no database, schema, migration, or server-side binding change.
+Desktop owns its navigation lifecycle; its canonical contract is
+`puppy-issues:document/puppyone-desktop/cloud/workspace-state.md`.
+
+The backend receives no local path, workspace ID, device ID, checkout ID, Git
+credential, or raw remote URL on either path. The canonical URL is a locator,
+not proof. A cached ID cannot override Git association or current authorization;
+user-selected hosted navigation is separate from claiming a local association.
 
 ## Git data-plane authorization
 
