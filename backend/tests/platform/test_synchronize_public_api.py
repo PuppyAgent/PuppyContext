@@ -180,6 +180,34 @@ def test_unclassified_import_sources_are_not_reinterpreted_as_bindings(canonical
     queue.enqueue_sync_run.assert_not_called()
 
 
+@pytest.mark.parametrize("query", [
+    "synchronize_binding_id=&project_id=project-1",
+    "synchronize_binding_id=%20&project_id=project-1",
+    "binding_id=unknown&project_id=project-1",
+    "misspelled_id=unknown&project_id=project-1",
+    "project_id=project-1&project_id=project-2",
+    "provider=&project_id=project-1",
+])
+def test_invalid_pull_selectors_never_expand_to_a_project_wide_write(canonical, query):
+    app, bindings, _, queue = canonical
+    bindings.create(project_id="project-1", provider="url")
+    with TestClient(app) as client:
+        assert client.post(f"{BASE}/pull?{query}").status_code == 422
+    queue.enqueue_sync_run.assert_not_called()
+
+
+def test_explicit_single_binding_and_project_pull_remain_distinct(canonical):
+    app, bindings, _, queue = canonical
+    first = bindings.create(project_id="project-1", provider="url")
+    second = bindings.create(project_id="project-1", provider="url")
+    with TestClient(app) as client:
+        single = client.post(f"{BASE}/pull?synchronize_binding_id={first.id}").json()["data"]
+        assert [row["synchronize_binding_id"] for row in single["results"]] == [first.id]
+        project = client.post(f"{BASE}/pull?project_id=project-1").json()["data"]
+        assert {row["synchronize_binding_id"] for row in project["results"]} == {first.id, second.id}
+    assert queue.enqueue_sync_run.call_count == 2
+
+
 def test_canonical_openapi_has_no_legacy_identity_schema_fields(canonical):
     app, *_ = canonical
     openapi = app.openapi()

@@ -71,6 +71,15 @@ describe('canonical Synchronize client', () => {
     ]);
   });
 
+  it('never drops an invalid pull selector into a broader project operation', () => {
+    const t = transport();
+    const api = createSynchronizeApi(t as CloudTransport);
+    expect(() => api.pullSynchronizeBindings({ project_id: 'p', synchronize_binding_id: '' })).toThrow('must not be empty');
+    expect(() => api.pullSynchronizeBindings({ project_id: 'p', synchronize_binding_id: ' ' })).toThrow('must not be empty');
+    expect(() => api.pullSynchronizeBindings({ project_id: 'p', connection_id: 'old-id' } as never)).toThrow('Unknown');
+    expect(t.post).not.toHaveBeenCalled();
+  });
+
   it('removes the duplicate legacy leaf clients and rejects reintroduced generic URLs', () => {
     expect(existsSync('lib/syncApi.ts')).toBe(false);
     expect(existsSync('lib/workflowApi.ts')).toBe(false);

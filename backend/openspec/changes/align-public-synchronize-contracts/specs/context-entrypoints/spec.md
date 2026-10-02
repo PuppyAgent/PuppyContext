@@ -12,6 +12,7 @@ The API SHALL expose generic bindings and runs under `/api/v1/synchronize`, with
 #### Scenario: Old identity field cannot broaden execution
 - **WHEN** a canonical request contains connection_id, access_point_id or sync_id instead of synchronize_binding_id
 - **THEN** it is rejected before mutation, not silently interpreted as a project-wide operation
+- **AND** pull rejects unknown, empty and repeated selectors; the SDK must not omit an explicit empty binding ID and widen the request to a Project
 
 ### Requirement: Preserve authorization and lifecycle semantics
 Canonical routes SHALL reuse the existing Synchronize application operations, credential redaction, target validation and Project authorization. Legacy HTTP compatibility SHALL NOT create another lifecycle implementation.
