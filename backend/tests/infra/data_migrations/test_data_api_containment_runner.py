@@ -5,8 +5,10 @@ mandatory Docker/Supabase rehearsal; these doubles only test its failure logic.
 """
 from __future__ import annotations
 
+import ast
 import importlib
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,6 +69,14 @@ def test_http_probe_uses_filters_and_rejects_non_acl_denials(runner, monkeypatch
 def test_http_probe_cannot_target_hosted_database(runner):
     with pytest.raises(AssertionError, match="Nonlocal API refused"):
         runner.rest_matrix({"API_URL": "https://hosted.example.test"}, before=False)
+
+
+def test_backend_imports_work_without_pytest_module_cache(runner):
+    source = ast.parse(Path(runner.__file__).read_text())
+    consumer = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "backend_consumers")
+    imports = ast.Module(body=[node for node in consumer.body if isinstance(node, (ast.Import, ast.ImportFrom))], type_ignores=[])
+    result = subprocess.run([sys.executable, "-c", ast.unparse(imports)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
 
 
 def test_real_rehearsal_is_part_of_stable_database_gate():

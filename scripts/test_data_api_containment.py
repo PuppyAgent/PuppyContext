@@ -112,10 +112,11 @@ def backend_consumers(status: dict) -> None:
     # Actual repositories over PostgREST plus the canonical authorization policy
     # over real tenant facts. No in-memory database/authentication substitute.
     os.environ.update(SUPABASE_URL=status["API_URL"], SUPABASE_KEY=status["SERVICE_ROLE_KEY"], SKIP_AUTH="false")
-    from src.content.table.supabase_repo import TableRepository
+    # Bootstrap the normal facade before domain repositories: its existing
+    # re-exports otherwise form an import cycle in a fresh standalone process.
+    from src.infra.supabase import SupabaseClient, TableRepository
     from src.content.table.supabase_schemas import TableCreate, TableUpdate
     from src.exceptions import NotFoundException
-    from src.infra.supabase.client import SupabaseClient
     from src.platform.authorization.models import ProjectAction
     from src.platform.authorization.repository import AuthorizationRepository
     from src.platform.authorization.service import AuthorizationService
