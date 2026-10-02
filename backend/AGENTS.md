@@ -207,7 +207,8 @@ audit/transaction/outbox。
 | `/api/v1/agents` | platform/access/adapters/agent | Agent SSE 聊天 |
 | `/api/v1/agent-config` | platform/access/adapters/agent/config | Agent CRUD |
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 工具绑定 |
-| `/api/v1/integrations` | platform/synchronize | 数据源同步 |
+| `/api/v1/synchronize` | platform/synchronize/public_router | SynchronizeBinding / SynchronizeRun canonical API |
+| `/api/v1/integrations` | platform/synchronize/router | 058 S2/S3 有限兼容；新客户端不得 fallback |
 | `/api/v1/access` | platform/access | 统一 Access 管理 |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |

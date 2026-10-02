@@ -10,8 +10,10 @@ async function run(args, status = 200) {
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ path: new URL(url).pathname, method: options.method,
       body: options.body ? JSON.parse(options.body) : null });
-    return new Response(JSON.stringify(status === 200 ? { code: 0, data: { id: "created-1" } }
-      : { detail: "Queue unavailable" }), { status, headers: { "Content-Type": "application/json" } });
+    const data = new URL(url).pathname.endsWith("/bindings") && options.method === "POST"
+      ? { binding: { id: "created-1" }, execution_result: null } : { id: "created-1" };
+    return new Response(JSON.stringify(status === 200 ? { code: 0, data }
+      : { detail: status === 404 ? "Not Found" : "Queue unavailable" }), { status, headers: { "Content-Type": "application/json" } });
   };
   console.log = console.error = value => logs.push(String(value));
   process.exit = code => { throw new Exit(String(code)); };
@@ -53,23 +55,26 @@ for (const args of [["synchronize", "add"], ["access", "add"]]) {
   const result = await run([...args, "gmail", "https://mail.google.com/mail/u/0/#inbox",
     "--folder", "/mail", "--mode", "manual", "--set", "options.max_results=3"]);
   assert.equal(result.exit, 0);
-  assert.equal(result.calls[0].path, "/api/v1/integrations/connections");
+  assert.equal(result.calls[0].path, "/api/v1/synchronize/bindings");
   assert.deepEqual(result.calls[0].body.config, {
     source: { resource_url: "https://mail.google.com/mail/u/0/#inbox" }, options: { max_results: 3 },
   });
   assert.equal(result.json.resource_kind, "synchronize_binding");
+  assert.equal(result.json.binding.id, "created-1");
 }
 const scheduled = await run(["synchronize", "add", "url", "https://example.com", "--folder", "/pages",
   "--mode", "scheduled", "--schedule", "0 9 * * *"]);
 assert.deepEqual(scheduled.calls[0].body.trigger, { type: "scheduled", schedule: "0 9 * * *", timezone: "UTC" });
 for (const kind of ["mcp", "agent", "sandbox"]) {
-  const result = await run(["access", "add", kind, "My surface", "--scope", "/notes"]);
+  const result = await run(["access", "add", kind, "My surface", ...(kind === "agent" ? [] : ["--scope", "/notes"])]);
   assert.equal(result.calls[0].path, "/api/v1/access");
-  assert.equal(result.calls[0].body.path, "/notes");
+  assert.equal(result.calls[0].body.path, kind === "agent" ? null : "/notes");
   assert.equal(result.json.resource_kind, "access_surface");
 }
 for (const args of [
   ["access", "add", "direct"],
+  ["access", "add", "mcp", "--permission", "read"],
+  ["access", "add", "agent", "--scope", "/notes"],
   ["access", "add", "database", "postgresql://unit.test/db"],
   ["access", "add", "url", "https://example.com", "--gateway", "retired"],
   ["access", "refresh", "surface-1"], ["access", "run", "surface-1"],
@@ -90,9 +95,10 @@ for (const [args, path, method] of [
   [["import", "cancel", "job-1"], "/imports/job-1", "DELETE"],
   [["import", "info", "job-1"], "/imports/job-1", "GET"],
   [["import", "providers"], "/imports/providers", "GET"],
-  [["synchronize", "providers"], "/integrations/connectors", "GET"],
-  [["synchronize", "runs", "binding-1"], "/integrations/connections/binding-1/runs", "GET"],
-  [["synchronize", "pause", "binding-1"], "/integrations/connections/binding-1/pause", "POST"],
+  [["synchronize", "providers"], "/synchronize/providers", "GET"],
+  [["synchronize", "runs", "binding-1"], "/synchronize/bindings/binding-1/runs", "GET"],
+  [["synchronize", "pause", "binding-1"], "/synchronize/bindings/binding-1/pause", "POST"],
+  [["synchronize", "run", "run-1"], "/synchronize/runs/run-1", "GET"],
 ]) {
   const result = await run(args);
   assert.equal(result.calls[0].path, `/api/v1${path}`);
@@ -101,6 +107,10 @@ for (const [args, path, method] of [
 const unavailable = await run(["import", "create", "https://example.com"], 503);
 assert.equal(unavailable.exit, 1);
 assert.equal(unavailable.calls.length, 1, "never automatically replay a failed mutation");
+const oldServer = await run(["synchronize", "add", "url", "https://example.com", "--folder", "/notes"], 404);
+assert.equal(oldServer.exit, 1);
+assert.equal(oldServer.json.error.code, "SERVER_UPGRADE_REQUIRED");
+assert.equal(oldServer.calls.length, 1, "no legacy route/Access fallback after canonical API failure");
 assert.throws(() => sourceConfig({ set: ["__proto__.polluted=true"] }));
 assert.equal({}.polluted, undefined);
 console.log("entrypoint command request/error contracts: ok");

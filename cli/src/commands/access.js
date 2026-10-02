@@ -20,7 +20,7 @@ export function registerAccess(program) {
     .argument("[source]", "surface name or external URL for the deprecated source alias")
     .option("--name <name>").option("--folder <path>", "project target folder for a source")
     .option("--scope <path>", "project path exposed by the Access surface")
-    .option("--permission <permission>", "read | write | rw", "rw")
+    .option("--permission <permission>", "retired; configure grants through the owning Access API")
     .option("--mode <mode>", "legacy external source intent: import_once | manual | scheduled", "import_once")
     .option("--schedule <cron>", "cron for explicit scheduled Synchronize aliases")
     .option("--timezone <zone>")
@@ -32,6 +32,14 @@ export function registerAccess(program) {
     .action(withErrors(async (type, source, opts, cmd) => {
       const kind = providerName(type);
       const out = createOutput(cmd);
+      if (opts.permission) {
+        throw new ApiError(0, "UNSUPPORTED_PERMISSION_OPTION", "--permission cannot safely configure these Access grants.",
+          "Configure permissions through the owning Access/Agent surface workflow; no resource was created.");
+      }
+      if (kind === "agent" && (opts.scope != null || opts.folder != null)) {
+        throw new ApiError(0, "AGENT_SCOPE_CONFIGURATION_REQUIRED", "Agent scope is not the generic Access path field.",
+          "Configure Agent access bindings through the Agent workflow; no unscoped agent was created.");
+      }
       if (["direct", "cli", "git_remote", "filesystem"].includes(kind)) {
         throw new ApiError(0, "RETIRED_ACCESS_CREATION", `access add ${kind} is not supported.`,
           "Use the project's credential-free Git remote and separately issued Git credentials.");

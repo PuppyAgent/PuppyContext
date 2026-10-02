@@ -1,12 +1,23 @@
 /** Import and Synchronize resources. Access IDs are never accepted as binding IDs.
- * The current server still exposes Synchronize at /integrations; ISSUE-058 owns
- * the coordinated HTTP rename. This module is the single CLI cutover boundary.
+ * Uses the canonical ISSUE-058 resource API. No legacy URL or Access-ID fallback.
  */
 import { ApiError, createClient } from "../api.js";
 import { requireProject, withErrors } from "../helpers.js";
 import { createOutput } from "../output.js";
 
-export const SYNCHRONIZE_ROOT = "/integrations";
+export const SYNCHRONIZE_ROOT = "/synchronize";
+
+export async function synchronizeRequest(client, method, resource, ...args) {
+  try {
+    return await client[method](`${SYNCHRONIZE_ROOT}${resource}`, ...args);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404 && error.message === "Not Found") {
+      throw new ApiError(404, "SERVER_UPGRADE_REQUIRED", "This server does not expose the canonical Synchronize API.",
+        "Use a server containing ISSUE-058's /synchronize contract with this CLI. No legacy mutation was attempted.");
+    }
+    throw error;
+  }
+}
 
 export function sourceConfig(opts = {}) {
   let config;
@@ -96,6 +107,7 @@ export async function createSource(client, projectId, provider, source, opts = {
   if (target == null) throw new ApiError(0, "MISSING_TARGET", "Synchronize requires --folder <project-path>.");
   const externalSource = { ...(config.source || {}) };
   if (source) externalSource.resource_url = source;
+  if (opts.name) externalSource.resource_name = opts.name;
   // --set accepts source.* and options.*. Flat Import options are not silently
   // reinterpreted as a different lifecycle's configuration.
   for (const key of Object.keys(config)) {
@@ -103,13 +115,13 @@ export async function createSource(client, projectId, provider, source, opts = {
       throw new ApiError(0, "INVALID_SYNC_CONFIG", `Synchronize config must use source/options; unexpected ${key}.`);
     }
   }
-  const result = await client.post(`${SYNCHRONIZE_ROOT}/connections`, {
+  const result = await synchronizeRequest(client, "post", "/bindings", {
     project_id: projectId, provider: name, target_path: target,
     direction: opts.direction || "inbound", sync_mode: mode,
     trigger: synchronizeTrigger({ ...opts, mode }),
     config: { ...config, source: externalSource, options: config.options || {} },
   });
-  return { resource_kind: "synchronize_binding", binding: result };
+  return { resource_kind: "synchronize_binding", ...result };
 }
 
 export function printResource(cmd, data) {
@@ -156,29 +168,33 @@ export function registerEntryPoints(program) {
       printResource(cmd, await createSource(createClient(cmd), requireProject(cmd), provider, source, opts));
     }));
   sync.command("providers").action(withErrors(async (_opts, cmd) => {
-    printResource(cmd, { providers: await createClient(cmd).get(`${SYNCHRONIZE_ROOT}/connectors`) });
+    printResource(cmd, { providers: await synchronizeRequest(createClient(cmd), "get", "/providers") });
   }));
   sync.command("ls").action(withErrors(async (_opts, cmd) => {
-    printResource(cmd, { bindings: await createClient(cmd).get(`${SYNCHRONIZE_ROOT}/connections`, { project_id: requireProject(cmd) }) });
+    printResource(cmd, { bindings: await synchronizeRequest(createClient(cmd), "get", "/bindings", { project_id: requireProject(cmd) }) });
   }));
   for (const action of ["refresh", "pause", "resume"]) {
     sync.command(action).argument("<binding-id>", "Synchronize binding ID, never an Access surface ID")
       .action(withErrors(async (id, _opts, cmd) => {
-        printResource(cmd, { result: await createClient(cmd).post(`${SYNCHRONIZE_ROOT}/connections/${encodeURIComponent(id)}/${action}`) });
+        printResource(cmd, { result: await synchronizeRequest(createClient(cmd), "post", `/bindings/${encodeURIComponent(id)}/${action}`) });
       }));
   }
   sync.command("trigger").argument("<binding-id>").argument("<mode>", "manual | scheduled")
     .option("--schedule <cron>").option("--timezone <zone>")
     .action(withErrors(async (id, mode, opts, cmd) => {
       const trigger = synchronizeTrigger({ ...opts, mode });
-      printResource(cmd, { binding: await createClient(cmd).patch(`${SYNCHRONIZE_ROOT}/connections/${encodeURIComponent(id)}/trigger`, {
+      printResource(cmd, { binding: await synchronizeRequest(createClient(cmd), "patch", `/bindings/${encodeURIComponent(id)}/trigger`, {
         sync_mode: mode, trigger,
       }) });
     }));
   sync.command("rm").argument("<binding-id>").action(withErrors(async (id, _opts, cmd) => {
-    printResource(cmd, { result: await createClient(cmd).del(`${SYNCHRONIZE_ROOT}/connections/${encodeURIComponent(id)}`) });
+    printResource(cmd, { result: await synchronizeRequest(createClient(cmd), "del", `/bindings/${encodeURIComponent(id)}`) });
   }));
   sync.command("runs").argument("<binding-id>").action(withErrors(async (id, _opts, cmd) => {
-    printResource(cmd, { runs: await createClient(cmd).get(`${SYNCHRONIZE_ROOT}/connections/${encodeURIComponent(id)}/runs`) });
+    printResource(cmd, { runs: await synchronizeRequest(createClient(cmd), "get", `/bindings/${encodeURIComponent(id)}/runs`) });
   }));
+  sync.command("run").description("Inspect one Synchronize run").argument("<run-id>")
+    .action(withErrors(async (id, _opts, cmd) => {
+      printResource(cmd, { run: await synchronizeRequest(createClient(cmd), "get", `/runs/${encodeURIComponent(id)}`) });
+    }));
 }

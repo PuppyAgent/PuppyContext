@@ -31,12 +31,14 @@ async def inspect_drain(redis, queues: list[str]) -> dict:
     # a blocker, not grounds to remove keys. No payloads or credentials logged.
     in_progress = sum([1 async for _ in redis.scan_iter(match="arq:in-progress:*")])
     retries = sum([1 async for _ in redis.scan_iter(match="arq:retry:*")])
+    payloads = sum([1 async for _ in redis.scan_iter(match="arq:job:*")])
     return {
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "queues": counts,
         "in_progress": in_progress,
         "retry_keys": retries,
-        "drained": not any(item["total"] for item in counts.values()) and not in_progress and not retries,
+        "serialized_jobs": payloads,
+        "drained": not any(item["total"] for item in counts.values()) and not in_progress and not retries and not payloads,
         "producer_stop_verified": False,
     }
 

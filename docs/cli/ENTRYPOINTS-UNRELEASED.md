@@ -3,7 +3,9 @@
 Status: local ISSUE-060/061 implementation; not an npm release or deployment receipt.
 The package version remains `0.2.1`; an already installed `0.2.1` must **not** be
 assumed to contain these changes. Use the CLI and backend from the same task
-branch for verification. Final public-path cutover is coordinated by ISSUE-058.
+branch for verification. Generic Synchronize now uses the committed ISSUE-058
+contract (`7c663506`); Access/GitHub/database final-path cutovers remain coordinated
+by that issue.
 
 ## Commands
 
@@ -20,6 +22,7 @@ puppyone synchronize add url https://example.com/page --folder /pages --mode sch
 puppyone synchronize ls
 puppyone synchronize refresh <binding-id>
 puppyone synchronize runs <binding-id>
+puppyone synchronize run <run-id>
 puppyone synchronize pause <binding-id>
 puppyone synchronize resume <binding-id>
 puppyone synchronize trigger <binding-id> manual
@@ -41,16 +44,21 @@ surface. Provider admission and credentials are ultimately checked by the server
 | This source CLI | Matching current backend | Intent |
 | --- | --- | --- |
 | `import` | `/api/v1/imports`, including additive `/providers` | one-shot ImportJob |
-| `synchronize` | `/api/v1/integrations/connections`, `/connectors` | durable binding/run |
+| `synchronize` | `/api/v1/synchronize/bindings`, `/providers`, `/runs/{run_id}` | durable binding/run |
 | `access` | `/api/v1/access` | Agent/MCP/Sandbox surface |
 
-The latter two public paths are **temporary**, not the final ISSUE-058 contract.
-The CLI cutover must land with that API's `/synchronize/bindings`, `/providers`,
-run endpoints and `/access/surfaces` artifacts and be retested over real HTTP.
+Generic Synchronize requires the canonical API from ISSUE-058 and is verified
+by a loopback server with **no `/integrations` routes mounted**. A server missing
+that API returns `SERVER_UPGRADE_REQUIRED`; the CLI never retries against legacy
+URLs. Create output contains `binding` and `execution_result`; run references use
+`synchronize_binding_id`/`synchronize_run_id`, never Access IDs.
+
+Access `/access` is still **temporary**, pending `/access/surfaces` artifacts.
+Import discovery requires the additive `/imports/providers` route from this task.
 Do not remove server compatibility routes until 058 has consumer/exit evidence.
-An older server without Import discovery returns an explicit API error; the CLI
-never retries against a mixed Access endpoint or guesses another resource ID.
-No supported released-client/server matrix is asserted yet.
+An older server without Import discovery returns an explicit API error. No
+supported released-client/server matrix is asserted yet: the tested combination
+is this source CLI plus the matching task-branch backend, not published npm 0.2.1.
 
 ## Legacy and error behavior
 
@@ -68,6 +76,10 @@ No supported released-client/server matrix is asserted yet.
   idempotency key returns the recorded job, including a recorded failure; inspect
   that job before deciding to submit a new attempt. Cancellation does not promise
   to undo a version write already committed.
+- `--permission` and Agent `--scope`/`--folder` creation fail before a request:
+  the generic Access create fields cannot safely express those grants. Configure
+  them through the owning Access/Agent workflow, rather than accepting an ignored
+  flag and accidentally creating a broader surface.
 - Plaintext credentials are not recovered by `access key`. Explicit
   `--regenerate` rotates and reveals the newly issued credential once.
 
@@ -86,9 +98,12 @@ IO and entitlement facts are substituted. Separate Redis/ARQ tests use disposabl
 Redis. Neither gate is production DDL, credentials, queue-drain or deployment proof.
 
 Worker configuration also changes: `upload_worker`, `import_worker`, and
-`synchronize_worker`. Stop old producers and drain ready/deferred/retry/in-progress
+`synchronize_worker`. Upload owns its existing `ETL_*` runtime policy and keeps
+the `etl` queue; reusable file processing has no queue/task lifecycle settings.
+Stop old producers and drain ready/deferred/retry/in-progress
 work before cutover; never merely rename a live service or delete Redis keys.
 `python -m src.infra.queue_cutover --queues <actual-old-queue-names>` is read-only.
-A clean snapshot cannot prove producers stopped. Rollback must stop new producers
+The scanner also blocks on serialized job payloads outside the named queues;
+it does not remove orphaned jobs. A clean snapshot cannot prove producers stopped. Rollback must stop new producers
 and drain new work before restarting old workers; serialized dispatch names are
 not interchangeable and no permanent legacy aliases are registered.

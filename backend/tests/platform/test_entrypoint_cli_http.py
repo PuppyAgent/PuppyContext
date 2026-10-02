@@ -22,6 +22,7 @@ from src.platform.imports import router as imports
 from src.platform.imports.repository import ImportJob
 from src.platform.imports.service import ImportJobService
 from src.platform.synchronize import router as synchronize
+from src.platform.synchronize import public_router as public_synchronize
 from src.platform.synchronize.models import SynchronizeBinding
 from src.platform.synchronize.run_repository import SyncRun
 from src.platform.synchronize.service import SynchronizeService
@@ -83,6 +84,12 @@ class BindingStore:
 class RunStore:
     def __init__(self):
         self.rows = {}
+
+    def get_by_id(self, key):
+        return self.rows.get(key)
+
+    def list_by_sync(self, key, limit=20, offset=0):
+        return [row for row in self.rows.values() if row.connection_id == key][offset:offset + limit]
 
     def get_blocking_active_by_sync(self, key):
         return next((row for row in self.rows.values()
@@ -148,7 +155,8 @@ def server(monkeypatch, tmp_path):
     sync_service.register_provider(registry.get("url"))
     app = FastAPI()
     app.include_router(imports.router, prefix="/api/v1")
-    app.include_router(synchronize.router, prefix="/api/v1")
+    # Deliberately do not mount /integrations: a legacy CLI fallback must fail.
+    app.include_router(public_synchronize.router, prefix="/api/v1")
     app.include_router(access.router, prefix="/api/v1")
     install_authorization(app, authorization)
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(user_id="user-1", role="authenticated")
@@ -212,7 +220,14 @@ def test_actual_cli_dispatch_keeps_snapshot_binding_and_surface_ownership(server
     assert server.cli("import", "cancel", job.id)["job"]["status"] == "cancelled"
     assert server.cli("import", "info", job.id)["job"]["status"] == "cancelled"
 
-    server.cli("synchronize", "add", "url", "https://example.com", "--folder", "/continuous")
+    created = server.cli("synchronize", "add", "url", "https://example.com", "--folder", "/continuous")
+    assert created["binding"]["id"].startswith("binding-")
+    assert "sync" not in created
+    execution = created["execution_result"]
+    assert execution["synchronize_binding_id"] == created["binding"]["id"]
+    run_id = execution["synchronize_run_id"]
+    assert server.cli("synchronize", "run", run_id)["run"]["synchronize_binding_id"] == created["binding"]["id"]
+    assert len(server.cli("synchronize", "runs", created["binding"]["id"])["runs"]) == 1
     assert len(server.bindings.rows) == len(server.runs.rows) == 1
     binding = next(iter(server.bindings.rows.values()))
     assert binding.trigger == {"type": "manual"}
@@ -220,6 +235,8 @@ def test_actual_cli_dispatch_keeps_snapshot_binding_and_surface_ownership(server
     # Real Access router and Sandbox service; only their repositories are substituted.
     surface = server.cli("access", "add", "sandbox", "My sandbox")
     assert surface["access"]["id"].startswith("surface-")
+    server.cli("synchronize", "refresh", surface["access"]["id"], ok=False)
+    assert len(server.queue.ids) == 2, "an Access surface ID cannot enqueue a source run"
     assert len(server.surfaces.rows) == len(server.bindings.rows) == len(server.imports.rows) == 1
     assert {item["provider"] for item in server.cli("import", "providers")["providers"]} == {"url", "notion"}
 

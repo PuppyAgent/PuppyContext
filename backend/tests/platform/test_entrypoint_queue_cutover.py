@@ -80,6 +80,46 @@ async def test_cutover_rejects_deferred_retry_and_inflight_without_mutating_jobs
     assert await redis.zcard("imports") == 1
 
 
+async def test_serialized_payload_outside_reported_queues_blocks_cutover(redis):
+    await redis.set("arq:job:orphan", b"unclassified historical payload")
+    report = await inspect_drain(redis, ["imports", "syncs"])
+    assert report["drained"] is False
+    assert report["serialized_jobs"] == 1
+    assert await redis.get("arq:job:orphan") == b"unclassified historical payload"
+
+
+async def test_synchronize_worker_consumes_real_github_job_not_import_queue(redis, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from arq.worker import Worker
+    from arq.jobs import Job
+    from src.platform.synchronize.github import jobs
+    from src.platform.synchronize.worker import WorkerSettings
+
+    binding = SimpleNamespace(id="binding-1")
+    repository = SimpleNamespace(get_by_id=AsyncMock(return_value=binding))
+    pull = AsyncMock(return_value=SimpleNamespace(status="success", git_sha="sha-1"))
+    monkeypatch.setattr(jobs, "GithubSyncRepository", lambda: repository)
+    monkeypatch.setattr(jobs, "import_branch", pull)
+    github, imports = GithubSyncArqClient(), ImportArqClient()
+    github._pool = imports._pool = redis
+    import_id = await imports.enqueue_import("untouched-import")
+    github_id = await github.enqueue_pull("binding-1", dedup_key="gh-import:binding-1:sha-1")
+    worker = Worker(functions=WorkerSettings.functions, redis_pool=redis,
+                    queue_name=WorkerSettings.queue_name, burst=True, handle_signals=False)
+    try:
+        await worker.async_run()
+        result = await Job(github_id, redis).result(timeout=2)
+        assert result["synchronize_github_binding_id"] == "binding-1"
+        assert result["git_sha"] == "sha-1"
+        repository.get_by_id.assert_awaited_once_with("binding-1")
+        pull.assert_awaited_once()
+        assert await redis.zrange(imports.queue_name, 0, -1) == [import_id.encode()]
+        assert worker.jobs_complete == 1
+    finally:
+        await worker.close()
+
+
 async def test_empty_snapshot_does_not_claim_producers_stopped(redis):
     report = await inspect_drain(redis, ["imports", "syncs"])
     assert report["drained"] is True
