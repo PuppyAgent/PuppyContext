@@ -23,7 +23,7 @@ class Git:
         )
         return repo
 
-    def run(self, *args, input: bytes | None = None, check=True):
+    def run(self, *args, input: bytes | None = None, check=True, trace_packets=False):
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         env.update(
             GIT_CONFIG_NOSYSTEM="1",
@@ -39,6 +39,8 @@ class Git:
             GIT_SEQUENCE_EDITOR="true",
             LC_ALL="C",
         )
+        if trace_packets:
+            env["GIT_TRACE_PACKET"] = "1"
         result = subprocess.run(
             [
                 "git",

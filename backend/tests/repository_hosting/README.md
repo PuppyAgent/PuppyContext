@@ -51,6 +51,12 @@ tests/repository_hosting/
 
 `--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。多数数据库用例中的 OID 是合成值；新 ref 事务另以原生 Git 产生的 SHA-1/SHA-256 同树提交做 CAS/原子性对照。receipt 都由 fixture owner 插入，没有真实 S3 闭包验证。升级用例在所属临时栈内另外创建并清理空数据库，应用真实产品迁移，但 Auth 使用 stub（即使宿主是 Supabase）；不把它算作真实 Auth 升级验收。
 
+### Git 命令符合性与测试驱动实施
+
+新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。
+
+另有 8 项 Project/Scope Git 客户端故障/竞争回归：对象写入或发布失败后保留旧数据和本地工作、恢复重推、丢应答后 fetch 对账且重推不重复发布、同 base 两客户端恰一成功。控制面仍为替身，对象在磁盘，不把这些当作真实 PG/S3 故障或多实例证明。新增矩阵暴露的失败必须驱动后续实现；原 14 项失败不因加用例而解决，也不为“全绿”删除原断言或放开 Scope。
+
 现在能检查的关键结果：
 
 - 首次 push 后 clone：文件字节、提交对象、执行权限、符号链接一致。

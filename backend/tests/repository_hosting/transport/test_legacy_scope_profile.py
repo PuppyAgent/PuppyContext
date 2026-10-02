@@ -7,8 +7,7 @@ satisfy the corresponding full Project profile's positive target tests.
 import pytest
 
 from tests.repository_hosting.harness.git import Git
-from tests.repository_hosting.transport.test_stock_git_http import AUTH
-from tests.repository_hosting.transport.test_stock_git_http import hosted as hosted
+from tests.repository_hosting.harness.http import AUTH
 
 pytestmark = pytest.mark.hosting_component
 

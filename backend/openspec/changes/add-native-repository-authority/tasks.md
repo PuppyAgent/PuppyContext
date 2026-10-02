@@ -22,6 +22,22 @@
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
 
+### Git command conformance (M01/M18, partial)
+
+- [x] Add 78 native-bare-versus-production-HTTP recipes for history generation,
+  conflict abort/continue/skip, refs/rewrites, protocols, shallow/filter clients,
+  queries, client export and maintenance. Compare cold-cache mirror refs/HEAD and
+  every reachable object's OID/type/raw bytes; retain target failures.
+- [x] Add 8 Project/Scope stock-client failure/recovery/concurrency tests. Injected
+  publication faults, disk objects and memory control plane are not real S3/PG
+  outages, process restarts or multi-instance proof.
+- [x] Require native oracle/recipe success in setup and actual execution of
+  declared commands; record G IDs, profile and execution boundaries in JUnit.
+- [x] Document remaining G01–G66 coverage in the test CONFORMANCE.md, including
+  unimplemented APIs, real storage, migration and client-version gates.
+- [ ] Resolve the failing recipes without weakening byte/graph/ref comparisons;
+  test count growth is not product delivery or complete Git acceptance.
+
 ### Legacy product-operation recovery (M14 compatibility, partial)
 
 - [x] Reproduce original C04/F12 failures without changing catalog assertions.
