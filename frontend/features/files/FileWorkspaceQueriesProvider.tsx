@@ -83,15 +83,15 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
       map.set(nodeId, list);
     };
 
-    if (syncStatusData?.syncs) {
-      for (const s of syncStatusData.syncs) {
+    if (syncStatusData?.bindings) {
+      for (const s of syncStatusData.bindings) {
         append(s.path, {
           syncId: s.id,
           provider: s.provider,
           direction: s.direction,
           status: s.status,
-          name: s.name,
-          accessKey: s.access_key,
+          name: s.name ?? undefined,
+          accessKey: null,
         });
       }
     }

@@ -140,6 +140,23 @@ def _ensure_project_access(
     )
 
 
+def _ensure_classified_binding(connection) -> None:
+    # During 049's storage cutover, `connections` also contains Database Import
+    # sources. These indicators are NOT a positive classification rule: block
+    # ambiguous records until the migration proves ownership. Never expose
+    # db_config or let binding management delete an Import source by accident.
+    config = getattr(connection, "config", None) or {}
+    if (getattr(connection, "provider", None) == "database" or "db_config" in config
+            or (getattr(connection, "trigger", None) or {}).get("type") == "import_once"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SOURCE_CLASSIFICATION_REQUIRED",
+                "message": "Classify and migrate legacy source records before Synchronize management. Import source IDs must not be reused as binding IDs.",
+            },
+        )
+
+
 def _get_connection_with_access(
     *,
     connection_id: str,
@@ -157,6 +174,7 @@ def _get_connection_with_access(
     _ensure_project_access(
         authorization, current_user, connection.project_id, action
     )
+    _ensure_classified_binding(connection)
     return connection
 
 
@@ -275,6 +293,8 @@ async def get_project_sync_status(
 ):
     _ensure_project_access(authorization, current_user, project_id)
     connections = service.repository.list_by_project(project_id)
+    for connection in connections:
+        _ensure_classified_binding(connection)
     items = [
         SyncStatusItem(
             id=c.id,
@@ -476,6 +496,8 @@ def list_connections(
         connections = service.repository.list_by_provider(project_id, provider)
     else:
         connections = service.repository.list_by_project(project_id)
+    for connection in connections:
+        _ensure_classified_binding(connection)
     return ApiResponse.success(data=[_sync_resp(c) for c in connections])
 
 
@@ -691,6 +713,8 @@ def list_failed_runs(
     connections = service.repository.list_by_project(project_id)
     if not connections:
         return ApiResponse.success(data=[])
+    for connection in connections:
+        _ensure_classified_binding(connection)
     by_id = {c.id: c for c in connections}
     runs = _get_run_repo().list_failed_for_connections(list(by_id), limit=limit)
     items = []
@@ -906,6 +930,9 @@ async def trigger_pull(
             if provider
             else service.repository.list_by_project(project_id)
         )
+        # Validate the whole batch before enqueueing any work.
+        for connection in connections:
+            _ensure_classified_binding(connection)
         results = []
         for connection in connections:
             if connection.direction not in _PULL_DIRECTIONS:

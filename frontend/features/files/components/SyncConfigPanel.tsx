@@ -12,7 +12,7 @@ import { useProjectSession } from '@/features/workspace/session';
 import { useConnectorSpecs } from '@/lib/hooks/useData';
 import type { SaasType } from '@/lib/oauthApi';
 import { resolveProviderIconUrl } from '@/lib/providerIcons';
-import { createSyncConnection } from '@/lib/syncApi';
+import { createSynchronizeBinding } from '@/lib/synchronizeApi';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 /* ================================================================
@@ -384,11 +384,11 @@ function CreateView({
         createdNodeId = target.path;
       } else {
         if (!providerDef) return;
-        const result = await createSyncConnection({
+        const result = await createSynchronizeBinding({
           project_id: projectId,
           provider: providerDef.id,
           config,
-          target_folder_path: target.path,
+          target_path: target.path,
           direction: providerDef.direction,
           sync_mode: draftSyncMode as 'manual' | 'scheduled',
           trigger: draftSyncMode === 'scheduled'
@@ -399,12 +399,12 @@ function CreateView({
               }
             : { type: 'manual' },
         });
-        createdNodeId = result.sync.path;
+        createdNodeId = result.binding.path;
         if (!createdNodeId) {
           throw new Error('Access was created without a destination node.');
         }
-        if (result.sync.status === 'error' && result.sync.error_message) {
-          throw new Error(result.sync.error_message);
+        if (result.binding.status === 'error' && result.binding.error_message) {
+          throw new Error(result.binding.error_message);
         }
       }
 

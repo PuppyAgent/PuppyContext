@@ -1,16 +1,12 @@
 'use client';
 
-import { get } from '@/lib/apiClient';
+import { getSynchronizeStatus, type SynchronizeStatus } from '@/lib/synchronizeApi';
 import { useProjectTools, useTreeDir } from '@/lib/hooks/useData';
 import { listMcpEndpoints } from '@/lib/mcpEndpointsApi';
 import { getRepoIdentity, listConnectors, listScopes } from '@/lib/repoApi';
 import { listSandboxEndpoints } from '@/lib/sandboxEndpointsApi';
 import useSWR from 'swr';
 
-type SyncStatus = { syncs: Array<{
-  id: string; path: string | null; provider: string; direction: string;
-  status: string; name?: string; access_key?: string;
-}> };
 const decorationConfig = { revalidateOnFocus: false, dedupingInterval: 60000, keepPreviousData: false };
 
 /** Foreground: only this project's root. Background: file badges / connection
@@ -20,8 +16,8 @@ export function useFileWorkspaceQueries(projectId: string) {
   const root = useTreeDir(projectId, '');
   const enabled = Boolean(projectId) && root.hasLoaded;
   const tools = useProjectTools(enabled ? projectId : undefined);
-  const sync = useSWR<SyncStatus>(enabled ? ['sync-status', projectId] : null,
-    () => get(`/api/v1/integrations/status?project_id=${projectId}`), decorationConfig);
+  const sync = useSWR<SynchronizeStatus>(enabled ? ['synchronize-status', projectId] : null,
+    () => getSynchronizeStatus(projectId), decorationConfig);
   const mcp = useSWR(enabled ? ['mcp-endpoints', projectId] : null,
     () => listMcpEndpoints(projectId), decorationConfig);
   const sandbox = useSWR(enabled ? ['sandbox-endpoints', projectId] : null,
