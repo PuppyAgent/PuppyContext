@@ -86,7 +86,11 @@ BEGIN
             WHERE pronamespace = 'public'::regnamespace AND proname = name
         LOOP
             EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', signature);
-            EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', signature);
+            -- Keep existing backend grants, never broaden owner-only helpers.
+            -- Issuance must remain behind the idempotent definer wrapper.
+            IF name = 'issue_user_git_http_credential' THEN
+                EXECUTE format('REVOKE ALL ON FUNCTION %s FROM service_role', signature);
+            END IF;
         END LOOP;
     END LOOP;
 END $$;

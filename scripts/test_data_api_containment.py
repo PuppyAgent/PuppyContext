@@ -24,7 +24,8 @@ import jwt
 from database_baseline import ROOT, LocalStack, run
 
 FIX = ROOT / "supabase/migrations/20261003000000_contain_internal_data_api_access.sql"
-FIXTURE = ROOT / "supabase/test_fixtures/data_api_containment.sql"
+# Supabase's pg_prove container mounts tests/, not sibling test_fixtures/.
+FIXTURE = ROOT / "supabase/tests/_support/data_api_containment_fixture.inc"
 CONTRACT = ROOT / "supabase/tests/_support/data_api_containment.inc"
 TABLES = ("audit_logs", "bookmarks", "connector_runs", "scope_sync_events", "scope_sync_settings", "tables")
 USERS = ("00000000-0000-4000-8000-000000000053", "00000000-0000-4000-8000-000000000054")
@@ -184,13 +185,14 @@ def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
         "ALTER TABLE public.tables DISABLE ROW LEVEL SECURITY;",
         "ALTER VIEW public.version_activity_feed SET (security_invoker = false);",
         "GRANT EXECUTE ON FUNCTION public.repository_target_integrity_report() TO PUBLIC;",
+        "GRANT EXECUTE ON FUNCTION public.issue_user_git_http_credential(text,text,text,text,text,uuid,text,text,text,text,text) TO service_role;" ,
         "CREATE VIEW public.issue053_leaky_view AS SELECT * FROM public.audit_logs; GRANT SELECT ON public.issue053_leaky_view TO anon;",
         "CREATE FUNCTION public.issue053_leaky_rpc() RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS 'SELECT public.repository_target_integrity_report()'; GRANT EXECUTE ON FUNCTION public.issue053_leaky_rpc() TO PUBLIC;",
     ]
     for mutation in mutations:
         expect_guard_failure(stack, "BEGIN;\n" + mutation + "\n" + body + "\nROLLBACK;")
         stack.sql(CONTRACT.read_text())
-    print("PASS: eight deliberately unsafe ACL/RLS/view/RPC mutations are rejected", flush=True)
+    print(f"PASS: {len(mutations)} deliberately unsafe ACL/RLS/view/RPC mutations are rejected", flush=True)
 
     # Full B1 + all forward migrations, using the same CLI and Docker image as CI.
     stack.cli("db", "reset", "--local", "--no-seed", capture=True)

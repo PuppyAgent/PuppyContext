@@ -1,7 +1,7 @@
 \ir _support/data_api_containment.inc
 BEGIN;
 SELECT no_plan();
-\ir ../test_fixtures/data_api_containment.sql
+\ir _support/data_api_containment_fixture.inc
 
 SELECT is((SELECT count(*) FROM public.version_activity_feed WHERE project_id LIKE 'issue053-project-%'),
     2::bigint, 'nonempty activity feed includes both tenants');

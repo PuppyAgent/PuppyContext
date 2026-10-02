@@ -99,6 +99,10 @@ BEGIN
                       WHERE grantee = 0 AND privilege_type = 'EXECUTE') THEN
             RAISE EXCEPTION 'ISSUE-053: client can invoke protected function %', signature;
         END IF;
+        IF object.proname = 'issue_user_git_http_credential'
+           AND has_function_privilege('service_role', object.oid, 'EXECUTE') THEN
+            RAISE EXCEPTION 'ISSUE-053: backend can bypass idempotent credential wrapper';
+        END IF;
         IF object.prosecdef AND NOT (
             coalesce(object.proconfig, '{}') @> ARRAY['search_path=pg_catalog, public, pg_temp']
         ) THEN
