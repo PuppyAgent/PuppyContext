@@ -82,6 +82,25 @@ new definers to the existing ISSUE-053 contract `pg_catalog, public, pg_temp`.
 It preserves the preceding migration, function identity/body, ACLs and data;
 transaction rollback and unchanged-SQL retry are tested on populated fixtures.
 
+## Product-operation recovery (legacy compatibility fixes)
+
+Two original catalog failures are corrected before native authority activation:
+rename recovery now uses the engine's first successfully evaluated snapshot
+(including folder sources), not an independent live-head lookup; operation
+pending IDs include proposal tree/base/actor/channel/policy because these writes
+have no client commit ID. Existing Git ID derivation remains unchanged and no
+persisted pending row is rewritten. This is not a new exactly-once request API.
+
+A retry can also construct a pending tree containing concurrent, untouched paths
+that were absent from the first attempt's already-flushed candidate. Both root
+and Scope operation writers now flush that retry batch before recording pending
+review. A flush or ledger failure propagates rather than acknowledging a proposal
+that cannot be recovered. Disk/cache-independent tests exercise this ordering;
+they do not implement S3 receipts/pins, GC coordination, atomic pending-ledger
+persistence or admitted native publication. The catalog's three remaining policy
+discrepancies stay failing; current LWW behavior and catalog assertions are not
+changed just to produce a green result.
+
 ## Release properties and remaining gates
 
 Phase: Expand only. Existing data rows rewritten: zero. Runtime: small DDL plus

@@ -483,6 +483,8 @@ def splice_copy(
     root_hash: str,
     old_rel: str,
     new_rel: str,
+    *,
+    source_root_hash: str | None = None,
 ) -> tuple[str, list[Change]]:
     """Copy a file or folder by reusing tree/blob hashes.
 
@@ -490,20 +492,25 @@ def splice_copy(
     existing source entry at the destination without downloading or
     re-uploading blob bytes. If ``new_rel`` exists it is replaced and the
     overwritten paths are reported as deletes in the changes list.
+
+    ``source_root_hash`` can bind the source to an earlier operation snapshot
+    while applying the destination to the current tree (rename CAS recovery).
+    Source entries are read from that snapshot, never synthesized when absent.
     """
+    source_root = root_hash if source_root_hash is None else source_root_hash
     src_parts = _split_path(old_rel)
     dst_parts = _split_path(new_rel)
     if not src_parts or not dst_parts:
         raise ValueError("copy requires non-empty source and destination")
-    if src_parts == dst_parts:
+    if src_parts == dst_parts and source_root == root_hash:
         return root_hash, []
 
     src_spine_path = src_parts[:-1]
-    src_spine, src_found = _walk_spine(store, root_hash, src_spine_path)
+    _src_spine, src_found = _walk_spine(store, source_root, src_spine_path)
     if src_spine_path and (not src_found or src_found[-1] is None):
         raise FileNotFoundError(f"source not found: {old_rel}")
 
-    src_parent_hash = root_hash if not src_spine_path else src_found[-1][1]
+    src_parent_hash = source_root if not src_spine_path else src_found[-1][1]
     src_parent_entries = dict(_read_tree_or_empty(store, src_parent_hash))
     if src_parts[-1] not in src_parent_entries:
         raise FileNotFoundError(f"source not found: {old_rel}")

@@ -140,6 +140,11 @@ class OperationWriter:
                         incoming_scope_hash=new_scope_hash,
                     )
                     if manual_conflicts and merge_policy in QUEUE_POLICIES:
+                        # A retry may build a proposal not flushed by the first
+                        # attempt. Persist it before recording/acknowledging the
+                        # pending ID; leaving this batch discards staged bytes.
+                        if object_batch is not None:
+                            await asyncio.to_thread(object_batch.flush)
                         pending_result = await _record_pending_conflict_generic(
                             ledger=self._ledger,
                             repo=repo,
@@ -395,6 +400,8 @@ class OperationWriter:
                         incoming_scope_hash=new_root_hash,
                     )
                     if manual_conflicts and merge_policy in QUEUE_POLICIES:
+                        if object_batch is not None:
+                            await asyncio.to_thread(object_batch.flush)
                         pending_result = await _record_pending_conflict_generic(
                             ledger=self._ledger,
                             repo=repo,

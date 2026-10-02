@@ -22,6 +22,22 @@
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
 
+### Legacy product-operation recovery (M14 compatibility, partial)
+
+- [x] Reproduce original C04/F12 failures without changing catalog assertions.
+- [x] Bind rename recovery to the engine's first successful snapshot, including
+  directory sources, rather than a separately read live blob.
+- [x] Distinguish operation proposals by tree/base/actor/channel/policy, retaining
+  the established Git pending identity and already persisted rows.
+- [x] Reproduce unflushed retry proposals on cache-independent reads; flush
+  Project/Scope proposals before pending persistence and propagate ledger errors.
+- [x] Add 19 component regressions; original C04/F12 plus these regressions pass.
+  Native-PG strict selection: 438 passed / 14 failed / 44 real-Supabase cases
+  deselected, no skip/XFAIL. Offline backend: 2591 passed / 27 skipped /
+  52 deselected. Neither selection is full actual-service acceptance.
+- [ ] Resolve A04/B11/C01 catalog-versus-current-policy discrepancies without
+  weakening acceptance or silently changing the existing LWW compatibility profile.
+
 ## 2. Unified authority (M02/M04–M09/M11–M16)
 
 - [x] Add dormant Expand schema and SQL primitive without editing B1: byte refs,

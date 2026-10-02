@@ -31,8 +31,6 @@ GAPS = {
     "A04": "catalog expects conflict markers for scalar JSON conflict; current policy keeps incoming JSON",
     "B11": "CAS retry deletion currently removes concurrently modified content",
     "C01": "CAS retry deletion currently removes concurrently modified content",
-    "C04": "second same-source rename fails after first writer removes the source",
-    "F12": "pending conflict identity collides for different proposals with empty client commit IDs",
 }
 
 

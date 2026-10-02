@@ -84,7 +84,9 @@ tests/repository_hosting/
 
 目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送，以及空提交被确认却未保存。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上只证明当前 SHA-1 对象层，不启用尚未实现的 native refs 或 SHA-256 托管。旧运行时 PG 层仍有“文件树相同但 head 不同”的失败目标测试；新 SQL 原语通过同树旧 OID 对照，不等于旧 RPC/transport 已切换。完整目标门禁继续保留这项失败，不能以新增局部测试替换。
 
-原 `tests/conflicts/cases.py` 的 117 条不是 117 条现成测试。本运行器执行其中 **100 条**，采用相同起点、固定发布顺序制造 CAS 重试；真正并发另在 `concurrency/` 和 PG 用例验证。其余 **17 条未算作覆盖**，原因在 `harness/catalog_scope.py::EXCLUDED`：有些依赖旧 scope 所有权模型，有些需要不同入口或尚未搭好的删除/移动竞态。原样本未改。5 条现有样本与实际实现的差异也单独标为 XFAIL，不能据此直接判定是新的 Git 规范要求。
+原 `tests/conflicts/cases.py` 的 117 条不是 117 条现成测试。本运行器执行其中 **100 条**，采用相同起点、固定发布顺序制造 CAS 重试；真正并发另在 `concurrency/` 和 PG 用例验证。其余 **17 条未算作覆盖**，原因在 `harness/catalog_scope.py::EXCLUDED`：有些依赖旧 scope 所有权模型，有些需要不同入口或尚未搭好的删除/移动竞态。原样本和断言未改。C04（同源重命名）与 F12（待审提案 ID 碰撞）现已修复并移除对应缺口标记；剩余 A04/B11/C01 的预期与现行产品 LWW 策略不一致，继续保留失败，不提交 conflict markers 或反转现行删除策略来凑全绿。
+
+`conflicts/test_operation_recovery.py` 补充 19 项组件回归：重命名从引擎实际首轮快照恢复文件/目录；无客户端 commit 的提案身份绑定 proposed tree、base、actor、channel 与 policy；Git 既有 ID 算法不变。另复现并修复 Project/Scope 的重试提案只在写入 batch、未 flush 就返回 pending 的缺陷，以及账本失败仍返回 pending 的问题。测试绕过进程缓存重新读取物理磁盘，并注入 flush/账本失败；控制面为替身，这不是 S3 耐久 receipt、GC 协调或跨实例实服验收。既有待审行不重写。
 
 这些测试不是“Git 所有命令、所有参数和所有故障都已穷尽”的承诺。新架构尚未落地，因此未来数据迁移的全量回填、切换、回滚、并发旧新版本共存，仍必须用实际迁移实现再做验收。
 

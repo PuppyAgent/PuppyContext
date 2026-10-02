@@ -21,15 +21,37 @@ def pending_conflict_id(
     current_head_commit_id: str,
     client_commit_id: str,
     paths: list[str],
+    *,
+    proposed_tree_id: str = "",
+    base_commit_id: str = "",
+    actor: str = "",
+    source_channel: str = "",
+    policy: str = "manual_review",
 ) -> str:
+    identity = {
+        "project_id": project_id,
+        "scope_path": scope_path,
+        "current_head_commit_id": current_head_commit_id,
+        "client_commit_id": client_commit_id,
+        "paths": paths,
+    }
+    if not client_commit_id:
+        if not proposed_tree_id:
+            raise ValueError("operation conflict requires a proposed tree identity")
+        # Product operations have no client commit. Head + paths alone aliases
+        # every proposal against that head, overwriting another writer's work.
+        # Preserve the existing Git identity when a client commit is supplied.
+        identity.update({
+            "identity_version": 2,
+            "proposed_tree_id": proposed_tree_id,
+            "base_commit_id": base_commit_id,
+            "actor": actor,
+            "source_channel": source_channel,
+            "policy": policy,
+            "paths": sorted(set(paths)),
+        })
     payload = json.dumps(
-        {
-            "project_id": project_id,
-            "scope_path": scope_path,
-            "current_head_commit_id": current_head_commit_id,
-            "client_commit_id": client_commit_id,
-            "paths": paths,
-        },
+        identity,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -80,6 +102,11 @@ async def record_pending_conflict(
         current_head_commit_id,
         client_commit_id,
         paths,
+        proposed_tree_id=proposed_tree_id,
+        base_commit_id=base_commit_id,
+        actor=actor,
+        source_channel=source_channel,
+        policy=policy,
     )
     audit = {
         "status": "pending_manual_review",
@@ -158,6 +185,10 @@ async def record_pending_conflict(
             f"[version_engine] failed to persist pending-conflict row "
             f"{conflict_id[:12]}: {exc}",
         )
+        # Never acknowledge a queued proposal when its only recovery record
+        # was not persisted. The caller must see a failure, not a pending ID
+        # that no resolver can load.
+        raise
     return TransactionResult(
         status="pending",
         merged=False,
