@@ -55,6 +55,7 @@ jobs:
             'scripts/database_history.py' \
             'scripts/database_baseline.py' \
             'scripts/test_entrypoint_migration*.py' \
+            'scripts/test_data_api_containment.py' \
             'supabase/data_migrations/**' \
             'supabase/releases/**' \
             'supabase/tests/**' \
@@ -126,6 +127,13 @@ jobs:
             tests/security/test_billing_database_boundary.py \
             tests/infra/test_self_hosted_bootstrap.py \
             tests/infra/test_readiness.py \
+            tests/platform/test_project_authorization_policy.py \
+            tests/platform/scope_sync \
+            tests/security/test_audit_tier2_authz.py \
+            tests/security/test_canonical_git_remote_contract.py \
+            tests/mcp/test_mcp_runtime_principal.py \
+            tests/version_engine/test_scope_sync_audit.py \
+            tests/version_engine/test_content_history_graph_api.py \
             -q
 
   validate_local_database:
@@ -220,6 +228,18 @@ jobs:
 
       - name: Verify entrypoint storage migration and future cleanup
         run: backend/.venv/bin/python scripts/test_entrypoint_migration.py
+
+      - name: Verify ISSUE-053 populated upgrade, real Data API roles, and negative controls
+        run: backend/.venv/bin/python scripts/test_data_api_containment.py --report artifacts/issue-053-rehearsal.json
+
+      - name: Preserve ISSUE-053 rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: issue-053-rehearsal
+          path: artifacts/issue-053-rehearsal.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Stop ephemeral Supabase
         if: always()
