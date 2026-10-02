@@ -3,7 +3,7 @@
 import { getSynchronizeStatus, type SynchronizeStatus } from '@/lib/synchronizeApi';
 import { useProjectTools, useTreeDir } from '@/lib/hooks/useData';
 import { listMcpEndpoints } from '@/lib/mcpEndpointsApi';
-import { getRepoIdentity, listConnectors, listScopes } from '@/lib/repoApi';
+import { getRepoIdentity, listAccessSurfaces, listScopes } from '@/lib/repoApi';
 import { listSandboxEndpoints } from '@/lib/sandboxEndpointsApi';
 import useSWR from 'swr';
 
@@ -25,7 +25,7 @@ export function useFileWorkspaceQueries(projectId: string) {
   const scopes = useSWR(enabled ? ['repo-scopes', projectId] : null,
     () => listScopes(projectId), decorationConfig);
   const connectors = useSWR(enabled ? ['repo-connectors', projectId] : null,
-    () => listConnectors(projectId), decorationConfig);
+    () => listAccessSurfaces(projectId), decorationConfig);
   const identity = useSWR(enabled ? ['repo-identity', projectId] : null,
     () => getRepoIdentity(projectId), decorationConfig);
   return { root, tools, sync, mcp, sandbox, scopes, connectors, identity };

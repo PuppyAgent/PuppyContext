@@ -8,7 +8,7 @@
  * 1498-1505, 1622-1653, 1671-1694, 1994-2000 in the legacy file).
  */
 
-import type { Connector } from '@/lib/repoApi';
+import type { AccessSurface } from '@/lib/repoApi';
 import {
   getAccessProviderFixedTypeLine,
   getAccessProviderGroup,
@@ -83,15 +83,15 @@ export function isGitBuiltinProvider(provider: string): boolean {
   return isGitRemoteProvider(provider);
 }
 
-export function getTypeLine(c: Connector): string {
-  const fixedTypeLine = getAccessProviderFixedTypeLine(c.provider);
+export function getTypeLine(c: AccessSurface): string {
+  const fixedTypeLine = getAccessProviderFixedTypeLine(c.kind);
   if (fixedTypeLine) return fixedTypeLine;
 
   const direction =
     c.direction === 'bidirectional' ? 'Two-way'
     : c.direction === 'inbound' ? 'Import'
     : c.direction === 'outbound' ? 'Export' : '';
-  const label = getAccessProviderTypeLineLabel(c.provider);
+  const label = getAccessProviderTypeLineLabel(c.kind);
   return [label, direction].filter(Boolean).join(' · ');
 }
 
@@ -121,7 +121,7 @@ export function profileSlug(name: string): string {
 
 // ─── Connector configuration table ───────────────────────────────────
 
-export function buildConfigRows(c: Connector): ConfigRow[] {
+export function buildConfigRows(c: AccessSurface): ConfigRow[] {
   const direction =
     c.direction === 'bidirectional' ? 'Two-way (read & write)'
     : c.direction === 'inbound' ? 'Inbound (import to workspace)'
@@ -138,12 +138,12 @@ export function buildConfigRows(c: Connector): ConfigRow[] {
   })();
 
   const rows: ConfigRow[] = [
-    { label: 'Provider', value: getAccessProviderLabel(c.provider), mono: false },
+    { label: 'Access kind', value: getAccessProviderLabel(c.kind), mono: false },
     { label: 'Direction', value: direction },
     { label: 'Trigger', value: triggerSummary ?? 'Manual', muted: !triggerSummary },
     { label: 'OAuth', value: c.oauth_connection_id != null ? `connected · #${c.oauth_connection_id}` : 'Not used', muted: c.oauth_connection_id == null, mono: c.oauth_connection_id != null },
-    { label: 'Last run', value: c.last_run_at ? `${timeAgo(c.last_run_at)} (${c.last_run_id ? c.last_run_id.slice(0, 8) : '—'})` : 'Never', muted: !c.last_run_at, mono: !!c.last_run_at },
-    { label: 'Connector ID', value: c.id, mono: true },
+    { label: 'Last activity', value: c.last_activity_at ? timeAgo(c.last_activity_at) : 'Never', muted: !c.last_activity_at, mono: !!c.last_activity_at },
+    { label: 'Access surface ID', value: c.id, mono: true },
     { label: 'Created', value: c.created_at ? new Date(c.created_at).toLocaleString() : '—', muted: !c.created_at },
   ];
 

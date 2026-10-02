@@ -7,7 +7,7 @@ import { AllAccessPointsList } from '@/features/files/components/access-points/A
 import { CreateAccessPointCTACard } from '@/features/files/components/access-points/CreateAccessPointCTACard';
 import { DataAccessQuickModal } from '@/features/files/components/access-points/DataAccessQuickModal';
 import type { ProviderIconLookup } from '@/features/files/components/access-points/types';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { repositoryViewKey } from '@/lib/repoApi';
 
 export function DataAccessModalHost({
@@ -30,10 +30,10 @@ export function DataAccessModalHost({
   projectId: string;
   accessOverviewOpen: boolean;
   quickAccessScope: RepositoryView | null;
-  quickAccessConnectors: Connector[];
+  quickAccessConnectors: AccessSurface[];
   createAccessInitialPath: string | null;
   existingScopes: RepositoryView[];
-  connectorsByTarget: Map<string, Connector[]>;
+  connectorsByTarget: Map<string, AccessSurface[]>;
   providerIcons: ProviderIconLookup;
   onCloseAccessOverview: () => void;
   onOpenExistingAccess: (scope: RepositoryView) => void;
@@ -94,7 +94,7 @@ function DataAccessOverviewModal({
   onCreateAccess,
 }: {
   readonly scopes: RepositoryView[];
-  readonly connectorsByTarget: Map<string, Connector[]>;
+  readonly connectorsByTarget: Map<string, AccessSurface[]>;
   readonly providerIcons: ProviderIconLookup;
   readonly onClose: () => void;
   readonly onSelectScope: (targetKey: string) => void;

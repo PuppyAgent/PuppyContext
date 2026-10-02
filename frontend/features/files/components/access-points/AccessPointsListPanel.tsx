@@ -5,18 +5,11 @@ import { useExplorerActions } from '@/features/files/explorerSession';
 import { CountBadge } from '@/components/ui/CountBadge';
 import { AccessPointProviderIcon, StatusDot } from '@/features/files/components/access-points/AccessPointProviderIcon';
 import type { EndpointEntry, ProviderIconLookup } from '@/features/files/components/access-points/types';
-import type { SyncEndpointInfo } from '@/features/files/components/explorer';
+import type { EntrypointBadge } from '@/features/files/components/explorer';
 import { PanelShell } from '@/features/files/components/PanelShell';
-import {
-  accessPointProfileSlug,
-  buildGitSyncPrompt,
-  buildTerminalCliPrompt,
-} from '@/lib/accessPointCliPrompt';
-import {
-  isGitRemoteProvider,
-  isMcpProvider,
-  isSandboxProvider,
-} from '@/lib/accessProviderRegistry';
+import { buildGitSyncPrompt } from '@/lib/accessPointCliPrompt';
+import { isGitRemoteProvider } from '@/lib/accessProviderRegistry';
+import { entrypointBadgeKey } from '@/features/files/entrypointBadges';
 import { canonicalGitUrlForTarget } from '@/lib/gitRemote';
 import { useEffect, useState } from 'react';
 
@@ -37,144 +30,21 @@ function getApiBase() {
   return process.env.NEXT_PUBLIC_API_URL || window.location.origin;
 }
 
-function getSetupSnippets(ep: SyncEndpointInfo, displayName: string, scopeName: string) {
-  const apiBase = getApiBase();
-  const accessKey = ep.accessKey || '';
-
-  if (isGitRemoteProvider(ep.provider) && ep.repositoryTarget) {
-    const gitUrl = canonicalGitUrlForTarget(apiBase, ep.repositoryTarget);
-    const profileName = accessPointProfileSlug(scopeName);
+function getSetupSnippets(ep: EntrypointBadge, displayName: string, scopeName: string) {
+  if (ep.resourceKind === 'access' && isGitRemoteProvider(ep.provider) && ep.repositoryTarget) {
     const gitPrompt = buildGitSyncPrompt({
-      gitUrl,
+      gitUrl: canonicalGitUrlForTarget(getApiBase(), ep.repositoryTarget),
       scopeName,
       directoryName: scopeName,
       accessPointName: displayName,
     }).prompt;
-    const terminalPrompt = accessKey
-      ? buildTerminalCliPrompt({
-          apiBase,
-          accessKey,
-          profileName,
-          scopeName,
-          accessPointName: displayName,
-        }).prompt
-      : '';
-    return {
-      primary: {
-        title: 'Git Remote',
-        description: 'Clone this scope with standard Git commands.',
-        body: gitPrompt,
-        copyText: gitPrompt,
-      },
-      secondary: terminalPrompt
-        ? {
-            title: 'Puppyone FS CLI',
-            description: 'Use scoped FS CLI commands without a local clone.',
-            body: terminalPrompt,
-            copyText: terminalPrompt,
-          }
-        : undefined,
-    } as const;
+    return { primary: { title: 'Git Remote', description: 'Clone this target with standard Git commands.', body: gitPrompt } };
   }
-
-  if (isMcpProvider(ep.provider) && accessKey) {
-    const serverUrl = `${apiBase}/api/v1/mcp/proxy`;
-    const serverName = displayName.toLowerCase().replace(/\s+/g, '-') || 'puppyone-mcp';
-    const config = `{\n  "mcpServers": {\n    "${serverName}": {\n      "type": "http",\n      "url": "${serverUrl}",\n      "headers": { "Authorization": "Bearer ${accessKey}" }\n    }\n  }\n}`;
-    const prompt = [
-      `Configure this MCP Access Point for my coding agent.`,
-      ``,
-      `Access Point: ${displayName}`,
-      `Scope: ${scopeName}`,
-      `Server URL: ${serverUrl}`,
-      `Header: Authorization: Bearer ${accessKey}`,
-      ``,
-      `Use this MCP config:`,
-      config,
-      ``,
-      `After configuring it, use the MCP tools against the scoped Puppyone workspace data.`,
-    ].join('\n');
-    return {
-      primary: {
-        title: 'MCP',
-        description: 'Configure this access point for an MCP-compatible client.',
-        body: prompt,
-        copyText: prompt,
-      },
-    };
-  }
-
-  if (isSandboxProvider(ep.provider) && accessKey) {
-    const execUrl = `${apiBase}/api/v1/sandbox-endpoints/${ep.syncId}/exec`;
-    const command = `curl -X POST ${execUrl} \\\n  -H "X-Access-Key: ${accessKey}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"command": "ls /workspace"}'`;
-    const prompt = [
-      `Use this Puppyone Sandbox Access Point to run commands in an isolated workspace environment.`,
-      ``,
-      `Access Point: ${displayName}`,
-      `Scope: ${scopeName}`,
-      `Exec URL: ${execUrl}`,
-      `Access Key: ${accessKey}`,
-      ``,
-      `Example request:`,
-      command,
-      ``,
-      `Use this sandbox endpoint for command execution related to the scoped workspace.`,
-    ].join('\n');
-    return {
-      primary: {
-        title: 'Sandbox',
-        description: 'Run commands against this sandbox access point.',
-        body: prompt,
-        copyText: prompt,
-      },
-    };
-  }
-
-  if (ep.provider.startsWith('agent:')) {
-    const prompt = [
-      `Use this Puppyone agent Access Point from the scoped workspace.`,
-      ``,
-      `Access Point: ${displayName}`,
-      `Scope: ${scopeName}`,
-      `Agent ID: ${ep.syncId}`,
-      ``,
-      `Open the agent detail panel and use its available workspace resources for the task.`,
-    ].join('\n');
-    return {
-      primary: {
-        title: 'Agent',
-        description: 'Use this agent access point from the scoped workspace.',
-        body: prompt,
-        copyText: prompt,
-      },
-    };
-  }
-
-  const prompt = [
-    `Use this Puppyone Access Point.`,
-    ``,
-    `Access Point: ${displayName}`,
-    `Scope: ${scopeName}`,
-    `Endpoint ID: ${ep.syncId}`,
-    accessKey ? `Access Key: ${accessKey}` : null,
-    ``,
-    `Use the detail view if you need provider-specific setup.`,
-  ].filter(Boolean).join('\n');
-
-  return {
-    primary: {
-      title: 'Access Point',
-      description: 'Use this access point with provider-specific setup.',
-      body: prompt,
-      copyText: prompt,
-    },
-  };
-}
-
-function maskSecret(value: string) {
-  if (!value) return 'Not issued';
-  if (value.length <= 14) return value;
-  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+  const title = ep.resourceKind === 'synchronize' ? 'Synchronize binding' : 'Access surface';
+  const description = ep.resourceKind === 'synchronize'
+    ? 'Manage this binding in its detail view.'
+    : 'Configure this surface in Access settings. Credentials are shown only on explicit issuance.';
+  return { primary: { title, description, body: `${title}: ${displayName}\nPath: ${scopeName}\nID: ${ep.id}\n${description}` } };
 }
 
 function getAncestorPaths(nodeId: string): string[] {
@@ -284,7 +154,7 @@ export function AccessPointsListPanel({
   providerIcons: ProviderIconLookup;
   expandedEndpointId?: string | null;
   onClose: () => void;
-  onEndpointClick: (ep: SyncEndpointInfo, nodeId: string) => void;
+  onEndpointClick: (ep: EntrypointBadge, nodeId: string) => void;
   onEndpointHover?: (nodeId: string | null) => void;
 }) {
   const { ensureExpandedBatch } = useExplorerActions();
@@ -316,15 +186,16 @@ export function AccessPointsListPanel({
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {entries.map(({ ep, nodeId, name, nodeName }) => {
-                const hovered = hoveredEndpoint === ep.syncId;
-                const expanded = expandedEndpoint === ep.syncId;
+                const resourceKey = entrypointBadgeKey(ep);
+                const hovered = hoveredEndpoint === resourceKey;
+                const expanded = expandedEndpoint === resourceKey;
                 const scopeName = nodeName || (nodeId ? nodeId : 'Root');
                 const setup = getSetupSnippets(ep, name, scopeName);
                 return (
                   <div
-                    key={`access-panel-${ep.syncId}`}
+                    key={`access-panel-${resourceKey}`}
                     onMouseEnter={() => {
-                      setHoveredEndpoint(ep.syncId);
+                      setHoveredEndpoint(resourceKey);
                       ensureExpandedBatch(projectId, getAncestorPaths(nodeId));
                       onEndpointHover?.(nodeId);
                     }}
@@ -345,7 +216,7 @@ export function AccessPointsListPanel({
                   >
                     <button
                       type="button"
-                      onClick={() => setExpandedEndpoint(expanded ? null : ep.syncId)}
+                      onClick={() => setExpandedEndpoint(expanded ? null : resourceKey)}
                       style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -411,7 +282,7 @@ export function AccessPointsListPanel({
                           <InfoPill label="Status" value={formatStatus(ep.status)} />
                           <InfoPill label="Scope" value={scopeName} />
                           <InfoPill label="Mode" value={formatDirection(ep.direction)} />
-                          <InfoPill label="Key" value={maskSecret(ep.accessKey || ep.syncId)} />
+                          <InfoPill label="Resource" value={ep.resourceKind === 'synchronize' ? 'Synchronize binding' : 'Access surface'} />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           <div style={{ color: 'var(--po-text-subtle)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -423,14 +294,6 @@ export function AccessPointsListPanel({
                             prompt={setup.primary.body}
                             tone={isGitRemoteProvider(ep.provider) ? 'green' : 'neutral'}
                           />
-                          {setup.secondary && (
-                            <CopyPromptButton
-                              title={setup.secondary.title}
-                              description={setup.secondary.description}
-                              prompt={setup.secondary.body}
-                              tone="blue"
-                            />
-                          )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <button

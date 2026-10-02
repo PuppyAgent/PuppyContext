@@ -1,7 +1,7 @@
 'use client';
 
 import { StatusDot } from '@/components/ui/StatusDot';
-import type { SyncEndpointInfo } from '@/features/files/components/explorer/types';
+import type { EntrypointBadge } from '@/features/files/components/explorer/types';
 import {
   isMcpProvider,
   isSandboxProvider,
@@ -32,7 +32,7 @@ function SyncSourceIcon({ size = 16, isEmpty = false }: { size?: number; isEmpty
   );
 }
 
-export function EndpointIconRenderer({ ep, size = 14 }: { ep: SyncEndpointInfo; size?: number }) {
+export function EndpointIconRenderer({ ep, size = 14 }: { ep: EntrypointBadge; size?: number }) {
   const isAgent = ep.provider.startsWith('agent:');
   const isMcp = isMcpProvider(ep.provider);
   const isSandbox = isSandboxProvider(ep.provider);

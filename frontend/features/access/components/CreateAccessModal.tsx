@@ -7,14 +7,14 @@ import { DialogBody, DialogFooter, DialogHeader, DialogRoot, DialogSurface } fro
 import { TreeDisclosureMarker } from '@/components/ui/TreeDisclosureMarker';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
-  createConnector,
+  createAccessSurface,
   createScope,
   deleteScope,
   enableTargetAccess,
   repositoryScopeView,
   repositoryViewKey,
-  type Connector,
-  type ConnectorDirection,
+  type AccessSurface,
+  type AccessDirection,
   type RepositoryView,
 } from '@/lib/repoApi';
 import { createMcpEndpoint } from '@/lib/mcpEndpointsApi';
@@ -34,7 +34,7 @@ const ACCESS_MODAL_TYPE = {
 
 const OPTIONAL_METHODS: Array<{
   readonly provider: OptionalProvider;
-  readonly direction: ConnectorDirection;
+  readonly direction: AccessDirection;
   readonly description: string;
   readonly supported: boolean;
 }> = [
@@ -99,7 +99,7 @@ export function CreateAccessModal({
 }: {
   readonly projectId: string;
   readonly existingScopes: readonly RepositoryView[];
-  readonly connectorsByTarget: ReadonlyMap<string, readonly Connector[]>;
+  readonly connectorsByTarget: ReadonlyMap<string, readonly AccessSurface[]>;
   readonly initialPath?: string | null;
   readonly onClose: () => void;
   readonly onCreated: (scope: RepositoryView) => Promise<void> | void;
@@ -133,7 +133,7 @@ export function CreateAccessModal({
     if (!selectedExistingScope) return new Set<string>();
     return new Set(
       (connectorsByTarget.get(repositoryViewKey(selectedExistingScope)) ?? [])
-        .map((connector) => connector.provider),
+        .map((connector) => connector.kind),
     );
   }, [connectorsByTarget, selectedExistingScope]);
   const optionalProvidersToCreate = useMemo(
@@ -706,9 +706,9 @@ async function createOptionalConnectors(
           accesses: [{ path: scope.path, json_path: '', readonly: scope.max_mode !== 'rw' }],
         });
       }
-      return createConnector(projectId, {
+      return createAccessSurface(projectId, {
         target: scope.target,
-        provider,
+        kind: provider,
         direction: method.direction,
         name: getAccessProviderLabel(provider),
         config: {},
