@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SyncResponse(BaseModel):
@@ -17,6 +17,11 @@ class SyncResponse(BaseModel):
     status: str
     last_sync_commit_id: str = ""
     error_message: Optional[str] = None
+    # Additive management metadata for clients reading real bindings, not Access.
+    trigger: dict = Field(default_factory=dict)
+    last_synced_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class SyncStatusItem(BaseModel):
@@ -121,4 +126,8 @@ def connection_to_response(connection) -> dict:
         "status": connection.status,
         "last_sync_commit_id": connection.last_sync_commit_id,
         "error_message": connection.error_message,
+        "trigger": getattr(connection, "trigger", None) or {},
+        "last_synced_at": getattr(connection, "last_synced_at", None),
+        "created_at": getattr(connection, "created_at", None),
+        "updated_at": getattr(connection, "updated_at", None),
     }

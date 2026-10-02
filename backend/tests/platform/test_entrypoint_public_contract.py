@@ -34,7 +34,18 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
     from src.main import app
 
     expected = json.loads((Path(__file__).with_name("entrypoint_contract_c28e38a3.json")).read_text())
-    assert contract(app.openapi()) == expected["contract"]
+    # ISSUE-059 adds optional binding metadata needed by the resource client.
+    # Keep the pre-migration fixture immutable and allow only this reviewed
+    # additive delta; every original property, required field and route still
+    # has to match the captured contract.
+    import copy
+    openapi = copy.deepcopy(app.openapi())
+    binding = openapi["components"]["schemas"]["SyncResponse"]
+    for field in ("trigger", "last_synced_at", "created_at", "updated_at"):
+        assert field in binding["properties"]
+        assert field not in binding.get("required", [])
+        binding["properties"].pop(field)
+    assert contract(openapi) == expected["contract"]
 
 
 def test_access_domain_kind_is_serialized_as_legacy_provider():
