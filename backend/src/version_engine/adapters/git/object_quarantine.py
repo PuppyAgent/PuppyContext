@@ -13,7 +13,6 @@ import subprocess
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
 
 from src.version_engine.adapters.git._filelock import file_exclusive_lock
 from src.version_engine.adapters.git.protocol import (
@@ -34,10 +33,12 @@ from src.version_engine.adapters.git.view_projection import (
 from src.version_engine.write_engine.git_object_format import (
     MODE_DIR,
     MODE_FILE,
-    decode_commit,
+    decode_object,
     decode_tree,
     encode_object,
+    hash_object,
 )
+from src.version_engine.write_engine.git_object_graph import ObjectKind, object_edges
 from src.version_engine.storage.object_store import stage_object_writes
 from src.version_engine.write_engine.trace import trace_mark, trace_phase
 
@@ -733,10 +734,16 @@ def copy_reachable_objects_to_bare(
     include_blobs: bool = True,
 ) -> None:
     objects_dir = bare_dir / "objects"
+    # Object presence alone is not proof of a complete cached closure: a prior
+    # materialization may have crashed after writing its root but before a child.
+    # Separate receipts also prevent a shallow/blobless copy satisfying a full one.
+    receipts = bare_dir / "puppyone-closure" / f"history-{int(follow_history)}-blobs-{int(include_blobs)}"
     missing_blobs: set[str] = set()
     seen: set[str] = set()
-    stack: list[tuple[str, Literal["commit", "tree", "blob"] | None]] = [
-        (root, "commit")
+    kinds: dict[str, str] = {}
+    expected_types: dict[str, str] = {}
+    stack: list[tuple[str, ObjectKind | None]] = [
+        (root, None)
         for root in roots
         if is_object_id(root) and root != ZERO_ID
     ]
@@ -744,11 +751,21 @@ def copy_reachable_objects_to_bare(
     with trace_phase("git.transport_cache.walk", roots=len(stack)):
         while stack:
             object_id, expected_type = stack.pop()
+            if expected_type is not None:
+                previous_type = expected_types.setdefault(object_id, expected_type)
+                if previous_type != expected_type or kinds.get(object_id, expected_type) != expected_type:
+                    raise RuntimeError(f"required Git object {object_id} has conflicting type references")
             if object_id in seen:
                 continue
             seen.add(object_id)
-            if _bare_has_object(bare_dir, object_id):
-                continue
+            receipt = receipts / object_id
+            if _bare_has_object(bare_dir, object_id) and receipt.is_file():
+                cached_kind = receipt.read_text(encoding="ascii")
+                if cached_kind in {"blob", "tree", "commit", "tag"}:
+                    if expected_type is not None and cached_kind != expected_type:
+                        raise RuntimeError(f"required Git object {object_id} has unexpected cached type")
+                    kinds[object_id] = cached_kind
+                    continue
 
             if expected_type == "blob":
                 if include_blobs:
@@ -762,6 +779,10 @@ def copy_reachable_objects_to_bare(
                     f"required Git object {object_id} is missing from the canonical store"
                 ) from exc
 
+            if expected_type is not None and obj_type != expected_type:
+                raise RuntimeError(
+                    f"required Git object {object_id} has type {obj_type}, expected {expected_type}"
+                )
             encoded_id, loose = encode_object(obj_type, body)
             if encoded_id != object_id:
                 raise RuntimeError(
@@ -769,31 +790,12 @@ def copy_reachable_objects_to_bare(
                     f"for requested {object_id}"
                 )
             _write_loose_object(objects_dir, object_id, loose)
+            kinds[object_id] = obj_type
 
-            if obj_type == "commit":
-                commit = decode_commit(body)
-                tree = commit.get("tree", "")
-                if is_object_id(tree):
-                    stack.append((tree, "tree"))
-                if follow_history:
-                    for parent in commit.get("parents") or []:
-                        if is_object_id(parent):
-                            stack.append((parent, "commit"))
-            elif obj_type == "tree":
-                try:
-                    entries = decode_tree(body)
-                except Exception as exc:
-                    raise RuntimeError(f"tree object {object_id} cannot be decoded") from exc
-                for entry in entries:
-                    if not is_object_id(entry.sha1_hex):
-                        raise RuntimeError(
-                            f"tree object {object_id} contains invalid child "
-                            f"object id {entry.sha1_hex!r}"
-                        )
-                    if entry.mode == MODE_DIR:
-                        stack.append((entry.sha1_hex, "tree"))
-                    else:
-                        stack.append((entry.sha1_hex, "blob"))
+            try:
+                stack.extend(object_edges(obj_type, body, follow_history=follow_history))
+            except ValueError as exc:
+                raise RuntimeError(f"{obj_type} object {object_id} cannot be decoded") from exc
 
     if missing_blobs:
         with trace_phase(
@@ -808,14 +810,34 @@ def copy_reachable_objects_to_bare(
                     f"required Git blob objects are missing from the canonical store: {sample}"
                 )
             for object_id, loose in found_blobs.items():
+                kind, body = decode_object(loose)
+                if hash_object(kind, body) != object_id:
+                    raise RuntimeError(f"required Git object {object_id} has mismatched bytes")
+                if kind != "blob":
+                    raise RuntimeError(f"required Git object {object_id} has type {kind}, expected blob")
                 _write_loose_object(objects_dir, object_id, loose)
+                kinds[object_id] = kind
+
+    # No receipt is issued until every required object and edge was verified.
+    # An interruption before this point leaves harmless cache objects, not proof.
+    receipts.mkdir(parents=True, exist_ok=True)
+    for object_id, kind in kinds.items():
+        (receipts / object_id).write_text(kind, encoding="ascii")
 
 
 def _write_loose_object(objects_dir: Path, object_id: str, loose: bytes) -> None:
     target = objects_dir / object_id[:2] / object_id[2:]
     target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.exists():
-        target.write_bytes(loose)
+    # The cache may contain a truncated object from an interrupted old writer.
+    # Atomically replace unverified bytes before issuing a closure receipt.
+    with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as staged:
+        temporary = Path(staged.name)
+        try:
+            staged.write(loose)
+            staged.flush()
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _get_loose_many(store, object_ids: list[str]) -> dict[str, bytes]:
@@ -904,20 +926,9 @@ def _reachable_object_ids_from_bare(
                 obj_type,
                 object_id,
             ])
-        except Exception:
-            continue
-        if obj_type == "commit":
-            commit = decode_commit(body)
-            tree = commit.get("tree", "")
-            if is_object_id(tree):
-                stack.append(tree)
-            for parent in commit.get("parents") or []:
-                if is_object_id(parent):
-                    stack.append(parent)
-        elif obj_type == "tree":
-            for entry in decode_tree(body):
-                if is_object_id(entry.sha1_hex):
-                    stack.append(entry.sha1_hex)
+        except Exception as exc:
+            raise RuntimeError(f"required Git object {object_id} cannot be read") from exc
+        stack.extend(edge.oid for edge in object_edges(obj_type, body))
     return reachable
 
 

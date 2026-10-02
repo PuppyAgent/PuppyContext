@@ -73,6 +73,16 @@ class TreeEntry(NamedTuple):
     def is_dir(self) -> bool:
         return self.mode == MODE_DIR
 
+    @property
+    def is_gitlink(self) -> bool:
+        """A submodule OID belongs to another repository, not this tree closure."""
+        return self.mode == MODE_GITLINK
+
+    @property
+    def raw_name(self) -> bytes:
+        """Lossless Git bytes; surrogate escapes are internal, not display text."""
+        return self.name.encode("utf-8", "surrogateescape")
+
 
 def _validate_sha1_hex(sha1_hex: str) -> None:
     if len(sha1_hex) != 40:
@@ -80,10 +90,13 @@ def _validate_sha1_hex(sha1_hex: str) -> None:
             f"git tree entry object id must be 40 hex characters, "
             f"got {len(sha1_hex)}",
         )
-    try:
-        bytes.fromhex(sha1_hex)
-    except ValueError as exc:
-        raise ValueError("git tree entry object id must be hexadecimal") from exc
+    if any(char not in "0123456789abcdefABCDEF" for char in sha1_hex):
+        raise ValueError("git tree entry object id must be hexadecimal")
+
+
+def _validate_tree_name(raw_name: bytes) -> None:
+    if raw_name in {b"", b".", b".."} or b"/" in raw_name or b"\x00" in raw_name:
+        raise ValueError("invalid git tree entry name")
 
 
 def encode_tree(entries: Iterable[TreeEntry]) -> bytes:
@@ -91,17 +104,23 @@ def encode_tree(entries: Iterable[TreeEntry]) -> bytes:
 
     sorted_entries = sorted(
         entries,
-        key=lambda entry: entry.name + "/" if entry.is_dir else entry.name,
+        key=lambda entry: entry.raw_name + (b"/" if entry.is_dir else b""),
     )
     out = bytearray()
+    seen_names: set[bytes] = set()
     for entry in sorted_entries:
         if entry.mode not in _ALLOWED_TREE_MODES:
             raise ValueError(f"unsupported git tree mode: {entry.mode!r}")
         _validate_sha1_hex(entry.sha1_hex)
+        raw_name = entry.raw_name
+        _validate_tree_name(raw_name)
+        if raw_name in seen_names:
+            raise ValueError("duplicate git tree entry name")
+        seen_names.add(raw_name)
         out += (
             entry.mode
             + b" "
-            + entry.name.encode("utf-8")
+            + raw_name
             + b"\x00"
             + bytes.fromhex(entry.sha1_hex)
         )
@@ -112,12 +131,20 @@ def decode_tree(content: bytes) -> list[TreeEntry]:
     """Decode a Git tree body into entries."""
 
     entries: list[TreeEntry] = []
+    seen_names: set[bytes] = set()
     index = 0
     while index < len(content):
         space = content.index(b" ", index)
         mode = content[index:space]
+        if mode not in _ALLOWED_TREE_MODES:
+            raise ValueError(f"unsupported git tree mode: {mode!r}")
         nul = content.index(b"\x00", space)
-        name = content[space + 1 : nul].decode("utf-8")
+        raw_name = content[space + 1 : nul]
+        _validate_tree_name(raw_name)
+        if raw_name in seen_names:
+            raise ValueError("duplicate git tree entry name")
+        seen_names.add(raw_name)
+        name = raw_name.decode("utf-8", "surrogateescape")
         if nul + 21 > len(content):
             raise ValueError("truncated git tree entry object id")
         sha1_hex = content[nul + 1 : nul + 21].hex()
@@ -148,9 +175,13 @@ def encode_commit(
 
 
 def decode_commit(content: bytes) -> dict:
-    """Decode a Git commit body into a small metadata dict."""
+    """Decode metadata without rejecting non-UTF8 identities/messages.
 
-    text = content.decode("utf-8")
+    Raw object bytes remain authoritative; this projection is never used to
+    reconstruct signed commits. Consumers rendering text must escape it.
+    """
+
+    text = content.decode("utf-8", "surrogateescape")
     head, _, message = text.partition("\n\n")
     info: dict = {"parents": [], "message": message.rstrip("\n")}
     for line in head.split("\n"):
@@ -173,10 +204,10 @@ def decode_tag(content: bytes) -> dict:
 
     Lightweight tags point directly at a commit and have no tag object. This
     helper covers the annotated form whose first-class object can itself point
-    at either a commit or another annotated tag.
+    at a commit, tree, blob, or another annotated tag.
     """
 
-    text = content.decode("utf-8")
+    text = content.decode("utf-8", "surrogateescape")
     head, _, message = text.partition("\n\n")
     info: dict = {"message": message.rstrip("\n")}
     for line in head.split("\n"):

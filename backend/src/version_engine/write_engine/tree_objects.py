@@ -122,6 +122,8 @@ def _verify_tree_children(store, tree_body: bytes, seen: set, missing: list) -> 
     """
     subtrees: list[str] = []
     for entry in decode_tree(tree_body):
+        if entry.is_gitlink:
+            continue  # The referenced commit belongs to the submodule repository.
         child = entry.sha1_hex
         if not child or child in seen:
             continue
