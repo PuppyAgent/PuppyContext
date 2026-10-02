@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from src.infra.file_processing.dependencies import get_etl_service
+from src.platform.upload.dependencies import get_etl_service
 from src.ingest.service import IngestService
 from src.platform.authorization.dependencies import get_authorization_service
 from src.platform.authorization.service import AuthorizationService

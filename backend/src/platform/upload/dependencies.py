@@ -4,14 +4,13 @@ ETL Service Dependencies
 FastAPI dependency injection for ETL service.
 """
 
-from arq.connections import RedisSettings, create_pool
 from fastapi import Depends, Path
 
-from src.infra.file_processing.arq_client import ETLArqClient
-from src.infra.file_processing.service import ETLService
-from src.infra.file_processing.state.repository import ETLStateRepositoryRedis
-from src.infra.file_processing.tasks.models import ETLTask
-from src.infra.file_processing.tasks.repository import ETLTaskRepositoryBase, ETLTaskRepositorySupabase
+from src.platform.upload.arq_client import UploadArqClient
+from src.platform.upload.service import ETLService
+from src.platform.upload.state.repository import ETLStateRepositoryRedis
+from src.platform.upload.tasks.models import ETLTask
+from src.platform.upload.tasks.repository import ETLTaskRepositoryBase, ETLTaskRepositorySupabase
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 
@@ -19,7 +18,6 @@ from src.platform.auth.models import CurrentUser
 _etl_task_repository = None
 _etl_service = None
 _etl_arq_client = None
-_etl_arq_pool = None
 _etl_state_repo = None
 
 
@@ -36,20 +34,16 @@ def get_etl_task_repository() -> ETLTaskRepositoryBase:
     return _etl_task_repository
 
 
-def get_etl_arq_client() -> ETLArqClient:
+def get_etl_arq_client() -> UploadArqClient:
     global _etl_arq_client
     if _etl_arq_client is None:
-        _etl_arq_client = ETLArqClient()
+        _etl_arq_client = UploadArqClient()
     return _etl_arq_client
 
 
 async def get_etl_arq_pool():
-    global _etl_arq_pool
-    if _etl_arq_pool is None:
-        client = get_etl_arq_client()
-        settings = RedisSettings.from_dsn(client.redis_url)
-        _etl_arq_pool = await create_pool(settings)
-    return _etl_arq_pool
+    # Runtime state and jobs use the same transport pool, not parallel clients.
+    return await get_etl_arq_client().get_pool()
 
 
 async def get_etl_state_repo() -> ETLStateRepositoryRedis:

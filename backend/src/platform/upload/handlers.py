@@ -36,10 +36,10 @@ from src.infra.s3.exceptions import S3Error, S3FileSizeExceededError, S3Multipar
 from src.infra.s3.service import S3Service
 
 # Import underlying services for file processing
-from src.infra.file_processing.dependencies import get_etl_service
+from src.platform.upload.dependencies import get_etl_service
 from src.infra.file_processing.exceptions import RuleNotFoundError
-from src.infra.file_processing.service import ETLService
-from src.infra.file_processing.tasks.models import ETLTaskStatus
+from src.platform.upload.service import ETLService
+from src.platform.upload.tasks.models import ETLTaskStatus
 from src.platform.upload.policy import (
     PER_BATCH_MAX_BYTES as POLICY_PER_BATCH_MAX_BYTES,
 )
@@ -50,8 +50,8 @@ from src.platform.upload.policy import (
     evaluate_batch_limits,
     path_has_blocked_segment,
 )
-from src.ingest.schemas import (
-    IngestStatus,
+from src.infra.task_status import IngestStatus
+from src.infra.task_presentation import (
     IngestSubmitItem,
     IngestSubmitResponse,
     IngestType,
@@ -70,7 +70,7 @@ from src.platform.upload.schemas import (
     UploadInitResponse,
     UploadPartResponse,
 )
-from src.ingest.shared.task.normalizers import detect_file_ingest_type
+from src.infra.file_formats import detect_ingest_type as detect_file_ingest_type
 from src.platform.upload.repository import UploadJobRepository
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser

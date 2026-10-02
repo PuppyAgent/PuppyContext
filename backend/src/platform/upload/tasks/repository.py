@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from src.infra.supabase.client import SupabaseClient
 from src.infra.supabase.exceptions import handle_supabase_error
-from src.infra.file_processing.tasks.models import ETLTask, ETLTaskStatus
+from src.platform.upload.tasks.models import ETLTask, ETLTaskStatus
 
 logger = logging.getLogger(__name__)
 

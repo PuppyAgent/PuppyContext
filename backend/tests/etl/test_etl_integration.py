@@ -72,11 +72,11 @@ SKIP_INTEGRATION_TEST = not MINERU_API_KEY
 if SKIP_INTEGRATION_TEST:
     pytest.skip("Skip ETL integration test (MINERU_API_KEY not set)", allow_module_level=True)
 
-from src.infra.file_processing.dependencies import get_etl_service  # noqa: E402
+from src.platform.upload.dependencies import get_etl_service  # noqa: E402
 from src.infra.file_processing.mineru.client import MineRUClient  # noqa: E402
 from src.infra.file_processing.rules.schemas import RuleCreateRequest  # noqa: E402
-from src.infra.file_processing.service import ETLService  # noqa: E402
-from src.infra.file_processing.tasks.models import ETLTaskStatus  # noqa: E402
+from src.platform.upload.service import ETLService  # noqa: E402
+from src.platform.upload.tasks.models import ETLTaskStatus  # noqa: E402
 from src.infra.llm.service import LLMService  # noqa: E402
 from src.infra.s3.service import S3Service  # noqa: E402
 

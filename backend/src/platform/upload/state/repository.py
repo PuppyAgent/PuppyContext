@@ -13,8 +13,8 @@ from typing import Any
 
 from arq.connections import ArqRedis
 
-from src.infra.file_processing.config import etl_config
-from src.infra.file_processing.state.models import ETLRuntimeState
+from src.platform.upload.config import upload_config
+from src.platform.upload.state.models import ETLRuntimeState
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +30,15 @@ class ETLStateRepositoryRedis:
     ):
         self.redis = redis
         self.key_prefix = (
-            key_prefix if key_prefix is not None else etl_config.etl_redis_prefix
+            key_prefix if key_prefix is not None else upload_config.etl_redis_prefix
         )
         self.ttl_seconds = (
-            ttl_seconds if ttl_seconds is not None else etl_config.etl_state_ttl_seconds
+            ttl_seconds if ttl_seconds is not None else upload_config.etl_state_ttl_seconds
         )
         self.terminal_ttl_seconds = (
             terminal_ttl_seconds
             if terminal_ttl_seconds is not None
-            else etl_config.etl_state_terminal_ttl_seconds
+            else upload_config.etl_state_terminal_ttl_seconds
         )
 
     def _key(self, task_id: str | int) -> str:

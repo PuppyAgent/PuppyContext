@@ -17,7 +17,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from src.infra.file_processing.config import etl_config
 from src.infra.file_processing.mineru.config import mineru_config
 from src.infra.file_processing.ocr.base import (
     OCRProvider,
@@ -175,7 +174,7 @@ class ExternalIngestCleanup:
         redis: Any,
         providers: dict[str, OCRProvider] | None = None,
         cache: MineRUCacheCleanup | None = None,
-        redis_prefix: str | None = None,
+        redis_prefix: str,
         default_provider: str | None = None,
         page_size: int = 100,
     ) -> None:
@@ -185,8 +184,9 @@ class ExternalIngestCleanup:
             normalize_provider(name): provider for name, provider in (providers or {}).items()
         }
         self.cache = cache or MineRUCacheCleanup()
-        prefix = redis_prefix if redis_prefix is not None else etl_config.etl_redis_prefix
-        self.redis_prefix = f"{prefix}:" if prefix and not prefix.endswith(":") else prefix
+        if not isinstance(redis_prefix, str) or not redis_prefix:
+            raise ValueError("The lifecycle owner must supply its Redis state namespace")
+        self.redis_prefix = f"{redis_prefix}:" if not redis_prefix.endswith(":") else redis_prefix
         self.redis_task_prefix = f"{self.redis_prefix}task:"
         self.default_provider = normalize_provider(default_provider) if default_provider else None
         self.page_size = max(1, min(page_size, 1000))

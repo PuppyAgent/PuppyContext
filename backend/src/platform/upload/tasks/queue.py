@@ -8,8 +8,8 @@ import asyncio
 import logging
 from collections.abc import Callable
 
-from src.infra.file_processing.tasks.models import ETLTask, ETLTaskStatus
-from src.infra.file_processing.tasks.repository import ETLTaskRepositoryBase
+from src.platform.upload.tasks.models import ETLTask, ETLTaskStatus
+from src.platform.upload.tasks.repository import ETLTaskRepositoryBase
 
 logger = logging.getLogger(__name__)
 

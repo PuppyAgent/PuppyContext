@@ -17,7 +17,7 @@ from src.platform.upload.handlers import (
     submit_file_ingest,
     upload_part,
 )
-from src.ingest.schemas import IngestSubmitResponse
+from src.infra.task_presentation import IngestSubmitResponse
 from src.platform.upload.schemas import (
     UploadAbortResponse,
     UploadCompleteBatchResponse,

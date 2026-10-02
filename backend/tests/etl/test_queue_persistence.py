@@ -12,9 +12,9 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.infra.file_processing.tasks.models import ETLTask, ETLTaskStatus, ETLTaskResult
-from src.infra.file_processing.tasks.queue import ETLQueue
-from src.infra.file_processing.tasks.repository import ETLTaskRepositorySupabase
+from src.platform.upload.tasks.models import ETLTask, ETLTaskStatus, ETLTaskResult
+from src.platform.upload.tasks.queue import ETLQueue
+from src.platform.upload.tasks.repository import ETLTaskRepositorySupabase
 
 
 # Skip when using dummy test Supabase URL (set by conftest for import compat)

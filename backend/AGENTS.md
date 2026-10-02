@@ -230,7 +230,7 @@ uv run pytest           # 运行测试
 
 ### Railway 控制台必须设置的项
 
-每个共享本仓库的 service（`api` / `file_worker` / `mcp_server`）都必须把
+每个共享本仓库的 service（`api` / `upload_worker` / `import_worker` / `synchronize_worker` / `mcp_server`）都必须把
 `Settings -> Service -> Source -> Root Directory` 设成 `backend`（写 `/backend` 也等价）。
 
 否则：
@@ -294,12 +294,12 @@ Nixpacks 也会触发 Python 检测并尝试默认安装流程，把上面的 bu
 | `SERVICE_ROLE` | 进程 |
 |----------------|------|
 | 未设置 / `api` | `uvicorn src.main:app` (FastAPI) |
-| `file_worker` | `arq src.ingest.file.jobs.worker.WorkerSettings` |
+| `upload_worker` | `arq src.platform.upload.worker.WorkerSettings` |
 | `import_worker` | `arq src.platform.imports.worker.WorkerSettings` |
-| `sync_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
+| `synchronize_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
 | `mcp_server` | `uvicorn mcp_service.server:app` |
 
-每个 Railway service 在 Variables 里设 `SERVICE_ROLE` 即可，不需要复制代码。
+不需要复制代码。角色/dispatch 切换前必须停止旧 producer 并排空旧队列，包括延迟、重试和在途任务；不能只改 Variables 后滚动升级。Upload 的 `ETL_*` queue/runtime 配置由 `platform/upload/config.py` 拥有，保留已部署的变量和 `etl` 队列；Import/Synchronize 分别拥有自己的 queue/timeout。`infra/queue_config.py` 只共享 Redis 连接，`infra/file_processing` 不持有入口任务状态。
 
 ## 开发约定
 

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from src.platform.upload import jobs
-from src.infra.file_processing.state.models import ETLPhase, ETLRuntimeState
-from src.infra.file_processing.tasks.models import ETLTaskStatus
+from src.platform.upload.state.models import ETLPhase, ETLRuntimeState
+from src.platform.upload.tasks.models import ETLTaskStatus
 
 TASK_ID = "task-1"
 PROJECT_ID = "project-1"

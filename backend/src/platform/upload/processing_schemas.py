@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from src.infra.file_processing.tasks.models import ETLTaskStatus
+from src.platform.upload.tasks.models import ETLTaskStatus
 
 
 class UploadAndSubmitItem(BaseModel):

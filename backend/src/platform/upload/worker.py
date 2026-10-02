@@ -26,15 +26,15 @@ from arq.connections import RedisSettings
 
 from src.infra.llm.service import LLMService
 from src.infra.s3.service import S3Service
-from src.infra.file_processing.config import etl_config
+from src.platform.upload.config import upload_config
 from src.platform.upload.jobs import (
     etl_finalize_upload_job,
     etl_ocr_job,
     etl_postprocess_job,
 )
 from src.infra.file_processing.ocr import get_ocr_provider
-from src.infra.file_processing.state.repository import ETLStateRepositoryRedis
-from src.infra.file_processing.tasks.repository import ETLTaskRepositorySupabase
+from src.platform.upload.state.repository import ETLStateRepositoryRedis
+from src.platform.upload.tasks.repository import ETLTaskRepositorySupabase
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ async def startup(ctx: dict) -> None:
 
     # ETL Redis runtime state repo (shares same Redis as ARQ)
     ctx["state_repo"] = ETLStateRepositoryRedis(ctx["redis"])
-    ctx["arq_queue_name"] = etl_config.etl_arq_queue_name
+    ctx["arq_queue_name"] = upload_config.etl_arq_queue_name
 
     logger.info(f"ETL ARQ worker startup complete (OCR provider: {ocr_provider.name})")
 
@@ -79,8 +79,8 @@ class WorkerSettings:
     functions = [etl_ocr_job, etl_postprocess_job, etl_finalize_upload_job]  # noqa: RUF012
     on_startup = startup
     on_shutdown = shutdown
-    redis_settings = RedisSettings.from_dsn(etl_config.etl_redis_url)
-    queue_name = etl_config.etl_arq_queue_name
+    redis_settings = RedisSettings.from_dsn(upload_config.redis_url)
+    queue_name = upload_config.etl_arq_queue_name
     # NOTE: ARQ cancels jobs on timeout via asyncio.CancelledError (BaseException on Py3.12).
     # Keep this in sync with MineRU/LLM latency expectations.
-    job_timeout = etl_config.etl_task_timeout
+    job_timeout = upload_config.etl_task_timeout

@@ -18,6 +18,7 @@ from typing import Any
 
 from src.infra.supabase.client import SupabaseClient
 from src.infra.file_processing.config import etl_config
+from src.platform.upload.config import upload_config
 from src.infra.file_processing.exceptions import ETLTransformationError
 from src.infra.file_processing.ocr.base import (
     OCRExternalJob,
@@ -28,9 +29,9 @@ from src.infra.file_processing.ocr.base import (
 from src.infra.file_processing.ocr.lifecycle import run_ocr_lifecycle_under_project_lease
 from src.infra.file_processing.rules.engine import RuleEngine
 from src.infra.file_processing.rules.repository_supabase import RuleRepositorySupabase
-from src.infra.file_processing.state.models import ETLPhase, ETLRuntimeState
-from src.infra.file_processing.state.repository import ETLStateRepositoryRedis
-from src.infra.file_processing.tasks.models import ETLTaskResult, ETLTaskStatus
+from src.platform.upload.state.models import ETLPhase, ETLRuntimeState
+from src.platform.upload.state.repository import ETLStateRepositoryRedis
+from src.platform.upload.tasks.models import ETLTaskResult, ETLTaskStatus
 from src.platform.project.write_lease import ProjectWriteLease
 from src.version_engine.adapters.product.operation_adapter import BlobRef
 
@@ -404,7 +405,7 @@ async def etl_ocr_job(ctx: dict, task_id: str | int) -> dict:
         # won't run and the runtime state would stay stuck at MINERU_PARSING.
         state.status = ETLTaskStatus.FAILED
         state.error_stage = "timeout"
-        state.error_message = f"ETL OCR job timed out (>{etl_config.etl_task_timeout}s)"
+        state.error_message = f"ETL OCR job timed out (>{upload_config.etl_task_timeout}s)"
         state.progress = 0
         await state_repo.set_terminal(state)
 
@@ -598,7 +599,7 @@ async def finalize_upload_to_version(
         }
 
     except asyncio.CancelledError:
-        err = f"Finalize timed out (>{etl_config.etl_task_timeout}s)"
+        err = f"Finalize timed out (>{upload_config.etl_task_timeout}s)"
         task.mark_failed(err)
         task.metadata["error_stage"] = "finalize_timeout"
         repo.update_task(task)
@@ -1254,7 +1255,7 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
             task.metadata["provider_task_id"] = state.provider_task_id
         task.metadata["error_stage"] = "timeout"
 
-        err = f"ETL postprocess job timed out (>{etl_config.etl_task_timeout}s)"
+        err = f"ETL postprocess job timed out (>{upload_config.etl_task_timeout}s)"
         task.status = ETLTaskStatus.FAILED
         task.error = err
         repo.update_task(task)

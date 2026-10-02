@@ -25,7 +25,7 @@ from src.infra.file_processing.ocr.external_cleanup import (
     MineRUCacheCleanup,
 )
 from src.infra.file_processing.ocr.lifecycle import run_ocr_lifecycle_under_project_lease
-from src.infra.file_processing.tasks.models import ETLTask
+from src.platform.upload.tasks.models import ETLTask
 
 
 class FakeTaskSource:
@@ -157,6 +157,7 @@ async def test_snapshot_traverses_all_task_pages_and_orphan_redis(tmp_path: Path
         task_source=source,
         redis=redis,
         cache=MineRUCacheCleanup(tmp_path / ".mineru_cache"),
+        redis_prefix="etl:",
         page_size=2,
     )
 
@@ -186,6 +187,7 @@ async def test_traversal_handle_is_rejected_without_deleting_outside_cache(
     source = FakeTaskSource([task_with_handle("task-1", provider_task_id="../victim")])
     cleanup = ExternalIngestCleanup(
         task_source=source,
+        redis_prefix="etl:",
         redis=FakeRedis(),
         cache=MineRUCacheCleanup(cache_root),
     )
@@ -209,6 +211,7 @@ async def test_replayed_snapshot_cannot_delete_unscoped_redis_or_cache(
     redis = FakeRedis({"unscoped:key": "keep"})
     cleanup = ExternalIngestCleanup(
         task_source=FakeTaskSource([]),
+        redis_prefix="etl:",
         redis=redis,
         cache=MineRUCacheCleanup(cache_root),
     )
@@ -254,6 +257,7 @@ async def test_cleanup_deletes_and_verifies_redis_and_cache_idempotently(
     )
     cleanup = ExternalIngestCleanup(
         task_source=FakeTaskSource([task]),
+        redis_prefix="etl:",
         redis=redis,
         cache=MineRUCacheCleanup(cache_root),
     )
@@ -283,6 +287,7 @@ async def test_provider_failure_can_retry_same_durable_snapshot(tmp_path: Path) 
     provider = FakeProvider("reducto", [failed, complete])
     redis = FakeRedis({"etl:task:task-1": "{}"})
     cleanup = ExternalIngestCleanup(
+        redis_prefix="etl:",
         task_source=FakeTaskSource(
             [
                 task_with_handle(
@@ -314,6 +319,7 @@ async def test_provider_without_cancel_api_is_not_reported_complete(
     provider = FakeProvider("mineru")
     cleanup = ExternalIngestCleanup(
         task_source=FakeTaskSource([task_with_handle("task-1")]),
+        redis_prefix="etl:",
         redis=FakeRedis(),
         providers={"mineru": provider},
         cache=MineRUCacheCleanup(tmp_path / ".mineru_cache"),

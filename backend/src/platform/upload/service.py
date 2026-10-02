@@ -18,15 +18,15 @@ from typing import Any
 
 from src.exceptions import ErrorCode, NotFoundException
 from src.infra.supabase.dependencies import get_supabase_client
-from src.infra.file_processing.arq_client import ETLArqClient
-from src.infra.file_processing.config import etl_config
+from src.platform.upload.arq_client import UploadArqClient
+from src.platform.upload.config import upload_config
 from src.infra.file_processing.exceptions import RuleNotFoundError
 from src.infra.file_processing.rules.default_rules import get_default_rule_id
 from src.infra.file_processing.rules.repository_supabase import RuleRepositorySupabase
-from src.infra.file_processing.state.models import ETLPhase, ETLRuntimeState
-from src.infra.file_processing.state.repository import ETLStateRepositoryRedis
-from src.infra.file_processing.tasks.models import ETLTask, ETLTaskStatus
-from src.infra.file_processing.tasks.repository import ETLTaskRepositoryBase
+from src.platform.upload.state.models import ETLPhase, ETLRuntimeState
+from src.platform.upload.state.repository import ETLStateRepositoryRedis
+from src.platform.upload.tasks.models import ETLTask, ETLTaskStatus
+from src.platform.upload.tasks.repository import ETLTaskRepositoryBase
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class ETLService:
     def __init__(
         self,
         task_repository: ETLTaskRepositoryBase,
-        arq_client: ETLArqClient,
+        arq_client: UploadArqClient,
         state_repo: ETLStateRepositoryRedis,
     ):
         """
@@ -295,8 +295,8 @@ class ETLService:
                 ETLTaskStatus.LLM_PROCESSING,
             ):
                 age_s = (datetime.now(UTC) - state.updated_at).total_seconds()
-                if age_s > (etl_config.etl_task_timeout + 30):
-                    err = f"Runtime state stale for {int(age_s)}s (timeout={etl_config.etl_task_timeout}s)"
+                if age_s > (upload_config.etl_task_timeout + 30):
+                    err = f"Runtime state stale for {int(age_s)}s (timeout={upload_config.etl_task_timeout}s)"
                     try:
                         # Best-effort: mark Redis terminal state
                         state.status = ETLTaskStatus.FAILED
