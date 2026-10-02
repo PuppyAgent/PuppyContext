@@ -218,7 +218,14 @@ export function createSynchronizeApi(t: CloudTransport) {
     bootstrapSynchronizeBindings: (body: SynchronizeBindingCreate) => t.post<{ bindings_created: number }>(`${base}/bootstrap`, body),
     pullSynchronizeBindings(params: { synchronize_binding_id?: string; project_id?: string; provider?: string }) {
       const query = new URLSearchParams();
-      for (const [key, value] of Object.entries(params)) if (value) query.set(key, value);
+      for (const [key, value] of Object.entries(params)) {
+        if (!['synchronize_binding_id', 'project_id', 'provider'].includes(key)) {
+          throw new Error('Unknown Synchronize pull selector');
+        }
+        if (value === undefined) continue;
+        if (typeof value !== 'string' || !value.trim()) throw new Error('Synchronize pull selectors must not be empty');
+        query.set(key, value);
+      }
       return t.post<SynchronizePullResult>(`${base}/pull?${query}`, {});
     },
     pushSynchronizePath: (projectId: string, path: string) => t.post<SynchronizePushResult>(`${base}/push/${path.split('/').map(encodeURIComponent).join('/')}?project_id=${encodeURIComponent(projectId)}`, {}),

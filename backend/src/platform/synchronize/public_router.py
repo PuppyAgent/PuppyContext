@@ -40,13 +40,22 @@ Authorization = Annotated[AuthorizationService, Depends(get_authorization_servic
 User = Annotated[CurrentUser, Depends(get_current_user)]
 
 
-def _reject_legacy_query(request: Request) -> None:
+def _validate_query_contract(request: Request) -> None:
+    query = request.query_params
     forbidden = {"connection_id", "sync_id", "access_point_id", "target_folder_path"}
-    if forbidden.intersection(request.query_params):
+    if forbidden.intersection(query):
         raise HTTPException(422, "Use the canonical Synchronize resource fields; legacy identity parameters are not accepted.")
+    if request.url.path.endswith("/synchronize/pull"):
+        # A misspelled, empty or repeated selector must never silently become
+        # a broader project-wide write. Other routes are already bound by ID.
+        allowed = {"synchronize_binding_id", "project_id", "provider"}
+        if set(query) - allowed or any(
+            len(query.getlist(key)) != 1 or not query[key].strip() for key in query
+        ):
+            raise HTTPException(422, "Pull requires unambiguous, non-empty canonical selectors.")
 
 
-router = APIRouter(prefix="/synchronize", tags=["synchronize"], dependencies=[Depends(_reject_legacy_query)])
+router = APIRouter(prefix="/synchronize", tags=["synchronize"], dependencies=[Depends(_validate_query_contract)])
 
 
 def _dict(value) -> dict:
