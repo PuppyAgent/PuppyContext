@@ -45,7 +45,7 @@ tests/repository_hosting/
 | `hosting_component` | 生产对象/写入/路由代码；真实 Git HTTP；控制面用内存替身，S3 用 moto | 不代表真实 PG/S3 联合事务、生产耐久性已验收 |
 | `hosting_live` | 临时 PostgreSQL 的真实产品迁移、RPC、并发 CAS、回滚、旧新命名兼容；`--live` 使用 Supabase，`--native-pg` 使用 auth stub，run.json 区分环境 | native PG 不代表 Supabase Auth/PostgREST/安装器验收；两者都不代表真实 S3 或未来迁移已安全 |
 
-`--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。数据库用例中的 OID 是合成值，验证的是事务控制面；完整对象图由其他层验证。
+`--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。多数数据库用例中的 OID 是合成值；新 ref 事务另以原生 Git 产生的 SHA-1/SHA-256 同树提交做 CAS/原子性对照。receipt 都由 fixture owner 插入，没有真实 S3 闭包验证。升级用例在所属临时栈内另外创建并清理空数据库，应用真实产品迁移，但 Auth 使用 stub（即使宿主是 Supabase）；不把它算作真实 Auth 升级验收。
 
 现在能检查的关键结果：
 
@@ -57,10 +57,12 @@ tests/repository_hosting/
 - 多人重叠写入不能丢掉已确认成功的独立文件；存储或发布失败不能破坏旧根。
 - 旧 S3 loose 对象可被新 store 读取；新写入保留旧对象；损坏和超时不能伪装成正常空文件。
 - 真实 PG 用例验证根 CAS、整笔事务回滚、重复提交事件、旧 RPC/新 RPC 与旧列/新列兼容。
+- `integration/test_ref_authority*.py` 验证尚未接入流量的 refs/HEAD SQL 原语：旧 OID/符号目标/不存在状态 CAS、并发创建、多 ref 原子性、结果重放与查询、字节名称、receipt 边界、reflog/audit/outbox 同事务、角色 ACL 和旧写入 fence。
+- 新增 Expand 前后对比既有用户/成员/项目/root/history/ref/audit/outbox 行及 RPC ACL；注入末尾 DDL 失败验证全部回滚，再应用原 migration 验证可重试。只验证合成存量 fixture，不代表已完成 07 的真实数据迁移。
 
 已知缺口由测试里的 `hosting_gap` 标记逐项说明。普通模式使用 **strict XFAIL**：能力修好后出现 XPASS，要求移除标记；`--target` 则直接作为失败报告。初始化/清理错误不会被缺口标记隐藏。
 
-目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送，以及空提交被确认却未保存。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上只证明当前 SHA-1 对象层，不启用尚未实现的 native refs 或 SHA-256 托管。PG 层仍有“文件树相同但 head 不同”的 CAS 目标测试。
+目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送，以及空提交被确认却未保存。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上只证明当前 SHA-1 对象层，不启用尚未实现的 native refs 或 SHA-256 托管。旧运行时 PG 层仍有“文件树相同但 head 不同”的失败目标测试；新 SQL 原语通过同树旧 OID 对照，不等于旧 RPC/transport 已切换。完整目标门禁继续保留这项失败，不能以新增局部测试替换。
 
 原 `tests/conflicts/cases.py` 的 117 条不是 117 条现成测试。本运行器执行其中 **100 条**，采用相同起点、固定发布顺序制造 CAS 重试；真正并发另在 `concurrency/` 和 PG 用例验证。其余 **17 条未算作覆盖**，原因在 `harness/catalog_scope.py::EXCLUDED`：有些依赖旧 scope 所有权模型，有些需要不同入口或尚未搭好的删除/移动竞态。原样本未改。5 条现有样本与实际实现的差异也单独标为 XFAIL，不能据此直接判定是新的 Git 规范要求。
 

@@ -17,15 +17,18 @@ production DDL or migration of user repositories.
   strict acceptance, not as supported capabilities.
 - Share typed graph rules between transport and GC: byte-preserving names,
   ordered parents, tag edges, external gitlinks, and fail-closed corruption.
-- Subsequently add repository metadata, durable receipts/pins, unified ref
-  transactions, consumers, migration and recovery according to M01–M20.
+- Add dormant repository metadata and the SQL ref/HEAD transaction primitive,
+  with fail-closed receipt prerequisites and legacy-publication fencing. This
+  Expand is empty on upgrade; backend roles cannot activate it or issue receipts.
+- Subsequently implement durable receipts/pins, admitted service integration,
+  consumers, migration and recovery according to M01–M20.
 - **BREAKING (future, gated):** native-repository authority replaces root-first
   authority only for repositories that pass the migration gates. Old API and
   scoped projections remain explicitly bound compatibility contracts.
 
 ## Impact
 
-- Affected specs: `git-object-graph`, future `git-repository-authority`.
+- Affected specs: `git-object-graph`, `git-repository-authority`.
 - Affected code: `version_engine/write_engine`, storage, transport, GC, database
   migrations, product writers, Workspace and Desktop consumers.
 - No provider/entrypoint renaming or shared SQL migration is duplicated here.

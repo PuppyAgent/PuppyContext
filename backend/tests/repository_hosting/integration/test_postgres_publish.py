@@ -1,5 +1,4 @@
 import json
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -9,30 +8,9 @@ from src.version_engine.infrastructure.supabase.db_names import (
     COMMIT_HISTORY_TABLE,
     VERSION_OUTBOX_TABLE,
 )
-from tests.repository_hosting.harness.postgres import Postgres, literal
+from tests.repository_hosting.harness.postgres import literal
 
 pytestmark = pytest.mark.hosting_live
-
-
-@pytest.fixture
-def pg_project():
-    pg = Postgres()
-    key, user = uuid.uuid4().hex, str(uuid.uuid4())
-    project, org = "hosting-" + key, "hosting-org-" + key
-    pg.sql(f"""
-      BEGIN;
-      INSERT INTO auth.users(id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
-      VALUES ({literal(user)},'authenticated','authenticated',{literal(key + "@example.test")},'',now(),'{{}}','{{}}',now(),now());
-      INSERT INTO public.organizations(id,name,slug,type,plan,seat_limit,created_by)
-      VALUES ({literal(org)},'Hosting tests',{literal(org)},'team','enterprise',5,{literal(user)});
-      INSERT INTO public.org_members(id,org_id,user_id,role) VALUES ({literal("member-" + key)},{literal(org)},{literal(user)},'owner');
-      INSERT INTO public.projects(id,name,org_id,created_by,lifecycle_status,version_root_hash)
-      VALUES ({literal(project)},'Hosting tests',{literal(org)},{literal(user)},'ready',{literal("1" * 40)});
-      INSERT INTO public.project_members(id,org_id,project_id,user_id,role,granted_by)
-      VALUES ({literal("pm-" + key)},{literal(org)},{literal(project)},{literal(user)},'admin',{literal(user)});
-      COMMIT;
-    """)
-    return pg, project
 
 
 def test_real_pg_concurrent_root_cas_has_exactly_one_winner(pg_project):

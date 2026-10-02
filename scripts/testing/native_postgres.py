@@ -26,6 +26,19 @@ def run(*args, input=None):
     ).stdout
 
 
+def product_migration_sql(migration: Path) -> str:
+    """Only omit the three unavailable Supabase extension declarations."""
+    body = migration.read_text()
+    if migration.name == "20260926000000_baseline_b1.sql":
+        body, count = re.subn(
+            r"^CREATE EXTENSION IF NOT EXISTS (pg_graphql|pg_net|supabase_vault).*?;\n",
+            "", body, flags=re.MULTILINE,
+        )
+        if count != 3:
+            raise RuntimeError("Supabase extension inventory changed; review native test setup")
+    return body
+
+
 @contextmanager
 def native_postgres():
     executable = shutil.which("postgres") or "/opt/homebrew/opt/postgresql@17/bin/postgres"
@@ -49,28 +62,11 @@ def native_postgres():
         try:
             run(binaries / "pg_ctl", "-D", data, "-l", root / "server.log", "-w",
                 "-o", f"-p {port} -h 127.0.0.1 -k {root}", "start")
-            sql('''
-CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-CREATE SCHEMA auth; CREATE SCHEMA extensions;
-CREATE TABLE auth.users(instance_id uuid,id uuid PRIMARY KEY,aud text,role text,email text,
- encrypted_password text,email_confirmed_at timestamptz,raw_app_meta_data jsonb,
- raw_user_meta_data jsonb,created_at timestamptz,updated_at timestamptz);
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
- SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
-CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
- SELECT coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
-''')
+            sql("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;")
+            sql((ROOT / "scripts/testing/postgres_auth_stub.sql").read_text())
             migrations = sorted((ROOT / "supabase/migrations").glob("*.sql"))
             for migration in migrations:
-                body = migration.read_text()
-                if migration.name == "20260926000000_baseline_b1.sql":
-                    body, count = re.subn(
-                        r"^CREATE EXTENSION IF NOT EXISTS (pg_graphql|pg_net|supabase_vault).*?;\n",
-                        "", body, flags=re.MULTILINE,
-                    )
-                    if count != 3:
-                        raise RuntimeError("Supabase extension inventory changed; review native test setup")
-                sql(body)
+                sql(product_migration_sql(migration))
             yield {
                 "url": url,
                 "stack": "puppy-baseline-native-" + root.name,

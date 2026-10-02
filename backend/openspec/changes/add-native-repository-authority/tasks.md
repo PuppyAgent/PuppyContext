@@ -12,9 +12,17 @@
 
 ## 2. Unified authority (M02/M04–M09/M11–M16)
 
-- [ ] Add schema/RPC and real role/constraint/upgrade tests without editing B1.
+- [x] Add dormant Expand schema and SQL primitive without editing B1: byte refs,
+  old-OID/HEAD CAS, atomic batches, immutable results, reflog/audit/outbox, role
+  restrictions and legacy-publication fences. No runtime activation/receipt issuer.
+- [x] Test the primitive with native PG17, SHA-1/SHA-256 Git oracles, real SQL roles,
+  concurrent create/replay, late publication rollback, populated expansion and
+  injected DDL failure/retry. Auth and object-closure receipts are fixture stubs.
+- [ ] Verify expansion/ACLs through actual Supabase/PostgREST and deployment gates.
 - [ ] Implement durable object receipts/pins and GC-publication coordination.
-- [ ] Implement old-OID CAS, atomic refs/HEAD, idempotent result, audit and outbox.
+- [ ] Integrate the SQL primitive into the admitted RefTransactionService, including
+  ref policy, lifecycle leases, non-atomic orchestration and result-query consumers.
+  Existing root-first same-tree CAS and transport targets still fail.
 - [ ] Integrate full Git transport and advertised protocol capabilities.
 - [ ] Integrate product/automatic writers, reads, Scope adapters and lifecycle.
 - [ ] Complete maintenance, export/restore, derived events and usage verification.
