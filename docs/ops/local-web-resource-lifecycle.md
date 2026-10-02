@@ -7,7 +7,7 @@
 
 These changes are locally verified task-branch work, not a published release.
 Desktop's service admission/ownership contract has one canonical owner:
-`puppy-issues@eefbcd8:document/puppyone-desktop/operations/local-cloud-development.md`.
+`puppy-issues@88c2de66:document/puppyone-desktop/operations/local-cloud-development.md`.
 This document owns the Web build, health interface and regression harness.
 
 ## Explicit production preview
