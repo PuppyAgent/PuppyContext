@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+from importlib.util import resolve_name
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,12 @@ OLD_MODULES = (
 def imports(path):
     for node in ast.walk(ast.parse(path.read_text())):
         if isinstance(node, ast.ImportFrom):
-            yield node.module or ""
+            module = node.module or ""
+            if node.level:
+                package = ".".join(path.relative_to(SRC.parent).with_suffix("").parts[:-1])
+                module = resolve_name("." * node.level + module, package)
+            yield module
+            yield from (f"{module}.{alias.name}" for alias in node.names)
         elif isinstance(node, ast.Import):
             yield from (alias.name for alias in node.names)
 
@@ -27,6 +33,17 @@ def test_no_runtime_import_uses_retired_business_modules():
     violations = [(str(path.relative_to(SRC)), module)
                   for path in SRC.rglob("*.py") for module in imports(path)
                   if any(module == old or module.startswith(old + ".") for old in OLD_MODULES)]
+    assert not violations
+
+
+def test_entrypoints_never_import_sibling_lifecycle_implementations():
+    domains = {"upload", "imports", "synchronize", "access"}
+    violations = []
+    for domain in domains:
+        forbidden = tuple(f"src.platform.{other}" for other in domains - {domain})
+        for path in (SRC / "platform" / domain).rglob("*.py"):
+            violations.extend((str(path.relative_to(SRC)), module) for module in imports(path)
+                if any(module == name or module.startswith(name + ".") for name in forbidden))
     assert not violations
 
 

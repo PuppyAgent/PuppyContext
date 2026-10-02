@@ -34,8 +34,16 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
     from src.main import app
 
     expected = json.loads((Path(__file__).with_name("entrypoint_contract_c28e38a3.json")).read_text())
-    actual = contract(app.openapi())
-    # Additive authenticated Import discovery; existing contracts stay exact.
+    # Keep the original fixture immutable: only reviewed additive deltas from
+    # 059 (binding metadata) and 060 (Import discovery) are allowed.
+    import copy
+    openapi = copy.deepcopy(app.openapi())
+    binding = openapi["components"]["schemas"]["SyncResponse"]
+    for field in ("trigger", "last_synced_at", "created_at", "updated_at"):
+        assert field in binding["properties"]
+        assert field not in binding.get("required", [])
+        binding["properties"].pop(field)
+    actual = contract(openapi)
     assert actual["paths"].pop("/api/v1/imports/providers")
     assert actual == expected["contract"]
 

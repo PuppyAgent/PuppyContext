@@ -299,13 +299,6 @@ class SynchronizeEngine:
             log_info(f"[SynchronizeEngine] execute_all: {len(results)} connections updated")
         return results
 
-    async def execute_for_access_surface(self, adapter) -> str | None:
-        if adapter.kind in ("cli", "agent", "sandbox", "git_remote"):
-            log_debug(f"[SynchronizeEngine] access connector cannot run on demand: {adapter.id}")
-            return None
-        result = await self.execute(adapter.id, trigger_type="manual")
-        return (result or {}).get("run_id")
-
     async def push_execute(
         self,
         path: str,
