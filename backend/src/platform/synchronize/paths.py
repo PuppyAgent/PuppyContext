@@ -14,7 +14,7 @@ from typing import Any
 
 from src.provider._base import FetchResult
 from src.provider.materializers import MaterializedOutput
-from src.provider.schemas import Sync
+from src.platform.synchronize.models import SynchronizeBinding
 
 
 PROVIDER_ALIASES = {
@@ -118,7 +118,7 @@ def to_bytes(content: Any) -> bytes:
 
 def plan_fetch_result(
     *,
-    sync: Sync,
+    sync: SynchronizeBinding,
     result: FetchResult,
     target_exists_as_file: bool = False,
 ) -> SynchronizeWritePlan:
@@ -173,7 +173,7 @@ def plan_fetch_result(
 
 def plan_materialized_result(
     *,
-    sync: Sync,
+    sync: SynchronizeBinding,
     materialized: MaterializedOutput,
 ) -> SynchronizeWritePlan:
     """Mount materializer-owned relative files under an Integration target path."""

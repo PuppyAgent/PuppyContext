@@ -27,7 +27,6 @@ from src.provider._base import (
     ProviderSpec,
     Credentials,
     FetchResult,
-    TriggerMode,
 )
 from src.provider.oauth.github_service import GithubOAuthService
 from src.infra.s3.service import S3Service
@@ -105,13 +104,10 @@ class GithubProvider(BaseProvider):
             display_name="GitHub",
             capabilities=Capability.PULL,
             supported_directions=["inbound"],
-            default_trigger=TriggerMode.MANUAL,
             default_node_type="json",
             auth=AuthRequirement.OPTIONAL_OAUTH,
             oauth_type="github",
             oauth_ui_type="github",
-            supported_sync_modes=(),
-            default_sync_mode="manual",
             creation_mode="direct",
             description="One-time import of repository files",
             accept_types=("folder",),

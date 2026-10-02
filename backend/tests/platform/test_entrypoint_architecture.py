@@ -39,6 +39,24 @@ def test_provider_does_not_import_entrypoint_lifecycle_or_version_engine():
     assert not violations
 
 
+def test_shared_dtos_contain_no_entrypoint_lifecycle_or_workspace_state():
+    from dataclasses import fields
+    from src.provider._base import ProviderSpec
+    from src.provider import schemas
+    from src.platform.synchronize.models import SynchronizeBinding
+    from src.platform.workspace.sync_models import SyncResult
+
+    for retired in ("Sync", "SyncResult", "NodeSyncMeta", "SyncProjectRequest", "SyncProjectResponse"):
+        assert not hasattr(schemas, retired)
+    assert {item.name for item in fields(schemas.SourceInput)} == {"config", "credentials"}
+    assert {item.name for item in fields(schemas.MaterializationInput)} == {"source", "provenance"}
+    assert not {"supported_sync_modes", "default_sync_mode", "default_trigger"} & {
+        item.name for item in fields(ProviderSpec)
+    }
+    assert SynchronizeBinding.__module__ == "src.platform.synchronize.models"
+    assert SyncResult.__module__ == "src.platform.workspace.sync_models"
+
+
 def test_business_models_use_canonical_names():
     from dataclasses import fields
     from src.platform.access.models import AccessSurface
@@ -75,7 +93,13 @@ def test_import_and_synchronize_share_registered_provider_instances(monkeypatch)
     for item in discovered:
         catalog.register(item.adapter)
     monkeypatch.setattr(dependencies, "_registry_instance", catalog)
-    assert get_import_provider_registry().get("github") is get_synchronize_provider_registry().get("github")
+    imports_registry = get_import_provider_registry()
+    synchronize_registry = get_synchronize_provider_registry()
+    assert imports_registry.get("github") is catalog.get("github")
+    assert synchronize_registry.get("github") is None
+    for name in synchronize_registry.providers():
+        assert synchronize_registry.get(name) is imports_registry.get(name)
+        assert imports_registry.get(name) is catalog.get(name)
 
 
 @pytest.mark.parametrize("role,allowed", [("viewer", False), ("editor", False), ("admin", True)])

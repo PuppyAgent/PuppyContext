@@ -110,21 +110,9 @@ class ProviderResourcesResponse(BaseModel):
 
 
 def _connectable_specs(registry: ProviderRegistry) -> list[dict]:
-    modes_allowed = {"manual", "scheduled", "realtime"}
-    specs: list[dict] = []
-    for spec in registry.specs_to_dicts():
-        modes = [
-            mode for mode in (spec.get("supported_sync_modes") or [])
-            if mode in modes_allowed
-        ]
-        if not modes:
-            continue
-        spec["supported_sync_modes"] = modes
-        if spec.get("default_sync_mode") not in modes:
-            spec["default_sync_mode"] = modes[0]
-        spec["category"] = "datasource"
-        specs.append(spec)
-    return specs
+    from src.platform.synchronize.providers import synchronize_specs
+
+    return synchronize_specs(registry)
 
 
 def _ensure_project_access(
