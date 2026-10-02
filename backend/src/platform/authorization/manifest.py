@@ -242,6 +242,23 @@ PROJECT_ROUTE_AUTHORIZATION.update({
 
 PROJECT_ROUTE_AUTHORIZATION.update({
     # Integration control and execution.
+    # Canonical Synchronize contract. Same policy as the transitional transport.
+    ("GET", "/api/v1/synchronize/status"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/synchronize/bindings"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/synchronize/bindings"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/synchronize/bindings/{synchronize_binding_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("DELETE", "/api/v1/synchronize/bindings/{synchronize_binding_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/synchronize/bindings/{synchronize_binding_id}/trigger"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/bindings/{synchronize_binding_id}/pause"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/bindings/{synchronize_binding_id}/resume"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/bindings/{synchronize_binding_id}/refresh"): _human(ProjectAction.AUTOMATION_RUN),
+    ("GET", "/api/v1/synchronize/bindings/{synchronize_binding_id}/runs"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/synchronize/runs/{run_id}"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/synchronize/failed-runs"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/synchronize/bootstrap"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/pull"): _human(ProjectAction.AUTOMATION_RUN),
+    ("POST", "/api/v1/synchronize/push/{path:path}"): _human(ProjectAction.AUTOMATION_RUN),
+
     ("GET", "/api/v1/integrations/status"): _human(ProjectAction.ACCESS_READ),
     ("POST", "/api/v1/integrations/connections"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
     ("GET", "/api/v1/integrations/connections"): _human(ProjectAction.ACCESS_READ),

@@ -1,4 +1,4 @@
-import type { ConnectorSpec } from './syncApi';
+import type { SynchronizeProviderSpec as ConnectorSpec } from './synchronizeApi';
 
 export type SyncModeType = 'manual' | 'scheduled' | 'realtime';
 

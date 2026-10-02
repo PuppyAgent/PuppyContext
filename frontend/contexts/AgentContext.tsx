@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { type SavedAgent, type AgentType, type TriggerType, type TriggerConfig, type ExternalConfig } from '@/components/AgentRail';
 import { post, get, put, del } from '@/lib/apiClient';
+import { bootstrapSynchronizeBindings } from '@/lib/synchronizeApi';
 import { stat } from '@/lib/contentTreeApi';
 
 /**
@@ -582,11 +583,11 @@ export function AgentProvider({ children, projectId }: AgentProviderProps) {
             ? { type: 'manual' }
             : undefined;
 
-        await post<{ syncs_created: number }>('/api/v1/integrations/bootstrap', {
+        await bootstrapSynchronizeBindings({
           project_id: projectId,
           provider: params.provider,
           config: params.config || {},
-          target_folder_path: nodePath,
+          target_path: nodePath,
           credentials_ref: params.credentialsRef,
           direction: params.direction,
           conflict_strategy: 'three_way_merge',

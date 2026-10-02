@@ -1,0 +1,195 @@
+"""Canonical HTTP contract exercises the same operations as legacy consumers."""
+from unittest.mock import AsyncMock
+
+import pytest
+from fastapi.testclient import TestClient
+
+from src.platform.synchronize import public_router
+from src.platform.synchronize.run_repository import SyncRun
+from tests.authorization_fakes import authorization_for, install_authorization
+from tests.platform.test_synchronize_identity_http import environment as environment
+
+BASE = "/api/v1/synchronize"
+BODY = {
+    "project_id": "project-1", "provider": "url", "target_path": "without-scope",
+    "config": {"source": {"resource_url": "https://example.test", "resource_name": "Source",
+                            "metadata": {"connection_id": "user-metadata-not-an-identity"}}, "options": {}},
+    "sync_mode": "manual", "trigger": {"type": "manual"},
+}
+
+
+@pytest.fixture
+def canonical(environment):
+    app, bindings, runs, queue = environment
+    app.include_router(public_router.router, prefix="/api/v1")
+    # Minimal persistence facts; lifecycle and authorization remain real.
+    def update(binding_id, **fields):
+        binding = bindings.items[binding_id]
+        if "trigger" in fields:
+            binding.trigger = fields["trigger"]
+        if "target_path" in fields:
+            binding.path = fields["target_path"]
+    bindings.update = update
+    runs.list_failed_for_connections = lambda ids, **_: [r for r in runs.items.values()
+        if r.connection_id in ids and r.status == "failed"]
+    return environment
+
+
+def test_create_reload_edit_retry_history_pause_resume_delete(canonical):
+    app, bindings, runs, queue = canonical
+    with TestClient(app) as client:
+        response = client.post(f"{BASE}/bindings", json=BODY)
+        assert response.status_code == 200, response.text
+        created = response.json()["data"]
+        assert "sync" not in created
+        binding = created["binding"]
+        binding_id = binding["id"]
+        assert binding["last_synchronize_commit_id"] == ""
+        assert "last_sync_commit_id" not in binding
+        assert binding["config"]["source"]["metadata"]["connection_id"] == "user-metadata-not-an-identity"
+        execution = created["execution_result"]
+        assert execution["synchronize_binding_id"] == binding_id
+        assert execution["synchronize_run_id"] == "run-1"
+        assert not {"connection_id", "access_point_id", "run_id"} & execution.keys()
+        # Legacy response is independently compatible, with the same stored ID.
+        legacy = client.get("/api/v1/integrations/connections?project_id=project-1").json()["data"]
+        assert legacy[0]["id"] == binding_id
+        assert "last_sync_commit_id" in legacy[0]
+    with TestClient(app) as client:
+        path = f"{BASE}/bindings/{binding_id}"
+        assert client.get(f"{BASE}/bindings?project_id=project-1").json()["data"][0]["id"] == binding_id
+        edited = client.patch(path, json={"target_path": "new-destination"})
+        assert edited.json()["data"]["path"] == "new-destination"
+        assert client.patch(f"{path}/trigger", json={"sync_mode": "manual"}).status_code == 200
+        runs.items["run-1"].status = "failed"
+        retry = client.post(f"{path}/refresh")
+        assert retry.json()["data"]["results"][0]["synchronize_binding_id"] == binding_id
+        history = client.get(f"{path}/runs").json()["data"]
+        assert {r["id"] for r in history} == {"run-1", "run-2"}
+        assert all(r["synchronize_binding_id"] == binding_id and "access_point_id" not in r for r in history)
+        detail = client.get(f"{BASE}/runs/run-1").json()["data"]
+        assert detail["synchronize_binding_id"] == binding_id
+        failed = client.get(f"{BASE}/failed-runs?project_id=project-1").json()["data"][0]
+        assert failed["synchronize_binding_id"] == binding_id
+        assert failed["synchronize_binding_name"] == "Source"
+        assert failed["target_path"] == "new-destination"
+        status = client.get(f"{BASE}/status?project_id=project-1").json()["data"]
+        assert status["bindings"][0]["id"] == binding_id
+        assert "syncs" not in status and "uploads" not in status
+        assert "access_key" not in status["bindings"][0]
+        runs.items["run-2"].status = "failed"
+        assert client.post(f"{path}/pause").status_code == 200
+        assert client.post(f"{path}/refresh").status_code == 409
+        assert client.post(f"{path}/resume").status_code == 200
+        assert client.delete(path).status_code == 200
+        assert not bindings.items
+    assert queue.enqueue_sync_run.call_count == 3
+
+
+@pytest.mark.parametrize("field", ["connection_id", "access_point_id", "sync_id"])
+def test_old_identity_query_cannot_silently_trigger_all_bindings(canonical, field):
+    app, _, _, queue = canonical
+    with TestClient(app) as client:
+        response = client.post(f"{BASE}/pull?project_id=project-1&{field}=not-a-binding")
+        assert response.status_code == 422
+    queue.enqueue_sync_run.assert_not_called()
+
+
+@pytest.mark.parametrize("extra", [{"sync_mode": "import_once"}, {"access_point_id": "access-1"}, {"target_folder_path": "legacy"}])
+def test_create_rejects_noncanonical_or_import_only_payload_before_persistence(canonical, extra):
+    app, bindings, _, queue = canonical
+    with TestClient(app) as client:
+        response = client.post(f"{BASE}/bindings", json={**BODY, **extra})
+        assert response.status_code == 422
+    assert not bindings.items
+    queue.enqueue_sync_run.assert_not_called()
+
+
+@pytest.mark.parametrize("operation,method", [("", "delete"), ("", "patch"), ("pause", "post"),
+    ("resume", "post"), ("refresh", "post"), ("runs", "get"), ("trigger", "patch")])
+@pytest.mark.parametrize("resource_id", ["access-only", "missing", "foreign-binding"])
+def test_wrong_or_foreign_id_never_targets_another_resource(canonical, resource_id, operation, method):
+    app, bindings, _, queue = canonical
+    foreign = bindings.create(project_id="other-project", provider="url")
+    bindings.items["foreign-binding"] = foreign
+    with TestClient(app) as client:
+        path = f"{BASE}/bindings/{resource_id}" + (f"/{operation}" if operation else "")
+        kwargs = {"json": {"sync_mode": "manual"} if operation == "trigger" else {}} if method == "patch" else {}
+        response = getattr(client, method)(path, **kwargs)
+        assert response.status_code in {403, 404}, response.text
+    assert foreign.status == "active"
+    queue.enqueue_sync_run.assert_not_called()
+
+
+def test_viewer_can_read_but_cannot_create_mutate_or_trigger(canonical):
+    app, bindings, _, queue = canonical
+    binding = bindings.create(project_id="project-1", provider="url")
+    install_authorization(app, authorization_for("project-1", role="viewer"))
+    with TestClient(app) as client:
+        assert client.get(f"{BASE}/bindings?project_id=project-1").status_code == 200
+        assert client.post(f"{BASE}/bindings", json=BODY).status_code == 403
+        assert client.post(f"{BASE}/bindings/{binding.id}/refresh").status_code == 403
+        assert client.post(f"{BASE}/pull?project_id=project-1").status_code == 403
+    queue.enqueue_sync_run.assert_not_called()
+
+
+def test_foreign_run_requires_its_own_project_grant(canonical):
+    app, bindings, runs, _ = canonical
+    foreign = bindings.create(project_id="other-project", provider="url")
+    runs.items["foreign-run"] = SyncRun(id="foreign-run", connection_id=foreign.id, stdout="private")
+    with TestClient(app) as client:
+        response = client.get(f"{BASE}/runs/foreign-run")
+        assert response.status_code in {403, 404}
+        assert "private" not in response.text
+
+
+def test_initial_enqueue_failure_keeps_cleanup_and_503_semantics(canonical):
+    app, bindings, runs, queue = canonical
+    queue.enqueue_sync_run = AsyncMock(side_effect=RuntimeError("queue unavailable"))
+    with TestClient(app) as client:
+        response = client.post(f"{BASE}/bindings", json=BODY)
+        assert response.status_code == 503
+    assert not bindings.items
+    assert runs.items["run-1"].status == "failed"
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("fields", [
+    {"provider": "database", "config": {"db_config": {"ciphertext": "never-return-this"}}},
+    {"provider": "url", "config": {"db_config": {"ciphertext": "never-return-this"}}},
+    {"provider": "url", "trigger": {"type": "import_once"}},
+])
+def test_unclassified_import_sources_are_not_reinterpreted_as_bindings(canonical, legacy, fields):
+    app, bindings, _, queue = canonical
+    bindings.create(project_id="project-1", provider="url")
+    ambiguous = bindings.create(project_id="project-1", **fields)
+    base = "/api/v1/integrations" if legacy else BASE
+    resource = "connections" if legacy else "bindings"
+    with TestClient(app) as client:
+        for path in (f"/{resource}?project_id=project-1", "/status?project_id=project-1", "/failed-runs?project_id=project-1"):
+            response = client.get(base + path)
+            assert response.status_code == 409
+            assert response.json()["detail"]["code"] == "SOURCE_CLASSIFICATION_REQUIRED"
+            assert "never-return-this" not in response.text
+        assert client.delete(f"{base}/{resource}/{ambiguous.id}").status_code == 409
+        assert client.post(f"{base}/{resource}/{ambiguous.id}/pause").status_code == 409
+        # A valid binding appears first: classification must gate the whole
+        # batch, rather than enqueue it and fail halfway through the request.
+        assert client.post(f"{base}/pull?project_id=project-1").status_code == 409
+    assert ambiguous.id in bindings.items and ambiguous.status == "active"
+    queue.enqueue_sync_run.assert_not_called()
+
+
+def test_canonical_openapi_has_no_legacy_identity_schema_fields(canonical):
+    app, *_ = canonical
+    openapi = app.openapi()
+    schemas = openapi["components"]["schemas"]
+    for name, schema in schemas.items():
+        if not name.startswith("Synchronize"):
+            continue
+        assert not {"connection_id", "access_point_id", "last_sync_commit_id", "sync", "syncs"} & schema.get("properties", {}).keys()
+    assert "synchronize_binding_id" in schemas["SynchronizeRun"]["required"]
+    parameters = openapi["paths"][f"{BASE}/bindings/{{synchronize_binding_id}}/refresh"]["post"]["parameters"]
+    assert {p["name"] for p in parameters} == {"synchronize_binding_id"}
+    assert "post" in openapi["paths"][f"{BASE}/bootstrap"]
+    assert "post" in openapi["paths"][f"{BASE}/push/{{path}}"]

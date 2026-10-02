@@ -518,12 +518,12 @@ function describeNeedsActionRow(def: NeedsActionKindDef, item: NeedsActionItem) 
   const age = item.created_at ? formatRelative(item.created_at) : '';
 
   if (item.kind === 'failed-sync') {
-    const apName = item.source.access_point_name || item.source.provider || def.label;
+    const apName = item.source.synchronize_binding_name || item.source.provider || def.label;
     return {
       title: apName,
       meta: joinMeta([
         item.source.direction || 'sync',
-        item.source.access_point_path || item.scope_path || item.source.provider,
+        item.source.target_path || item.scope_path || item.source.provider,
         age,
       ]),
       dotColor: tag.color,

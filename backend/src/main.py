@@ -734,6 +734,8 @@ def create_app() -> FastAPI:
     from src.platform.synchronize.router import router as synchronize_router
 
     app.include_router(synchronize_router, prefix="/api/v1", tags=["integrations"])
+    from src.platform.synchronize.public_router import router as synchronize_public_router
+    app.include_router(synchronize_public_router, prefix="/api/v1")
     # GitHub Synchronize: bind a project to a (repo, branch) pair, run
     # imports/exports, receive webhooks. Two routers because the webhook
     # callback isn't per-project.

@@ -85,7 +85,7 @@ interface DataPageRightPanelProps {
   readonly activeNodeId?: string;
   readonly activeSyncId: string | null;
   readonly currentTableData?: TableData;
-  readonly syncStatusData: { syncs: SyncStatusSync[] } | undefined;
+  readonly syncStatusData: { bindings: SyncStatusSync[] } | undefined;
   readonly projectTools: Tool[];
   readonly savedAgents: SavedAgent[];
   readonly accessPointEntries: EndpointEntry[];

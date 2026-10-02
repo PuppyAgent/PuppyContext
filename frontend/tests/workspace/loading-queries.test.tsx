@@ -15,7 +15,7 @@ import { listSandboxEndpoints } from '@/lib/sandboxEndpointsApi';
 
 vi.mock('@/lib/projectsApi', () => ({ getProjects: vi.fn(), getProject: vi.fn() }));
 vi.mock('@/lib/contentTreeApi', async original => ({ ...await original<object>(), listDir: vi.fn() }));
-vi.mock('@/lib/apiClient', () => ({ get: vi.fn() }));
+vi.mock('@/lib/apiClient', () => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() }));
 vi.mock('@/lib/mcpApi', () => ({ getToolsByProjectId: vi.fn(), getToolsByPath: vi.fn() }));
 vi.mock('@/lib/repoApi', () => ({ getRepoIdentity: vi.fn(), listScopes: vi.fn(), listConnectors: vi.fn() }));
 vi.mock('@/lib/mcpEndpointsApi', () => ({ listMcpEndpoints: vi.fn() }));
@@ -130,6 +130,7 @@ it('starts seven decoration reads only after the active project root, with no ot
   for (const request of decorations) expect(request).not.toHaveBeenCalled();
   await act(async () => root.resolve(listing([])));
   await waitFor(() => { for (const request of decorations) expect(request).toHaveBeenCalledTimes(1); });
+  expect(get).toHaveBeenCalledExactlyOnceWith('/api/v1/synchronize/status?project_id=p');
   hook.rerender({ project: 'q' });
   expect(hook.result.current.root.hasLoaded).toBe(false);
   for (const request of decorations) expect(request).toHaveBeenCalledTimes(1);

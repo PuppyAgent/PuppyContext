@@ -43,6 +43,12 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
         assert field in binding["properties"]
         assert field not in binding.get("required", [])
         binding["properties"].pop(field)
+    # Canonical S2 routes are an explicit additive contract, not a wildcard
+    # exemption. Existing route/schema fingerprints must remain unchanged.
+    delta = json.loads(Path(__file__).with_name("synchronize_contract_delta.json").read_text())
+    for category in ("paths", "schemas"):
+        assert not expected["contract"][category].keys() & delta[category].keys()
+        expected["contract"][category].update(delta[category])
     actual = contract(openapi)
     assert actual["paths"].pop("/api/v1/imports/providers")
     assert actual == expected["contract"]
