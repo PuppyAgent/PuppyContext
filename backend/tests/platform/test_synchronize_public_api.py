@@ -20,7 +20,7 @@ BODY = {
 
 @pytest.fixture
 def canonical(environment):
-    app, bindings, runs, queue = environment
+    app, bindings, runs, _queue = environment
     app.include_router(public_router.router, prefix="/api/v1")
     # Minimal persistence facts; lifecycle and authorization remain real.
     def update(binding_id, **fields):
@@ -123,13 +123,23 @@ def test_wrong_or_foreign_id_never_targets_another_resource(canonical, resource_
 
 def test_viewer_can_read_but_cannot_create_mutate_or_trigger(canonical):
     app, bindings, _, queue = canonical
-    binding = bindings.create(project_id="project-1", provider="url")
+    binding = bindings.create(project_id="project-1", provider="url", path="")
     install_authorization(app, authorization_for("project-1", role="viewer"))
     with TestClient(app) as client:
         assert client.get(f"{BASE}/bindings?project_id=project-1").status_code == 200
         assert client.post(f"{BASE}/bindings", json=BODY).status_code == 403
         assert client.post(f"{BASE}/bindings/{binding.id}/refresh").status_code == 403
         assert client.post(f"{BASE}/pull?project_id=project-1").status_code == 403
+    queue.enqueue_sync_run.assert_not_called()
+
+
+def test_absent_binding_path_is_not_serialized_as_a_project_root(canonical):
+    app, bindings, _, queue = canonical
+    bindings.create(project_id="project-1", provider="url", path=None)
+    with TestClient(app) as client:
+        response = client.get(f"{BASE}/bindings?project_id=project-1")
+        assert response.status_code == 409
+        assert "requires repair" in response.text
     queue.enqueue_sync_run.assert_not_called()
 
 

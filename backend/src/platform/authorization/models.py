@@ -54,7 +54,7 @@ class ProjectCapability(StrEnum):
     SCOPE_MANAGE = "scope.manage"
     ACCESS_SURFACE_MANAGE = "access_surface.manage"
     ACCESS_SURFACE_ROTATE_SECRET = "access_surface.rotate_secret"
-    SYNCHRONIZE_MANAGE = "integration.manage"
+    SYNCHRONIZE_MANAGE = "synchronize.manage"
 
 
 class ProjectAction(StrEnum):
@@ -80,7 +80,7 @@ class ProjectAction(StrEnum):
     CREDENTIAL_MANAGE = "access_surface.rotate_secret"
     MCP_MANAGE = "mcp.manage"
     SANDBOX_MANAGE = "sandbox.manage"
-    SYNCHRONIZE_MANAGE = "integration.manage"
+    SYNCHRONIZE_MANAGE = "synchronize.manage"
     IMPORT_SOURCE_MANAGE = "import.source.manage"
     INGEST_WRITE = "ingest.write"
     TOOL_USE = "tool.use"

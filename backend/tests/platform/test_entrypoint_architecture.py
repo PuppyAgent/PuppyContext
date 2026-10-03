@@ -170,5 +170,5 @@ def test_renamed_management_actions_keep_the_original_role_boundary(role, allowe
 
     for action in (ProjectAction.SYNCHRONIZE_MANAGE, ProjectAction.ACCESS_MANAGE, ProjectAction.IMPORT_SOURCE_MANAGE):
         assert (ACTION_CAPABILITY[action] in ROLE_CAPABILITIES[ProjectRole(role)]) is allowed
-    # Serialized capabilities are consumed by unchanged Web/Desktop clients.
-    assert ProjectAction.SYNCHRONIZE_MANAGE.value == "integration.manage"
+    # ISSUE-058 changes the public capability spelling, never its role grant.
+    assert ProjectAction.SYNCHRONIZE_MANAGE.value == "synchronize.manage"

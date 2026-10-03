@@ -1,19 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useEntrypointRequestContext } from '../lib/hooks/useEntrypointRequestContext';
 import {
-  listTables,
-  previewTable,
-  saveTable,
-  type TableInfo,
-  type TablePreview,
-} from '../lib/dbConnectorApi';
+  listImportDatabaseTables,
+  previewImportDatabaseTable,
+  saveImportDatabaseTable,
+  type ImportDatabaseTable,
+  type ImportDatabasePreview,
+} from '../lib/importDatabaseApi';
 import { Dots, PageLoading } from './loading';
 import { ActivityIconButton } from './ActivityIconButton';
 
 type SupabaseTablePickerDialogProps = {
   projectId: string;
-  connectionId: string;
+  importDatabaseSourceId: string;
   onClose: () => void;
   onSaved?: () => void;
 };
@@ -23,12 +24,13 @@ type SupabaseTablePickerDialogProps = {
  *
  * 导出名保持 SupabaseSQLEditorDialog 以兼容现有 import。
  */
-export function SupabaseSQLEditorDialog({ projectId, connectionId, onClose, onSaved }: SupabaseTablePickerDialogProps) {
-  const [tables, setTables] = useState<TableInfo[]>([]);
+export function SupabaseSQLEditorDialog({ projectId, importDatabaseSourceId, onClose, onSaved }: SupabaseTablePickerDialogProps) {
+  const captureContext = useEntrypointRequestContext(projectId, importDatabaseSourceId);
+  const [tables, setTables] = useState<ImportDatabaseTable[]>([]);
   const [tablesLoading, setTablesLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [manualTableInput, setManualTableInput] = useState('');
-  const [preview, setPreview] = useState<TablePreview | null>(null);
+  const [preview, setPreview] = useState<ImportDatabasePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,9 +39,19 @@ export function SupabaseSQLEditorDialog({ projectId, connectionId, onClose, onSa
 
   // Load tables on mount
   useEffect(() => {
-    listTables(connectionId)
-      .then(t => { setTables(t); setTablesLoading(false); })
+    let cancelled = false;
+    const isCurrent = captureContext();
+    if (!isCurrent()) return;
+    setTables([]);
+    setSelectedTable(null);
+    setTablesLoading(true);
+    setError(null);
+    setSaveSuccess(null);
+    setIsSaving(false);
+    listImportDatabaseTables(importDatabaseSourceId)
+      .then(t => { if (!cancelled && isCurrent()) { setTables(t); setTablesLoading(false); } })
       .catch(err => {
+        if (cancelled || !isCurrent()) return;
         const message = String(err);
         if (message.includes('ANON_INTROSPECTION_RESTRICTED')) {
           setError('This project does not allow anon-key table introspection. You can still enter a table name manually below and preview it.');
@@ -48,36 +60,42 @@ export function SupabaseSQLEditorDialog({ projectId, connectionId, onClose, onSa
         }
         setTablesLoading(false);
       });
-  }, [connectionId]);
+    return () => { cancelled = true; };
+  }, [importDatabaseSourceId, captureContext]);
 
   // Load preview when table selected
   useEffect(() => {
-    if (!selectedTable) { setPreview(null); return; }
+    let cancelled = false;
+    const isCurrent = captureContext();
+    if (!selectedTable || !isCurrent()) { setPreview(null); return; }
     setPreviewLoading(true);
     setError(null);
     setSaveSuccess(null);
-    previewTable(connectionId, selectedTable, 50)
-      .then(p => { setPreview(p); setPreviewLoading(false); })
-      .catch(err => { setError(String(err)); setPreviewLoading(false); });
-  }, [selectedTable, connectionId]);
+    previewImportDatabaseTable(importDatabaseSourceId, selectedTable, 50)
+      .then(p => { if (!cancelled && isCurrent()) { setPreview(p); setPreviewLoading(false); } })
+      .catch(err => { if (!cancelled && isCurrent()) { setError(String(err)); setPreviewLoading(false); } });
+    return () => { cancelled = true; };
+  }, [selectedTable, importDatabaseSourceId, captureContext]);
 
   const handleSave = async () => {
-    if (!selectedTable) return;
+    const isCurrent = captureContext();
+    if (!selectedTable || !isCurrent()) return;
     setIsSaving(true);
     setError(null);
     setSaveSuccess(null);
 
     try {
-      const res = await saveTable(connectionId, projectId, {
+      const res = await saveImportDatabaseTable(importDatabaseSourceId, projectId, {
         name: selectedTable,
         table: selectedTable,
       });
+      if (!isCurrent()) return;
       setSaveSuccess(`Saved "${selectedTable}" (${res.row_count} rows)`);
       onSaved?.();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsSaving(false);
+      if (isCurrent()) setIsSaving(false);
     }
   };
 

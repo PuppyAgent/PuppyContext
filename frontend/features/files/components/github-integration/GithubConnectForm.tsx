@@ -5,31 +5,32 @@
  * has a GitHub OAuth connection but no project↔repo binding yet.
  *
  * Flow:
- *   1. List the OAuth user's repos via ``listGithubRepos``.
+ *   1. List the OAuth user's repos via canonical Synchronize discovery.
  *   2. User picks one — the picker prefills the binding's
  *      ``default_branch`` from the repo's GitHub default.
- *   3. Optionally toggle ``auto_import`` (requires a webhook secret).
- *   4. Submit → ``connectGithubRepo``; bubble the new status up so
+ *   3. Optionally toggle ``auto_pull`` (requires a webhook secret).
+ *   4. Submit → ``createSynchronizeGithubBinding``; bubble the new status up so
  *      the parent can swap to the bound view.
  */
 
 import { T } from '@/features/files/components/github-integration/tokens';
 import {
-  connectGithubRepo,
-  listGithubBranches,
-  listGithubRepos,
-  type GithubBranchSummary,
-  type GithubIntegrationStatus,
-  type GithubRepoSummary,
-} from '@/lib/githubIntegrationApi';
+  createSynchronizeGithubBinding,
+  listSynchronizeGithubBranches,
+  listSynchronizeGithubRepos,
+  type SynchronizeGithubBranch,
+  type SynchronizeGithubBinding,
+  type SynchronizeGithubRepo,
+} from '@/lib/synchronizeGithubApi';
 import { useTranslations } from 'next-intl';
+import { useEntrypointRequestContext } from '@/lib/hooks/useEntrypointRequestContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface Props {
   projectId: string;
   oauthConnectionId: number;
   defaultBranch?: string;
-  onConnected: (status: GithubIntegrationStatus) => void;
+  onConnected: (status: SynchronizeGithubBinding) => void;
 }
 
 export function GithubConnectForm({
@@ -39,8 +40,9 @@ export function GithubConnectForm({
   onConnected,
 }: Readonly<Props>) {
   const t = useTranslations('integrations.github');
+  const captureContext = useEntrypointRequestContext(projectId, String(oauthConnectionId));
 
-  const [repos, setRepos] = useState<GithubRepoSummary[] | null>(null);
+  const [repos, setRepos] = useState<SynchronizeGithubRepo[] | null>(null);
   const [reposError, setReposError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
@@ -49,7 +51,7 @@ export function GithubConnectForm({
   /** Branches for the currently-selected repo. ``null`` while loading
    *  (or before any repo is selected); empty array means "fetched, repo
    *  has no branches" (rare but possible for fresh empty repos). */
-  const [branches, setBranches] = useState<GithubBranchSummary[] | null>(null);
+  const [branches, setBranches] = useState<SynchronizeGithubBranch[] | null>(null);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [autoImport, setAutoImport] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState('');
@@ -59,21 +61,24 @@ export function GithubConnectForm({
 
   useEffect(() => {
     let cancelled = false;
+    const isCurrent = captureContext();
+    setWebhookSecret(''); setSubmitting(false); setSubmitError(null);
+    if (!isCurrent()) return;
     setRepos(null);
     setReposError(null);
-    listGithubRepos(projectId, oauthConnectionId)
+    listSynchronizeGithubRepos(projectId, oauthConnectionId)
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setRepos(res.repos);
       })
       .catch((err: Error) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setReposError(err.message || t('errorGeneric'));
       });
     return () => {
       cancelled = true;
     };
-  }, [projectId, oauthConnectionId, t]);
+  }, [projectId, oauthConnectionId, t, captureContext]);
 
   const selectedRepo = useMemo(
     () => repos?.find((r) => r.full_name === selectedFullName) ?? null,
@@ -90,7 +95,8 @@ export function GithubConnectForm({
   // need a per-repo invalidation strategy that isn't worth the
   // complexity for a one-shot connect form.
   useEffect(() => {
-    if (!selectedRepo) {
+    const isCurrent = captureContext();
+    if (!selectedRepo || !isCurrent()) {
       setBranches(null);
       setBranchesError(null);
       return;
@@ -98,12 +104,12 @@ export function GithubConnectForm({
     let cancelled = false;
     setBranches(null);
     setBranchesError(null);
-    listGithubBranches(
+    listSynchronizeGithubBranches(
       projectId, oauthConnectionId,
       selectedRepo.owner, selectedRepo.name,
     )
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setBranches(res.branches);
         const fallback = selectedRepo.default_branch;
         const def = res.branches.find((b) => b.is_default)?.name
@@ -112,7 +118,7 @@ export function GithubConnectForm({
         setBranch(def);
       })
       .catch((err: Error) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setBranchesError(err.message || t('errorGeneric'));
         // Fall back to the repo's GitHub-side default so the user can
         // still proceed even if the branch list endpoint blew up.
@@ -121,7 +127,7 @@ export function GithubConnectForm({
     return () => {
       cancelled = true;
     };
-  }, [selectedRepo, projectId, oauthConnectionId, t]);
+  }, [selectedRepo, projectId, oauthConnectionId, t, captureContext]);
 
   const filteredRepos = useMemo(() => {
     if (!repos) return [];
@@ -137,23 +143,24 @@ export function GithubConnectForm({
     (!autoImport || webhookSecret.trim().length > 0);
 
   async function handleSubmit() {
-    if (!selectedRepo) return;
+    const isCurrent = captureContext();
+    if (!selectedRepo || !isCurrent()) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const status = await connectGithubRepo(projectId, {
+      const status = await createSynchronizeGithubBinding(projectId, {
         oauth_connection_id: oauthConnectionId,
         github_repo_owner: selectedRepo.owner,
         github_repo_name: selectedRepo.name,
         default_branch: branch.trim(),
-        auto_import: autoImport,
+        auto_pull: autoImport,
         webhook_secret: autoImport ? webhookSecret.trim() : null,
       });
-      onConnected(status);
+      if (isCurrent()) onConnected(status);
     } catch (err) {
-      setSubmitError((err as Error).message || t('errorGeneric'));
+      if (isCurrent()) setSubmitError((err as Error).message || t('errorGeneric'));
     } finally {
-      setSubmitting(false);
+      if (isCurrent()) setSubmitting(false);
     }
   }
 
@@ -251,7 +258,7 @@ export function GithubConnectForm({
 
 interface BranchPickerProps {
   repoSelected: boolean;
-  branches: GithubBranchSummary[] | null;
+  branches: SynchronizeGithubBranch[] | null;
   loadError: string | null;
   value: string;
   onChange: (next: string) => void;
@@ -294,7 +301,7 @@ function BranchPicker({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const listboxRef = useRef<HTMLDivElement | null>(null);
 
-  const branchList = branches ?? [];
+  const branchList = useMemo(() => branches ?? [], [branches]);
 
   // When the menu opens, prime the keyboard cursor on whichever row is
   // currently selected (or row 0 if nothing is selected yet) so the
@@ -404,7 +411,7 @@ function BranchPicker({
   if (branches === null && !loadError) return renderDisabled(loadingLabel);
   if (!branches || (branches.length === 0 && !loadError)) return renderDisabled(emptyLabel);
 
-  const labelFor = (b: GithubBranchSummary) =>
+  const labelFor = (b: SynchronizeGithubBranch) =>
     b.name + (b.is_default ? '  (default)' : '') + (b.protected && !b.is_default ? '  🔒' : '');
   const selected = branches?.find((b) => b.name === value);
 
@@ -545,7 +552,7 @@ function FieldRow({ label, children }: Readonly<{ label: string; children: React
 }
 
 interface RepoPickerProps {
-  repos: GithubRepoSummary[];
+  repos: SynchronizeGithubRepo[];
   loading: boolean;
   error: string | null;
   filter: string;

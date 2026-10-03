@@ -29,6 +29,8 @@ export * from "./accessProviders";
 
 // ── Synchronize bindings and runs ────────────────────────────────────────
 export * from "./endpoints/synchronize";
+export * from "./endpoints/synchronizeGithub";
+export * from "./endpoints/importDatabase";
 
 // ── MCP endpoints ─────────────────────────────────────────────────────────
 export { createMcpEndpointsApi } from "./endpoints/mcpEndpoints";
@@ -58,3 +60,5 @@ export type { RepositoryScope, ScopeMode } from "./endpoints/scopes";
 // ── Access resources and independent repository identity ───────────────────
 export * from "./endpoints/accessSurfaces";
 export * from "./endpoints/repositoryIdentity";
+export * from "./endpoints/activity";
+export * from "./endpoints/resourceDashboard";

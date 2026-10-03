@@ -8,26 +8,28 @@
 
 import { T } from '@/features/files/components/github-integration/tokens';
 import {
-  disconnectGithubRepo,
-  exportGithubBranch,
-  githubWebhookUrl,
-  importGithubBranch,
-  type GithubIntegrationStatus,
-  type GithubSyncRunResult,
-} from '@/lib/githubIntegrationApi';
+  deleteSynchronizeGithubBinding,
+  pushSynchronizeGithubBinding,
+  githubSynchronizeWebhookUrl,
+  pullSynchronizeGithubBinding,
+  type SynchronizeGithubBinding,
+  type SynchronizeGithubResult,
+} from '@/lib/synchronizeGithubApi';
 import { useFormatter, useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useEntrypointRequestContext } from '@/lib/hooks/useEntrypointRequestContext';
 
 interface Props {
   projectId: string;
-  status: GithubIntegrationStatus;
-  onChanged: (status: GithubIntegrationStatus | null) => void;
-  onSyncRun: (run: GithubSyncRunResult) => void;
+  status: SynchronizeGithubBinding;
+  onChanged: (status: SynchronizeGithubBinding | null) => void;
+  onSyncRun: (run: SynchronizeGithubResult) => void;
 }
 
 export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Readonly<Props>) {
   const t = useTranslations('integrations.github');
   const fmt = useFormatter();
+  const captureContext = useEntrypointRequestContext(projectId, status.id);
 
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -35,49 +37,46 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  async function handleImport() {
-    setActionError(null);
-    setImporting(true);
-    try {
-      const run = await importGithubBranch(projectId, { force: forceImport });
-      onSyncRun(run);
-    } catch (err) {
-      setActionError((err as Error).message || t('errorGeneric'));
-    } finally {
-      setImporting(false);
-    }
-  }
+  useEffect(() => {
+    setImporting(false); setExporting(false); setActionError(null);
+  }, [captureContext]);
 
-  async function handleExport() {
+  async function execute(direction: 'inbound' | 'outbound') {
+    const isCurrent = captureContext();
+    if (!isCurrent()) return;
+    const setBusy = direction === 'inbound' ? setImporting : setExporting;
     setActionError(null);
-    setExporting(true);
+    setBusy(true);
     try {
-      const run = await exportGithubBranch(projectId);
+      const run = direction === 'inbound'
+        ? await pullSynchronizeGithubBinding(projectId, { force: forceImport })
+        : await pushSynchronizeGithubBinding(projectId);
+      if (!isCurrent()) return;
+      if (run.synchronize_github_binding_id !== status.id) throw new Error('GitHub binding changed; reload before continuing.');
       onSyncRun(run);
     } catch (err) {
-      setActionError((err as Error).message || t('errorGeneric'));
+      if (isCurrent()) setActionError((err as Error).message || t('errorGeneric'));
     } finally {
-      setExporting(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
   async function handleDisconnect() {
+    const isCurrent = captureContext();
+    if (!isCurrent()) return;
     const confirmed = globalThis.confirm(
-      t('disconnectConfirm', {
-        owner: status.github_repo_owner,
-        repo: status.github_repo_name,
-      }),
+      t('disconnectConfirm', { owner: status.github_repo_owner, repo: status.github_repo_name }),
     );
     if (!confirmed) return;
     try {
-      await disconnectGithubRepo(projectId);
-      onChanged(null);
+      await deleteSynchronizeGithubBinding(projectId);
+      if (isCurrent()) onChanged(null);
     } catch (err) {
-      setActionError((err as Error).message || t('errorGeneric'));
+      if (isCurrent()) setActionError((err as Error).message || t('errorGeneric'));
     }
   }
 
-  const webhookUrl = githubWebhookUrl();
+  const webhookUrl = githubSynchronizeWebhookUrl();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -101,7 +100,7 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
               branch: status.default_branch,
             })}
           </span>
-          {status.auto_import && (
+          {status.auto_pull && (
             <span style={{ color: T.text3, fontSize: 11 }}>
               {t('autoImport')} · {status.has_webhook_secret ? '✓' : '⚠'}
             </span>
@@ -130,13 +129,13 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
       <div style={{ display: 'flex', gap: 16 }}>
         <Stat
           label={t('lastImported')}
-          value={status.last_imported_sha ? status.last_imported_sha.slice(0, 12) : t('neverSynced')}
-          when={status.last_imported_at ? fmt.dateTime(new Date(status.last_imported_at), 'short') : null}
+          value={status.last_pulled_sha ? status.last_pulled_sha.slice(0, 12) : t('neverSynced')}
+          when={status.last_pulled_at ? fmt.dateTime(new Date(status.last_pulled_at), 'short') : null}
         />
         <Stat
           label={t('lastExported')}
-          value={status.last_exported_sha ? status.last_exported_sha.slice(0, 12) : t('neverSynced')}
-          when={status.last_exported_at ? fmt.dateTime(new Date(status.last_exported_at), 'short') : null}
+          value={status.last_pushed_sha ? status.last_pushed_sha.slice(0, 12) : t('neverSynced')}
+          when={status.last_pushed_at ? fmt.dateTime(new Date(status.last_pushed_at), 'short') : null}
         />
       </div>
 
@@ -149,7 +148,7 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
           <button
             type="button"
             disabled={importing || exporting}
-            onClick={handleImport}
+            onClick={() => void execute('inbound')}
             style={{
               background: T.accent,
               border: 'none',
@@ -169,7 +168,7 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
           <button
             type="button"
             disabled={importing || exporting}
-            onClick={handleExport}
+            onClick={() => void execute('outbound')}
             style={{
               background: 'transparent',
               border: `1px solid ${T.cardBorderStrong}`,

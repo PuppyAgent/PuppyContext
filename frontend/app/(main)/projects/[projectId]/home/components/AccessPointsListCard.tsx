@@ -9,7 +9,7 @@ import { CountBadge } from '@/components/ui/CountBadge';
 import { getAccessProviderLabel, isGitRemoteProvider } from '@/lib/accessProviderRegistry';
 import { T } from '../lib/tokens';
 import { getApDirection } from '../lib/constants';
-import type { DashboardConnection } from '../lib/types';
+import { dashboardResourceKey, type DashboardEntrypoint } from '../lib/types';
 import { ProviderAvatar } from './ProviderAvatar';
 import { canonicalProjectGitUrl, canonicalScopeGitUrl } from '@/lib/gitRemote';
 
@@ -49,7 +49,8 @@ function normalizeApPath(raw: string | null | undefined): string {
 //     chip side of the handshake.
 //   ─ Both at once: self-hover wins; we don't double-paint.
 
-function DirectionGlyph({ direction }: { direction: 'inbound' | 'outbound' | 'bidirectional' }) {
+function DirectionGlyph({ direction }: { direction: 'inbound' | 'outbound' | 'bidirectional' | null }) {
+  if (!direction) return null;
   // All three glyphs render in the neutral T.text3 grey.  The earlier
   // version used T.live cyan for outbound + bidirectional with the
   // intent of "outbound is a live wire", but that intent collided
@@ -73,27 +74,23 @@ function DirectionGlyph({ direction }: { direction: 'inbound' | 'outbound' | 'bi
 // when set (build-time-baked backend host) and falls back to the
 // current page origin only when no env was provided — same pattern as
 // SyncDetailView / GetStartedPanel.
-function buildEndpointUrl(conn: DashboardConnection, projectId: string): string | null {
+function buildEndpointUrl(conn: DashboardEntrypoint, projectId: string): string | null {
+  if (conn.resource_kind !== 'access' || conn.target.project_id !== projectId) return null;
   const apiBase =
     typeof window !== 'undefined'
       ? process.env.NEXT_PUBLIC_API_URL || window.location.origin
       : '';
 
-  switch (conn.provider) {
+  switch (conn.kind) {
     case 'git_remote':
-      return conn.path === null || conn.path === '' || conn.path === '/'
+      return conn.target.kind === 'project_root'
         ? canonicalProjectGitUrl(apiBase, projectId)
-        : conn.scope_id
-          ? canonicalScopeGitUrl(apiBase, projectId, conn.scope_id)
-          : null;
+        : canonicalScopeGitUrl(apiBase, projectId, conn.target.scope_id);
     case 'mcp':
     case 'agent':
       return `${apiBase}/api/v1/mcp/proxy`;
     case 'sandbox':
-      // Sandbox uses endpoint.id rather than access_key for the
-      // public exec route, but DashboardConnection only carries
-      // access_key.  The /access detail page composes the real
-      // exec URL; here we surface no URL rather than a broken one.
+      // Runtime configuration belongs to Access detail, not this summary.
       return null;
     default:
       return null;
@@ -104,9 +101,8 @@ function buildEndpointUrl(conn: DashboardConnection, projectId: string): string 
 // `null` means we don't render a command row for this provider.
 // Non-Git invocation shapes (MCP server config blob, sandbox exec
 // body, etc.) live on the /access detail page.
-function buildCliCommand(conn: DashboardConnection, url: string | null): string | null {
-  if (!url) return null;
-  if (conn.provider !== 'git_remote') return null;
+function buildCliCommand(conn: DashboardEntrypoint, url: string | null): string | null {
+  if (!url || conn.resource_kind !== 'access' || conn.kind !== 'git_remote') return null;
   // Stock git clone is the canonical setup. The separately issued password
   // is supplied through an OS-backed, path-aware Git credential helper.
   return `git clone ${url}`;
@@ -206,7 +202,7 @@ export function AccessPointsListCard({
 }: {
   projectId: string;
   router: ReturnType<typeof useRouter>;
-  connections: DashboardConnection[];
+  connections: DashboardEntrypoint[];
   hoveredPath: string | null;
   onHoverPath: (path: string | null) => void;
 }) {
@@ -277,7 +273,7 @@ export function AccessPointsListCard({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {connections.map((conn) => (
               <ApListRow
-                key={conn.id}
+                key={dashboardResourceKey(conn)}
                 conn={conn}
                 projectId={projectId}
                 router={router}
@@ -308,7 +304,7 @@ function ApListRow({
   copiedKey,
   onCopy,
 }: {
-  conn: DashboardConnection;
+  conn: DashboardEntrypoint;
   projectId: string;
   router: ReturnType<typeof useRouter>;
   hoveredPath: string | null;
@@ -320,7 +316,7 @@ function ApListRow({
   const [isMouseOver, setIsMouseOver] = useState(false);
 
   const direction = getApDirection(conn);
-  const label = conn.name || getAccessProviderLabel(conn.provider);
+  const label = conn.name || getAccessProviderLabel(conn.displayProvider);
   const rawPath = conn.path;
   const isRoot = rawPath === null || rawPath === '' || rawPath === '/';
   const displayScope = isRoot ? '/' : `/${rawPath}`;
@@ -399,7 +395,7 @@ function ApListRow({
             }}
           >
             <ProviderAvatar
-              provider={conn.provider}
+              provider={conn.displayProvider}
               size={18}
               icon={(conn as any).icon}
             />
@@ -477,7 +473,9 @@ function ApListRow({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              openPanel({ type: 'access_list', view: 'detail', accessEndpointId: conn.id });
+              openPanel(conn.resource_kind === 'synchronize'
+                ? { type: 'sync_config', synchronizeBindingId: conn.resource_id, nodeId: conn.path }
+                : { type: 'access_list', view: 'detail', accessEndpointId: conn.resource_id });
             }}
             title="Open integration details"
             aria-label="Open integration details"
@@ -539,7 +537,7 @@ function ApListRow({
               <CopyableLine
                 label="URL"
                 value={url}
-                copyKey={`url-${conn.id}`}
+                copyKey={`url-${dashboardResourceKey(conn)}`}
                 copiedKey={copiedKey}
                 onCopy={onCopy}
               />
@@ -559,12 +557,12 @@ function ApListRow({
               <CopyableLine
                 label="SETUP"
                 value={cmd}
-                copyKey={`cmd-${conn.id}`}
+                copyKey={`cmd-${dashboardResourceKey(conn)}`}
                 copiedKey={copiedKey}
                 onCopy={onCopy}
               />
             )}
-            {isGitRemoteProvider(conn.provider) ? (
+            {conn.resource_kind === 'access' && isGitRemoteProvider(conn.kind) ? (
               <span style={{ color: T.text3, fontSize: 11, lineHeight: '16px' }}>
                 Open this Git Remote to generate its separate one-time password; the URL is not a key.
               </span>

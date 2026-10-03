@@ -344,7 +344,7 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
   // Supabase connector
   const [supabaseConnectOpen, setSupabaseConnectOpen] = useState(false);
   const [supabaseSQLEditorOpen, setSupabaseSQLEditorOpen] = useState(false);
-  const [supabaseConnectionId, setSupabaseConnectionId] = useState<
+  const [importDatabaseSourceId, setImportDatabaseSourceId] = useState<
     string | null
   >(null);
 
@@ -719,16 +719,16 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
     onFolderSuccess: () => refreshAllContentNodes(projectId),
     supabaseConnectOpen,
     onCloseSupabaseConnect: () => setSupabaseConnectOpen(false),
-    onSupabaseConnected: (connectionId: string) => {
+    onSupabaseConnected: (sourceId: string) => {
       setSupabaseConnectOpen(false);
-      setSupabaseConnectionId(connectionId);
+      setImportDatabaseSourceId(sourceId);
       setSupabaseSQLEditorOpen(true);
     },
     supabaseSQLEditorOpen,
-    supabaseConnectionId,
+    importDatabaseSourceId,
     onCloseSupabaseSQLEditor: () => {
       setSupabaseSQLEditorOpen(false);
-      setSupabaseConnectionId(null);
+      setImportDatabaseSourceId(null);
     },
     onSupabaseSaved: () => refreshAllContentNodes(projectId),
     fileImportDialogOpen: fileImport.fileImportDialogOpen,

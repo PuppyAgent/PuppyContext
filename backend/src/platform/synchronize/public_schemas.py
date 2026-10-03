@@ -34,7 +34,7 @@ class SynchronizeTriggerUpdate(BaseModel):
 class SynchronizeBinding(BaseModel):
     id: str
     project_id: str
-    path: str | None = None
+    path: str
     direction: str
     provider: str
     config: dict[str, Any]

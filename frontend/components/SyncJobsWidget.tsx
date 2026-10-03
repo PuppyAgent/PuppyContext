@@ -21,7 +21,7 @@ type SyncJobsWidgetProps = {
  * Transient widget for in-progress Connect/Sync runs.
  *
  * Read-only sibling of ImportJobsWidget: it consumes the unified activity
- * feed filtered to `sync_run`, so durable-connection syncs surface in the
+ * feed filtered to `synchronize_run`, so durable-binding runs surface in the
  * same Activity stack as uploads and imports. Sync runs are not cancellable
  * from here (no close button) — the feed is display-only.
  */

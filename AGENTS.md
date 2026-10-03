@@ -213,7 +213,10 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `/git/{project_id}.git`, `/git/{project_id}/scopes/{scope_id}.git` | version_engine/entrypoints/git/router | Canonical Git smart-HTTP clone/fetch/push; credential is HTTP auth, not URL data |
 | `/git/ap/{access_key}.git` | version_engine/entrypoints/git/router | Bounded, instrumented legacy compatibility only; never construct for new clients |
 | `/api/v1/workspace` | workspace | Workspace management |
-| `/api/v1/db-connector` | db_connector | External database access |
+| `/api/v1/imports/database/sources` | platform/imports/database/public_router | One-time database sources; never Synchronize or Access identities |
+| `/api/v1/projects/{project_id}/synchronize/github` | platform/synchronize/github/public_router | GitHub binding, pull/push and logs; webhook at `/api/v1/synchronize/github/webhook` |
+| `/api/v1/projects/{project_id}/dashboard/resources`, `/api/v1/activity/items` | project/resource_dashboard, activity/public_router | Domain-qualified read-only aggregates; no legacy DTO fallback |
+| `/api/v1/db-connector`, old GitHub/dashboard/activity URLs | transitional transport | Retirement needs installed-consumer/configuration evidence |
 | `/api/v1/publishes` | context_publish | Public JSON short links |
 | `/api/v1/oauth` | provider/oauth | OAuth authorization (9+ platforms) |
 | `/api/v1/auth` | auth | Authentication (login/refresh) |
@@ -322,7 +325,7 @@ frontend/
 │   ├── organizationsApi.ts       # Organizations API
 │   ├── oauthApi.ts               # OAuth API
 │   ├── ingestApi.ts              # Ingestion API
-│   ├── dbConnectorApi.ts         # Database connector API
+│   ├── importDatabaseApi.ts      # Canonical one-time Database Import sources
 │   └── profileApi.ts             # User profile API
 ├── contexts/                     # React Context
 │   ├── AgentContext.tsx           # Agent state management

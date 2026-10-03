@@ -32,7 +32,7 @@ export function ActivityStack({
   const itemsByKind = useMemo(() => ({
     upload: activeItems.filter(item => item.kind === 'upload'),
     import: activeItems.filter(item => item.kind === 'import'),
-    sync: activeItems.filter(item => item.kind === 'sync_run'),
+    sync: activeItems.filter(item => item.kind === 'synchronize_run'),
   }), [activeItems]);
 
   return (

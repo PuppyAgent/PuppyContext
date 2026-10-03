@@ -6,21 +6,27 @@ so the router stays thin.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from src.platform.synchronize.github.exporter import export_to_branch
-from src.provider.github.client import GithubApi
-from src.platform.synchronize.github.importer import import_branch, _load_oauth_token
+from src.platform.synchronize.github.importer import _load_oauth_token, import_branch
 from src.platform.synchronize.github.repository import (
-    GithubSyncRepository, GithubSyncLogRepository,
+    GithubSyncLogRepository,
+    GithubSyncRepository,
 )
 from src.platform.synchronize.github.schemas import (
-    GithubBranchList, GithubBranchSummary,
-    GithubExportRequest, GithubImportRequest, GithubIntegrationCreate,
-    GithubIntegrationStatus, GithubIntegrationUpdate, GithubRepoList,
-    GithubRepoSummary, GithubSyncLogEntry, GithubSyncLogList,
+    GithubBranchList,
+    GithubBranchSummary,
+    GithubExportRequest,
+    GithubImportRequest,
+    GithubIntegrationCreate,
+    GithubIntegrationStatus,
+    GithubIntegrationUpdate,
+    GithubRepoList,
+    GithubRepoSummary,
+    GithubSyncLogEntry,
+    GithubSyncLogList,
     GithubSyncRunResult,
 )
+from src.provider.github.client import GithubApi
 from src.utils.logger import log_info
 
 
@@ -89,7 +95,7 @@ class GithubSyncService:
             log_info(f"[GithubIntegration] disconnect project={project_id}")
         return existed
 
-    async def status(self, project_id: str) -> Optional[GithubIntegrationStatus]:
+    async def status(self, project_id: str) -> GithubIntegrationStatus | None:
         row = await self._bindings.get_by_project(project_id)
         return _row_to_status(row) if row else None
 
@@ -154,29 +160,32 @@ class GithubSyncService:
 
     # ── sync triggers ─────────────────────────────
 
-    async def import_now(self, project_id: str,
-                         payload: GithubImportRequest) -> GithubSyncRunResult:
+    async def pull(self, project_id: str, payload: GithubImportRequest) -> tuple[str, GithubSyncRunResult]:
         binding = await self._bindings.get_by_project(project_id)
         if not binding:
             raise GithubSyncNotFound(project_id)
-        return await import_branch(
-            binding,
-            branch=payload.branch,
-            force=payload.force,
-            triggered_by="manual",
+        # Capture the actual execution identity, not a second Project lookup.
+        binding_id = binding["id"]
+        result = await import_branch(
+            binding, branch=payload.branch, force=payload.force, triggered_by="manual",
         )
+        return binding_id, result
 
-    async def export_now(self, project_id: str,
-                         payload: GithubExportRequest) -> GithubSyncRunResult:
+    async def push(self, project_id: str, payload: GithubExportRequest) -> tuple[str, GithubSyncRunResult]:
         binding = await self._bindings.get_by_project(project_id)
         if not binding:
             raise GithubSyncNotFound(project_id)
-        return await export_to_branch(
-            binding,
-            branch=payload.branch,
-            message=payload.message,
-            triggered_by="manual",
+        binding_id = binding["id"]
+        result = await export_to_branch(
+            binding, branch=payload.branch, message=payload.message, triggered_by="manual",
         )
+        return binding_id, result
+
+    async def import_now(self, project_id: str, payload: GithubImportRequest) -> GithubSyncRunResult:
+        return (await self.pull(project_id, payload))[1]
+
+    async def export_now(self, project_id: str, payload: GithubExportRequest) -> GithubSyncRunResult:
+        return (await self.push(project_id, payload))[1]
 
     # ── sync log read ─────────────────────────────
 
