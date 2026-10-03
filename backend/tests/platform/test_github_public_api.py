@@ -17,7 +17,7 @@ from src.platform.synchronize.github import public_router as public
 from src.platform.synchronize.github import router as legacy
 from src.platform.synchronize.github import service as services
 from src.platform.synchronize.github import webhook as hooks
-from src.platform.synchronize.github.schemas import GithubSyncRunResult
+from src.platform.synchronize.github.public_schemas import SynchronizeGithubResult
 from tests.authorization_fakes import authorization_for, install_authorization
 
 BASE = "/api/v1/projects/project-1/synchronize/github"
@@ -74,7 +74,8 @@ def environment(monkeypatch):
 
     async def run(binding, direction, **options):
         executions.append((binding["id"], direction, options))
-        result = GithubSyncRunResult(
+        result = SynchronizeGithubResult(
+            synchronize_github_binding_id=binding["id"],
             status="success",
             direction=direction,
             git_sha="sha",

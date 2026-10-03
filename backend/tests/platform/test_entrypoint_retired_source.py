@@ -20,7 +20,9 @@ def test_operations_do_not_export_retired_routers(module):
     assert not any(isinstance(value, APIRouter) for value in vars(operations).values())
 
 
-@pytest.mark.parametrize("module", ["activity.router", "imports.database.schemas"])
+@pytest.mark.parametrize("module", [
+    "activity.router", "imports.database.schemas", "synchronize.github.schemas",
+])
 def test_obsolete_transport_and_database_dto_modules_are_removed(module):
     assert importlib.util.find_spec(f"src.platform.{module}") is None
 
@@ -36,3 +38,10 @@ def test_binding_repository_does_not_reexport_legacy_identity_aliases():
     service = SynchronizeService(object())
     assert not hasattr(service, "sync_repo")
     assert not hasattr(service, "create_sync")
+
+
+def test_github_service_does_not_export_old_trigger_aliases():
+    from src.platform.synchronize.github.service import GithubSyncService
+
+    assert not hasattr(GithubSyncService, "import_now")
+    assert not hasattr(GithubSyncService, "export_now")

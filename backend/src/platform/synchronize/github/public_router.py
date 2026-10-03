@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from src.common_schemas import ApiResponse
 from src.platform.query_contract import strict_query
 from src.platform.synchronize.github import router as operations
-from src.platform.synchronize.github import schemas as legacy
 from src.platform.synchronize.github.public_schemas import (
     SynchronizeGithubBinding,
     SynchronizeGithubBindingCreate,
@@ -71,8 +70,7 @@ async def _reply(awaitable, project=lambda value: value):
 async def create_binding(
     project_id: str, body: SynchronizeGithubBindingCreate, user=Depends(operations._manage_user)
 ):
-    payload = legacy.GithubIntegrationCreate(**body.model_dump())
-    return await _reply(operations.connect(project_id, payload, user), _binding)
+    return await _reply(operations.connect(project_id, body, user), _binding)
 
 
 @router.patch(
@@ -81,10 +79,7 @@ async def create_binding(
 async def update_binding(
     project_id: str, body: SynchronizeGithubBindingUpdate, user=Depends(operations._manage_user)
 ):
-    fields = body.model_dump(exclude_unset=True)
-    return await _reply(
-        operations.update(project_id, legacy.GithubIntegrationUpdate(**fields), user), _binding
-    )
+    return await _reply(operations.update(project_id, body, user), _binding)
 
 
 @router.get(
@@ -135,7 +130,7 @@ async def list_branches(
 
 async def _execute(project_id, payload, method):
     try:
-        binding_id, result = await getattr(operations._service(), method)(project_id, payload)
+        result = await getattr(operations._service(), method)(project_id, payload)
     except GithubSyncNotFound as exc:
         raise HTTPException(
             404,
@@ -144,24 +139,21 @@ async def _execute(project_id, payload, method):
                 "message": "GitHub Synchronize binding not found",
             },
         ) from exc
-    fields = _fields(result)
-    return ApiResponse.success(
-        data=SynchronizeGithubResult(synchronize_github_binding_id=binding_id, **fields)
-    )
+    return ApiResponse.success(data=result)
 
 
 @router.post(
     "/pull", response_model=ApiResponse[SynchronizeGithubResult], dependencies=[strict_query()]
 )
 async def pull(project_id: str, body: SynchronizeGithubPull, user=Depends(operations._manage_user)):
-    return await _execute(project_id, legacy.GithubImportRequest(**body.model_dump()), "pull")
+    return await _execute(project_id, body, "pull")
 
 
 @router.post(
     "/push", response_model=ApiResponse[SynchronizeGithubResult], dependencies=[strict_query()]
 )
 async def push(project_id: str, body: SynchronizeGithubPush, user=Depends(operations._manage_user)):
-    return await _execute(project_id, legacy.GithubExportRequest(**body.model_dump()), "push")
+    return await _execute(project_id, body, "push")
 
 
 @router.get(
