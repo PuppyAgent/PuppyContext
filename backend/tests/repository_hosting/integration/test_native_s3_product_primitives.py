@@ -12,8 +12,8 @@ import pytest
 
 from src.platform.billing.storage import logical_tree_delta
 from src.version_engine.adapters.product.tree_patch import splice_put_blob
+from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.storage.object_store import ObjectStore
-from src.version_engine.write_engine.ref_transaction import RefEdit, RefState
 from tests.repository_hosting.harness.git import Git
 from tests.repository_hosting.integration.test_native_s3_transport import (
     native_http as native_http_fixture,
@@ -61,13 +61,15 @@ def test_product_splice_publishes_exact_native_tree_without_transport_materializ
     def no_git(*args, **kwargs):
         raise AssertionError("product writer must not materialize a transport repository")
 
-    metadata = service.control.snapshot(auth.project)
     unused = tmp_path / "no-product-transport"
-    with monkeypatch.context() as patch, backend.stage_object_writes() as batch:
+    with (repository_snapshot(service.control, backend, grant(auth.project), project_id=auth.project) as snapshot,
+          monkeypatch.context() as patch, backend.stage_object_writes() as batch):
+        revision = snapshot.revision()
+        assert (revision.commit_oid, revision.tree_oid) == (old, old_tree)
         patch.setattr(subprocess, "run", no_git)
         patch.setattr(subprocess, "Popen", no_git)
-        store = ObjectStore(unused, backend, object_format=service.object_format)
-        new_tree, changes = splice_put_blob(store, old_tree, "nested/edit", content)
+        store = ObjectStore(unused, backend, object_format=snapshot.object_format)
+        new_tree, changes = splice_put_blob(store, revision.tree_oid, "nested/edit", content)
         assert changes == [("update", "nested/edit")]
         assert new_tree == expected_tree
         assert logical_tree_delta(store, old_tree, new_tree) == len(content) - len(b"original\n")
@@ -76,8 +78,8 @@ def test_product_splice_publishes_exact_native_tree_without_transport_materializ
         # All product writes above are staged. RefTransactionService acquires
         # its publication pin before flushing, then verifies physical closure.
         result = service.submit(
-            grant(auth.project), request_key=str(uuid.uuid4()), generation=metadata["generation"],
-            edits=[RefEdit(b"refs/heads/main", RefState(oid=old), RefState(oid=new_commit))],
+            grant(auth.project), request_key=str(uuid.uuid4()), generation=snapshot.generation,
+            edits=revision.edit(new_commit),
             roots={new_commit: "commit"}, prepare=batch.flush, message="product primitive interoperability",
         )
     assert result["status"] == "committed"

@@ -74,6 +74,18 @@ Replacing a canonical location SHALL require physical verification of the replac
 - **WHEN** a collector's context survives completion of its GC token
 - **THEN** it cannot initiate a new native physical deletion
 
+### Requirement: Coherent native content revisions
+Admitted native readers SHALL capture refs, generation, sequence and declared format in one pinned snapshot. Physical object identity and typed graph edges SHALL govern lazy content traversal. Object existence or a rejected receipt SHALL NOT authorize a read. Missing refs SHALL NOT become empty content except for an unborn HEAD or explicit absent-base construction. A product edit through HEAD SHALL guard both its captured symbolic selector and the resolved ref OID.
+
+#### Scenario: Same commit but changed default branch
+- **WHEN** a product operation captures HEAD pointing to main and another writer repoints HEAD to topic at the same commit
+- **THEN** the original default-branch operation is rejected rather than silently writing the formerly selected branch
+
+#### Scenario: Declared format and readable graph
+- **WHEN** an admitted reader selects a commit or typed tag in a SHA-256 repository
+- **THEN** its tree identity is read from verified bytes under the captured format, without transport materialization
+- **AND** an unrelated stored or rejected-proposal object remains unreadable
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

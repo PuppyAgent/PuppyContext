@@ -77,6 +77,14 @@
   native Git readback in both formats using actual owned S3/PostgREST. Product
   primitives invoke no Git process or transport materialization. This is NOT
   canonical ProductOperationAdapter/API admission or atomic billing acceptance.
+- [x] Implement pinned revision/base snapshots for already admitted native
+  readers; exercise declared formats, unborn/detached HEAD, typed tags, cold
+  reads, unreachable proposals, budgets, GC exclusion and same-OID HEAD switches.
+  Share the pin lifecycle with NativeGitRepository and use its base guards in
+  product-primitive interoperability. Reject empty-repository format mismatch.
+  Selected actual-service regression: 119 passed (97 S3, including all 78 native
+  workflows; 22 component), plus 329 pgTAP. Canonical product/API/Scope/current-
+  credential integration and complete resource acceptance remain open.
 - [ ] Wire repository-format selection, consistent ref/base snapshots and
   admitted publication into all product/automatic consumers; do not activate
   native authority on the strength of these primitive tests.
@@ -143,6 +151,12 @@
   no-downgrade checks and real Auth/PostgREST client denial. Selected mixed-layer
   validation: 91 passed plus all 329 pgTAP tests. This uses controlled continuations,
   not independent-process restart or production authorization evidence.
+- [x] Verify clean storage fence commit `07efb294`: actual Supabase/S3 target
+  885 passed / the same 34 failures, with 329 pgTAP tests. All 62 added cases pass;
+  layers: native 18, component 545/34, PG 143, actual Auth/REST 58, S3 121.
+  Offline: 2773 passed / 27 skipped / 76 deselected. Database policy covers all
+  five task migrations after commit (its CLI compares committed HEAD, not staging).
+  Corrupt foreign bundle metadata also yields zero DELETEs and a retained fence.
 - [ ] Complete independent-process/multi-instance storage fault and location-cache
   recovery, long-upload renewal, paired restore and applicable resource gates;
   neither the chunk nor location-fence selections close these requirements.

@@ -44,7 +44,7 @@ def test_advertisement_is_refs_only_and_uses_verified_peel_metadata(protocol, de
     if detached:
         refs[0]["state"] = {"kind": "oid", "oid": "a" * 40}
         refs[0]["kind"] = "commit"
-    control = SimpleNamespace(snapshot=lambda _: {"authority": "native", "refs": refs})
+    control = SimpleNamespace(snapshot=lambda _: {"authority": "native", "object_format": "sha1", "refs": refs})
     backend = SimpleNamespace(get_durable=forbidden)
     transport = NativeGitRepository(RefTransactionService(control, backend, project_id="test"))
     response = transport.info_refs(grant("test"), "git-upload-pack", protocol=protocol)
@@ -59,6 +59,18 @@ def test_advertisement_is_refs_only_and_uses_verified_peel_metadata(protocol, de
     else:
         assert b"refs/tags/tag^{}" in response.body
         assert b"a" * 40 in response.body
+
+
+@pytest.mark.parametrize("declared_format", [None, "sha256"])
+def test_empty_advertisement_cannot_invent_a_repository_format(declared_format, monkeypatch):
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("format mismatch reached Git or object I/O")
+    control = SimpleNamespace(snapshot=lambda _: {"authority": "native", "object_format": declared_format, "refs": []})
+    service = RefTransactionService(control, SimpleNamespace(get_durable=forbidden), project_id="test")
+    transport = NativeGitRepository(service)
+    monkeypatch.setattr(transport, "git", forbidden)
+    with pytest.raises(ValueError, match="object format mismatch"):
+        transport.info_refs(grant("test"), "git-upload-pack")
 
 
 def test_native_git_environment_cannot_inherit_replace_config_or_protocol_injection(monkeypatch):

@@ -11,15 +11,14 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi.responses import Response, StreamingResponse
 
-from src.utils.logger import log_warning
 from src.version_engine.adapters.git.protocol import flush_pkt, pkt_line, read_pkt_lines
+from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.git_object_format import encode_object
 from src.version_engine.write_engine.ref_transaction import (
     RefEdit,
@@ -81,6 +80,8 @@ class NativeGitRepository:
 
     @contextmanager
     def bare(self, snapshot):
+        if snapshot.get("object_format") != self.format:
+            raise ValueError("repository object format mismatch")
         with tempfile.TemporaryDirectory(prefix="puppyone-native-git-") as directory:
             path = Path(directory)
             self.git(path, "init", "--bare", "--initial-branch=main", "--object-format=" + self.format)
@@ -123,47 +124,28 @@ class NativeGitRepository:
 
     @contextmanager
     def materialized(self, grant, *, historical=False, requested=()):
-        actor = admitted_actor(grant, self.project_id, write=False)
-        pin = str(uuid.uuid4())
-        snapshot = self.control.begin_read(self.project_id, actor, pin)
-        released = False
-        def release():
-            try:
-                self.control.release(self.project_id, actor, pin)
-            except Exception:
-                log_warning("native read pin release deferred to expiry")
-        try:
+        with repository_snapshot(self.control, self.service.backend, grant, project_id=self.project_id) as read:
+            snapshot = read.to_wire()
             with self.bare(snapshot) as bare:
-                roots = {row["state"]["oid"]: row.get("kind") for row in snapshot["refs"]
-                         if row["state"]["kind"] == "oid"}
+                roots = dict(read.roots)
                 if historical:
                     roots.update(self.control.call("get_version_repository_published_roots", p_project_id=self.project_id))
-                next_renewal = time.monotonic() + 30
-                def renew():
-                    nonlocal next_renewal
-                    if time.monotonic() >= next_renewal:
-                        self.control.renew(self.project_id, actor, pin)
-                        next_renewal = time.monotonic() + 30
                 def copy(oid, loose):
                     path = bare / "objects" / oid[:2] / oid[2:]
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(loose)
                 if roots:
-                    self.service.verifier.verify(roots, progress=renew, on_object=copy)
+                    self.service.verifier.verify(roots, progress=read.check_live, on_object=copy)
                 if any(not (bare / "objects" / oid[:2] / oid[2:]).exists() for oid in requested):
                     # A GET advertisement or lazy-fetch base may precede a force
                     # update/delete. Serve retained *published* history, never
                     # arbitrary objects or uncommitted receipt roots.
                     roots.update(self.control.call("get_version_repository_published_roots", p_project_id=self.project_id))
                     if roots:
-                        self.service.verifier.verify(roots, progress=renew, on_object=copy)
+                        self.service.verifier.verify(roots, progress=read.check_live, on_object=copy)
                 # Every subsequent Git read is private; no alternates or S3 I/O.
-                release()
-                released = True
+                read.close()
                 yield bare, snapshot
-        finally:
-            if not released:
-                release()
 
     def upload_request(self, request_path):
         command, requested = None, set()

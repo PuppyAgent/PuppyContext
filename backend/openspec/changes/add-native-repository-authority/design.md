@@ -326,3 +326,33 @@ its ref result reuses the sealed proof instead of uploading again. Fixture-only
 preloads now explicitly open/release publication pins without issuing receipts
 or exposing a readable ref root. The native router and real-user admission remain
 disconnected, and lifecycle/quota/consumer/migration gates are not waived.
+
+## Pinned native content/base snapshots
+
+`read/repository_snapshot.py` captures declared format, generation, ref sequence,
+byte refs and a read pin from one PG transaction. It validates Project/pin
+binding, HEAD presence and ref types, and exposes immutable decoded ref states.
+Lazy object reads bypass staging/cache and verify exact Git identity and typed
+edges. A stored object becomes readable only as a captured ref root or a verified
+edge; rejected receipts are not an alternative read authority. The decoded-byte
+budget is bounded, but the underlying byte-returning S3 API, metadata size,
+long-I/O renewal and total process resource gates still require further work.
+
+A content revision distinguishes missing refs, unborn HEAD, detached HEAD and
+peeled tags/trees. Product-base construction can explicitly permit an absent
+ref; ordinary missing-ref reads do not invent empty content. An edit through
+symbolic HEAD emits both a verify-only HEAD guard and the selected branch's old
+OID CAS. Merely switching default branches at the same OID therefore invalidates
+the earlier default-branch operation instead of silently writing the old branch.
+
+The native Git adapter now shares this pin lifecycle and closes the pin after
+its private copy, before running transport I/O. Discovery stays metadata-only;
+a missing/mismatched declared format is rejected even for an empty repository.
+The product-primitive interoperability path uses the same snapshot/base guards
+without importing transport materialization. These are consumers of an already
+admitted internal grant, not replacements for current-credential authorization,
+policy, quota, canonical ProductOperationAdapter/API/Scope integration or cutover.
+
+Selected actual-service regression: 119 passed (97 S3-layer, including all 78
+native workflow recipes; 22 component), plus 329 pgTAP tests. This selection is
+not a clean full-revision receipt and does not remove the legacy route's 34 gaps.
