@@ -36,6 +36,7 @@ from src.version_engine.storage.chunk_manifest import (
     chunk_upload_plan,
     validate_chunk_manifest,
 )
+from src.version_engine.storage.mutation_context import collection_context, publication_context
 from src.version_engine.storage.object_store import StorageBackend
 from src.version_engine.write_engine.git_object_format import decode_object, hash_object
 
@@ -588,6 +589,29 @@ class S3StorageBackend(StorageBackend):
     def _chunk_bundle_prefixes(self) -> tuple[str, ...]:
         return (self._bundle_prefix, *self._layout.deferred_bundle_prefixes)
 
+    def _check_publication_context(self) -> None:
+        context = publication_context.get()
+        if context is not None and context.project_id != self.publication_project_id:
+            raise StorageWriteError("publication context belongs to another Project")
+
+    def _authorize_deletion(self) -> None:
+        context = collection_context.get()
+        if context is not None and context.project_id != self.publication_project_id:
+            raise StorageWriteError("collection context belongs to another Project")
+        if self._supabase is None:
+            if context is not None:
+                raise StorageWriteError("native deletion requires database coordination")
+            return  # Existing standalone legacy backend, not native authority.
+        try:
+            response = self._supabase.client.rpc("authorize_version_object_deletion", {
+                "p_project_id": self._project_id,
+                "p_gc_token": context.token if context is not None else None,
+            }).execute()
+            if response.data is not True:
+                raise StorageWriteError("object deletion was not authorized")
+        except Exception as exc:
+            raise StorageWriteError(f"object deletion coordination failed: {exc}") from exc
+
     # ── Sync methods called by ObjectStore ──
 
     def get(self, h: str) -> bytes:
@@ -844,6 +868,9 @@ class S3StorageBackend(StorageBackend):
         refused here and collected only by ``sweep_dead_bundles`` when
         the whole bundle is dead.
         """
+        if len(h) not in {40, 64} or not set(h) <= set("0123456789abcdef"):
+            raise StorageWriteError("invalid object id for deletion")
+        self._authorize_deletion()
         location = self._lookup_object_location(h)
         if location is None:
             return self._delete_loose(h)
@@ -889,7 +916,7 @@ class S3StorageBackend(StorageBackend):
         Only an absent manifest permits listing the owned object prefix.
         Corruption, foreign keys and unavailable storage fail closed instead.
         """
-        prefixes = self._chunk_bundle_prefixes()
+        prefixes = (self._bundle_prefix,) if collection_context.get() is not None else self._chunk_bundle_prefixes()
         root = chunk_manifest_root(manifest_key, h, prefixes)
         try:
             manifest_raw = _run_async(self._s3.download_file(manifest_key))
@@ -957,6 +984,10 @@ class S3StorageBackend(StorageBackend):
 
     def _delete_whole_bundle(self, pack_key: str, members: list[str]) -> bool:
         """Delete one fully-dead ``.pob`` and its members' location rows."""
+        prefixes = (self._bundle_prefix,) if collection_context.get() is not None else self._chunk_bundle_prefixes()
+        if not any(pack_key.startswith(prefix + "/") for prefix in prefixes):
+            raise StorageWriteError("bundle deletion is outside its Project namespace")
+        self._authorize_deletion()
         try:
             _run_async(self._s3.delete_file(pack_key))
         except Exception as exc:  # noqa: BLE001
@@ -999,13 +1030,17 @@ class S3StorageBackend(StorageBackend):
             if not chunk:
                 continue
             try:
-                (
-                    self._supabase.client.table(OBJECT_LOCATIONS_TABLE)
-                    .delete()
-                    .eq("project_id", self._project_id)
-                    .in_("object_id", chunk)
-                    .execute()
-                )
+                context = collection_context.get()
+                if context is not None:
+                    if context.project_id != self._project_id:
+                        raise StorageWriteError("collection context belongs to another Project")
+                    self._supabase.client.rpc("remove_version_object_locations", {
+                        "p_project_id": self._project_id, "p_gc_token": context.token,
+                        "p_object_ids": chunk,
+                    }).execute()
+                else:
+                    (self._supabase.client.table(OBJECT_LOCATIONS_TABLE).delete()
+                     .eq("project_id", self._project_id).in_("object_id", chunk).execute())
             except Exception as exc:  # noqa: BLE001
                 log_error(f"[VersionS3] delete location rows: {exc}")
                 raise  # A late index DELETE must not race a newly published location.
@@ -1059,6 +1094,8 @@ class S3StorageBackend(StorageBackend):
         return data[start:end], len(data)
 
     async def async_put(self, h: str, data: bytes) -> None:
+        self._check_publication_context()
+        _verify_loose_hash(h, data)
         route = self._active_io_strategy().plan_single(h, len(data))
         if route.layout is ObjectWriteLayout.CHUNKED:
             await self._async_put_chunked_object(h, data)
@@ -1113,6 +1150,9 @@ class S3StorageBackend(StorageBackend):
                 (e.g. negotiate confirmed them as missing).
         """
         import asyncio
+        self._check_publication_context()
+        for object_id, data in objects.items():
+            _verify_loose_hash(object_id, data)
         plan = self._active_io_strategy().plan_batch(
             {object_id: len(data) for object_id, data in objects.items()}
         )
@@ -1479,6 +1519,7 @@ class S3StorageBackend(StorageBackend):
             bytes=sum(len(data) for _key, data, _content_type in uploads),
         ):
             await self._async_upload_physical_objects(uploads)
+        await self._async_verify_physical_uploads(uploads)
         await self._async_upsert_object_locations(rows)
 
     async def _async_put_bundled_or_chunked(self, objects: dict[str, bytes]) -> None:
@@ -1518,6 +1559,7 @@ class S3StorageBackend(StorageBackend):
             bytes=sum(len(data) for _key, data, _content_type in uploads),
         ):
             await self._async_upload_physical_objects(uploads)
+        await self._async_verify_physical_uploads(uploads)
         await self._async_upsert_object_locations(rows)
 
     async def _async_put_chunked_object(self, h: str, data: bytes) -> None:
@@ -1529,6 +1571,7 @@ class S3StorageBackend(StorageBackend):
             physical_count=len(uploads),
         ):
             await self._async_upload_physical_objects(uploads)
+        await self._async_verify_physical_uploads(uploads)
         await self._async_upsert_object_locations([row])
 
     def _bundle_upload_plan(
@@ -1591,20 +1634,55 @@ class S3StorageBackend(StorageBackend):
         if errors:
             raise errors[0]
 
+    async def _async_verify_physical_uploads(self, uploads: list[tuple[str, bytes, str]]) -> None:
+        """Prove replacement bytes BEFORE changing any canonical location.
+
+        A final ref closure check is too late: an unverified replacement index
+        can already have broken an older acknowledged object. Read each physical
+        bundle/part once, not once per member. Publication/GC epoch fencing is
+        additionally required to order delayed index requests against deletion.
+        """
+        sem = asyncio.Semaphore(_OBJECT_UPLOAD_CONCURRENCY)
+
+        async def verify(key: str, expected: bytes) -> None:
+            try:
+                async with sem:
+                    actual = await self._s3.download_file(key)
+            except Exception as exc:
+                raise StorageWriteError(f"physical upload verification failed: {key}") from exc
+            if actual != expected:
+                raise StorageWriteError(f"physical upload verification failed: {key}")
+
+        with trace_phase("s3.verify_uploads", count=len(uploads)):
+            await asyncio.gather(*(verify(key, data) for key, data, _content_type in uploads))
+
     async def _async_upsert_object_locations(self, rows: list[dict]) -> None:
         if not rows:
             return
         with trace_phase("db.object_location.upsert", count=len(rows)):
             for offset in range(0, len(rows), _OBJECT_LOCATION_UPSERT_BATCH_SIZE):
                 chunk = rows[offset:offset + _OBJECT_LOCATION_UPSERT_BATCH_SIZE]
-                await asyncio.to_thread(
-                    lambda batch=chunk: self._supabase.client.table(
-                        OBJECT_LOCATIONS_TABLE
-                    ).upsert(
-                        batch,
-                        on_conflict="project_id,object_id",
-                    ).execute()
-                )
+                context = publication_context.get()
+                if context is not None:
+                    if context.project_id != self._project_id:
+                        raise StorageWriteError("publication context belongs to another Project")
+                    try:
+                        await asyncio.to_thread(
+                            lambda batch=chunk, context=context: self._supabase.client.rpc("register_version_object_locations", {
+                                "p_project_id": self._project_id, "p_actor": context.actor,
+                                "p_pin_id": context.pin_id, "p_rows": batch,
+                            }).execute()
+                        )
+                    except Exception as exc:
+                        # Never fall back to an unfenced table upsert, including
+                        # missing schema capability and late/expired pins.
+                        raise StorageWriteError(f"native location registration failed: {exc}") from exc
+                else:
+                    await asyncio.to_thread(
+                        lambda batch=chunk: self._supabase.client.table(OBJECT_LOCATIONS_TABLE).upsert(
+                            batch, on_conflict="project_id,object_id",
+                        ).execute()
+                    )
         with self._location_lock:
             for row in rows:
                 self._location_cache[row["object_id"]] = ObjectLocation(

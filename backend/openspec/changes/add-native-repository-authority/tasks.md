@@ -127,10 +127,25 @@
   S3 corrupt/foreign orphan rejection with zero DELETEs and a retained GC fence.
   Small configured
   chunks do not establish large-object or independent-process acceptance.
-- [ ] Fence outstanding object-location index writes by publication/GC epoch,
-  verify replacement safety for already acknowledged objects, and prove delayed
-  index completion cannot corrupt a later committed closure. Immutable chunk
-  bytes and final ref receipts alone do not establish these properties.
+- [x] Verify clean chunk commit `58edaba2`: actual Supabase/S3 target 823 passed /
+  34 failed, 329 pgTAP tests; all 28 added cases pass, no new failure names.
+  S3 layer: 109 passed. Offline: 2766 passed / 27 skipped / 76 deselected.
+  The earlier clean `b2703d2c` receipt is 795 passed / the same 34 failures.
+  Subsequent dependency merge `7703647b` has 2772 offline passes; it is outside
+  the chunk commit's full live receipt.
+- [x] Reproduce replacement and late-index ACK loss in both formats against
+  actual S3/PG. Read back each new physical placement before index mutation;
+  validate incoming identity; fence native location writes by current pin/epoch.
+  Reject stale/foreign/absent GC contexts before physical deletion and check
+  token again for index removal. Retry sealed pins without new preparation.
+- [x] Add forward Expand-only index RPCs/direct-DML fencing, SQL role/format/
+  actor/state/reparenting tests, populated rollback/unchanged retry, missing-RPC
+  no-downgrade checks and real Auth/PostgREST client denial. Selected mixed-layer
+  validation: 91 passed plus all 329 pgTAP tests. This uses controlled continuations,
+  not independent-process restart or production authorization evidence.
+- [ ] Complete independent-process/multi-instance storage fault and location-cache
+  recovery, long-upload renewal, paired restore and applicable resource gates;
+  neither the chunk nor location-fence selections close these requirements.
 - [ ] Complete durable publication/GC restart, remote-I/O quiescence recovery,
   long-upload lease renewal and bounded-resource/performance acceptance.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including

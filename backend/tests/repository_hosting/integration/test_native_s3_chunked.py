@@ -20,6 +20,7 @@ from tests.repository_hosting.harness.postgres import literal
 from tests.repository_hosting.integration.test_ref_transaction_service import request
 from tests.repository_hosting.integration.test_s3_publication import (
     publication as publication_fixture,
+    seed_objects,
 )
 
 pytestmark = pytest.mark.hosting_s3
@@ -56,7 +57,8 @@ def test_native_gc_removes_immutable_chunk_orphan_and_keeps_published_closure(pu
     assert request(service, oid, prepare)["status"] == "committed"
     backend._inner._io_strategy = IOStorageStrategy(128, 64)
     orphan, loose = encode_object("blob", bytes(range(256)) * 3, object_format=service.object_format)
-    backend.put_durable(orphan, loose)
+    with seed_objects(publication, {orphan: "blob"}):
+        backend.put_durable(orphan, loose)
     location = backend._inner._lookup_object_location(orphan)
     assert location.pack_key.startswith("chunked:")
     keys = backend._inner._chunked_keys_for(
@@ -82,7 +84,8 @@ def test_native_gc_retains_fence_without_any_delete_for_invalid_manifest(publica
     assert request(service, oid, prepare)["status"] == "committed"
     backend._inner._io_strategy = IOStorageStrategy(128, 64)
     orphan, loose = encode_object("blob", bytes(range(256)) * 3)
-    backend.put_durable(orphan, loose)
+    with seed_objects(publication, {orphan: "blob"}):
+        backend.put_durable(orphan, loose)
     location = backend._inner._lookup_object_location(orphan)
     key = location.pack_key.removeprefix("chunked:")
     if fault == "invalid-json":

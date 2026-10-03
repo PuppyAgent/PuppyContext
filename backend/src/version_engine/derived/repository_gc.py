@@ -8,6 +8,7 @@ from src.version_engine.derived.object_gc import _run_git_object_gc
 from src.version_engine.infrastructure.supabase.ref_authority_repository import (
     RefAuthorityRepository,
 )
+from src.version_engine.storage.mutation_context import collection_storage
 from src.version_engine.write_engine.git_object_format import encode_object
 
 
@@ -42,6 +43,10 @@ class RepositoryCollector:
         self.control = control
 
     def run(self, repo, **options):
+        backend = getattr(repo.store, "_backend", None)
+        bound_project = getattr(backend, "publication_project_id", None)
+        if bound_project is not None and bound_project != repo._project_id:
+            raise ValueError("collection backend belongs to another Project")
         token = str(uuid.uuid4())
         if options.get("dry_run", True):
             actor = "system:gc-inspection"
@@ -58,9 +63,10 @@ class RepositoryCollector:
         # subsequent publication. Recovery must prove both worker and remote
         # storage/index I/O quiescence; merely killing a worker is insufficient.
         empty, _ = encode_object("tree", b"", object_format=snapshot["object_format"])
-        result = _run_git_object_gc(
-            _PhysicalRepo(repo), **options, additional_roots=(*snapshot["roots"], empty),
-        )
+        with collection_storage(repo._project_id, token):
+            result = _run_git_object_gc(
+                _PhysicalRepo(repo), **options, additional_roots=(*snapshot["roots"], empty),
+            )
         if not result.errors and not result.sweep_skipped_for_safety:
             self.control.finish_gc(repo._project_id, token)
         return result

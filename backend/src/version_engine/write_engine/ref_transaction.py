@@ -19,6 +19,7 @@ from src.platform.repository_target.models import ProjectRootTarget
 from src.version_engine.infrastructure.supabase.ref_authority_repository import (
     RefAuthorityRepository,
 )
+from src.version_engine.storage.mutation_context import publication_storage
 from src.version_engine.storage.object_store import StorageBackend
 from src.version_engine.storage.publication import ClosureVerifier
 from src.version_engine.write_engine.git_object_format import encode_object, object_id_bytes
@@ -134,20 +135,25 @@ class RefTransactionService:
                 or snapshot["object_format"] != self.object_format or snapshot["generation"] != generation):
             raise RuntimeError("repository authority unavailable or generation mismatch")
         if pin is not None:
-            self.control.begin(self.project_id, actor, pin, generation, roots)
-            # Leave the bounded pin intact on failure or uncertain acknowledgement.
-            # Never let cleanup race an unfinished physical upload.
-            prepare()
-            empty_oid, empty_loose = encode_object("tree", b"", object_format=self.object_format)
-            self.backend.put_durable(empty_oid, empty_loose)
-            next_renewal = time.monotonic() + 30
-            def renew():
-                nonlocal next_renewal
-                if time.monotonic() >= next_renewal:
-                    self.control.renew(self.project_id, actor, pin)
+            admitted_pin = self.control.begin(self.project_id, actor, pin, generation, roots)
+            # A sealed pin is immutable. A retry after seal but before the ref
+            # result must reuse its proof, not perform new location writes.
+            if admitted_pin["state"] != "verified":
+                # Retain the pin on failure/uncertain ACK. Storage mutations
+                # revalidate its current state/epoch in PG, even if a copied
+                # async context outlives this request or the pin's expiry.
+                with publication_storage(self.project_id, actor, pin):
+                    prepare()
+                    empty_oid, empty_loose = encode_object("tree", b"", object_format=self.object_format)
+                    self.backend.put_durable(empty_oid, empty_loose)
                     next_renewal = time.monotonic() + 30
-            manifest = self.verifier.verify(roots, progress=renew)
-            self.control.seal(self.project_id, actor, pin, manifest.digest, manifest.root_details())
+                    def renew():
+                        nonlocal next_renewal
+                        if time.monotonic() >= next_renewal:
+                            self.control.renew(self.project_id, actor, pin)
+                            next_renewal = time.monotonic() + 30
+                    manifest = self.verifier.verify(roots, progress=renew)
+                    self.control.seal(self.project_id, actor, pin, manifest.digest, manifest.root_details())
         result = self.control.apply(*args)
         if pin is not None:
             # The result is already durable. A cleanup outage retains objects,

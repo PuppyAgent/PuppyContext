@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.version_engine.domain.errors import StorageWriteError
 from src.version_engine.storage.backends.s3 import (
     S3StorageBackend,
     _CHUNKED_PACK_PREFIX,
@@ -113,6 +114,12 @@ class FakeSupabaseTables:
 
     def table(self, name: str) -> FakeQuery:
         return FakeQuery(self, name)
+
+    def rpc(self, name, args):
+        # These are legacy layout component tests, not native admission proof.
+        assert name == "authorize_version_object_deletion"
+        assert args == {"p_project_id": PROJECT, "p_gc_token": None}
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=True))
 
 
 class FakeSupabaseClient:
@@ -237,6 +244,17 @@ def test_delete_chunked_removes_manifest_and_parts():
     assert part_key not in s3.objects
     # location row purged
     assert supa.client.tables["version_object_locations"] == []
+
+
+def test_foreign_bundle_location_cannot_authorize_deletion():
+    backend, s3, supa = _make_backend()
+    foreign = "version/other-project/object-bundles/ff/foreign.pob"
+    s3.objects[foreign] = b"another Project's bytes"
+    _add_location_row(supa, OID_BUNDLE_1, foreign)
+    with pytest.raises(StorageWriteError, match="outside its Project namespace"):
+        backend.sweep_dead_bundles({OID_BUNDLE_1})
+    assert not s3.deleted and s3.objects[foreign] == b"another Project's bytes"
+    assert len(supa.client.tables["version_object_locations"]) == 1
 
 
 def test_delete_bundled_object_is_refused():

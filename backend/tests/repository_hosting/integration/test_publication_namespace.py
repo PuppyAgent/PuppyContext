@@ -7,6 +7,7 @@ from src.version_engine.write_engine.ref_transaction import RefTransactionServic
 from tests.repository_hosting.harness.postgres import literal
 from tests.repository_hosting.integration.test_s3_publication import (
     publication as publication_fixture,
+    seed_objects,
 )
 
 pytestmark = pytest.mark.hosting_s3
@@ -36,7 +37,8 @@ def test_noncanonical_storage_remains_readable_but_cannot_issue_native_proof(pub
 
 def test_foreign_location_metadata_is_rejected_before_object_io(publication, monkeypatch):
     pg, auth, s3, db, _backend, _service, _git, oid, prepare = publication
-    prepare()
+    with seed_objects(publication, {oid: "commit"}):
+        prepare()
     pg.sql(f"UPDATE public.version_object_locations SET pack_key='version/another-project/object-bundles/foreign.pob' WHERE project_id={literal(auth.project)} AND object_id={literal(oid)}")
     def forbidden(*args, **kwargs):
         pytest.fail("foreign object namespace was accessed")

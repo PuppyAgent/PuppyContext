@@ -375,6 +375,11 @@ async def test_object_batch_writes_one_bundle_with_location_index() -> None:
     assert "/object-bundles/" in pack_key
     assert all("/objects/" not in key for key in s3.uploads)
     assert len(supabase.rows) == 3
+    # One physical readback per bundle precedes location publication. Keep the
+    # independent cold-read contract below: readers still use ranges, not a
+    # fresh full-bundle download for every member.
+    assert s3.download_file_keys == [pack_key]
+    s3.download_file_keys.clear()
 
     # Simulate a fresh backend instance: lookup must work through the durable
     # location index, not through the writer's in-memory cache.

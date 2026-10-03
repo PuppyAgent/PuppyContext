@@ -56,6 +56,24 @@ A physical chunk or manifest key SHALL identify its exact bytes, independently o
 - **WHEN** an orphan manifest contains foreign keys, invalid coverage, or cannot be read reliably
 - **THEN** no deletion is issued from that manifest and native collection retains its safety fence
 
+### Requirement: Native object-location mutation provenance
+Replacing a canonical location SHALL require physical verification of the replacement before index mutation. Native registration SHALL revalidate an uploading publication pin's actor, Project, format, generation, GC epoch and current expiry under the repository lock. Native index removal and new physical deletion SHALL require the current GC token. Direct backend DML SHALL NOT bypass native coordination; missing RPC capabilities SHALL fail closed. Database-owner repair authority and legacy/shadow table ACLs SHALL remain explicit and unchanged.
+
+#### Scenario: Rejected replacement cannot corrupt prior ACK
+- **WHEN** a new bundle containing an already published object is missing or corrupt
+- **THEN** rejection preserves the earlier object's canonical location and cold readability, not just unchanged refs
+
+#### Scenario: Late index completion after collection
+- **WHEN** an old producer resumes after its pin expired and a subsequent GC epoch collected its bundle
+- **THEN** registration is rejected even if its async context survived
+- **AND** a newer acknowledged closure remains byte-exact and readable
+
+#### Scenario: Sealed retry and stale collector
+- **WHEN** publication retries a sealed pin without a ref result
+- **THEN** it reuses the sealed proof instead of performing new location writes
+- **WHEN** a collector's context survives completion of its GC token
+- **THEN** it cannot initiate a new native physical deletion
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

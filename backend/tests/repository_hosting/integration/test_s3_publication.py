@@ -5,6 +5,8 @@ location metadata, publication pins, receipts and ref writes are not mocked.
 """
 
 import json
+import uuid
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import httpx
@@ -19,14 +21,15 @@ from src.version_engine.infrastructure.supabase.ref_authority_repository import 
 )
 from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
 from src.version_engine.storage.backends.s3 import CachedStorageBackend, S3StorageBackend
+from src.version_engine.storage.mutation_context import publication_storage
 from src.version_engine.storage.publication import ClosureVerifier
 from src.version_engine.write_engine.git_object_format import EMPTY_TREE_SHA1, encode_object
-from src.version_engine.write_engine.ref_transaction import RefTransactionService
+from src.version_engine.write_engine.ref_transaction import RefTransactionService, admitted_actor
 from tests.repository_hosting.harness.git import Git
 from tests.repository_hosting.harness.postgres import literal
 from tests.repository_hosting.harness.ref_authority import Authority
 from tests.repository_hosting.harness.s3_service import owned_s3
-from tests.repository_hosting.integration.test_ref_transaction_service import request
+from tests.repository_hosting.integration.test_ref_transaction_service import grant, request
 
 pytestmark = pytest.mark.hosting_s3
 
@@ -56,6 +59,18 @@ def publication(pg_project, tmp_path, request):
         yield pg, auth, s3, db, backend, service, git, oid, prepare
 
 
+@contextmanager
+def seed_objects(publication, roots):
+    """Explicit pinned fixture uploads, without a receipt or readable ref root."""
+    service = publication[5]
+    actor = admitted_actor(grant(service.project_id), service.project_id, write=True)
+    pin = str(uuid.uuid4())
+    service.control.begin(service.project_id, actor, pin, 1, roots)
+    with publication_storage(service.project_id, actor, pin):
+        yield
+    service.control.release(service.project_id, actor, pin)
+
+
 def test_publication_survives_fresh_s3_backend_and_cold_native_fsck(publication, tmp_path):
     pg, auth, s3, db, _backend, service, git, oid, prepare = publication
     result = request(service, oid, prepare)
@@ -77,8 +92,9 @@ def test_publication_survives_fresh_s3_backend_and_cold_native_fsck(publication,
 
 def test_physical_s3_loss_cannot_be_hidden_by_process_cache(publication):
     _pg, auth, s3, _db, backend, service, _git, oid, prepare = publication
-    # Populate only the production memory cache, then delete the physical pack.
-    prepare()
+    # Populate the cache/index without publishing, then delete the physical pack.
+    with seed_objects(publication, {oid: "commit"}):
+        prepare()
     assert backend.get(oid)
     physical = backend._inner
     location = physical._lookup_object_location(oid)

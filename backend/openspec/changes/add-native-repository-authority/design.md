@@ -276,3 +276,53 @@ Small configured chunks exercise actual S3 late-PUT isolation and orphan GC in
 both formats. They do not prove large-object memory/performance, process restart,
 upload/index epoch fencing or safe canonical-location replacement. Those gates,
 canonical admission and all consumer/migration work remain open.
+
+## Object-location replacement and late index fencing
+
+Two additional actual-S3 regressions distinguish ref atomicity from storage
+safety. A rejected new bundle could overwrite the location of an earlier ACK,
+leaving its unchanged ref unreadable even though the original physical bundle
+still existed. Separately, a partial index writer could resume after pin expiry,
+GC and a newer successful publication, installing locations in the deleted old
+bundle. Both defects reproduced in SHA-1/SHA-256; neither was fixed by a final
+closure check alone.
+
+S3 writes now validate incoming loose-object identity before I/O and read back
+each newly uploaded physical bundle/part/manifest before mutating any location.
+This reads each physical upload once, not once per member. Existing cold readers
+still use range reads; the component test retains that separate assertion.
+These byte-returning APIs and additional I/O still require resource/performance
+acceptance, not an inference of bounded large-repository behavior.
+
+`20261004010000_expand_object_location_publication_fence.sql` adds backend-only
+registration/removal/deletion-admission RPCs and a direct-DML fence. It does not
+modify any prior migration, table ACL, existing data or repository authority.
+Registration locks Project -> repository -> pin and validates current actor,
+Project, format, generation, GC epoch, uploading state and wall-clock expiry.
+Batches are limited to 200 validated canonical locations. A copied context or
+queued request cannot install a location after its pin becomes invalid. No
+network I/O occurs under the SQL locks. Missing RPC capability never falls back
+to a direct upsert.
+
+The invoker-identity trigger rejects direct service-role native index mutations,
+including reparenting either side. Its explicit database-owner exception allows
+only the existing trusted owner/repair authority and the narrow validated definer
+RPCs. It is not a user-configurable GUC bypass. Legacy/shadow DML and existing
+ACLs remain unchanged. Direct service-role Project DELETE remains denied;
+location rows retain their existing explicit-cleanup contract (no new FK or
+implicit data deletion).
+
+Native collection checks backend Project binding and propagates its GC token.
+Physical DELETE is admitted before storage I/O against the current token, and
+index removal rechecks it under the repository lock. Missing/finished/foreign
+contexts cannot initiate new native deletion. This does not make an already
+issued remote DELETE cancellable: the non-expiring fence and recovery's worker
+AND remote-I/O quiescence prerequisite still apply. Shadow collection remains
+fail-closed. An uncertain upload may leave a bounded pin; later location writes
+must still pass SQL even if an old async context survives expiry.
+
+A sealed pin cannot accept more location writes. A retry after sealing but before
+its ref result reuses the sealed proof instead of uploading again. Fixture-only
+preloads now explicitly open/release publication pins without issuing receipts
+or exposing a readable ref root. The native router and real-user admission remain
+disconnected, and lifecycle/quota/consumer/migration gates are not waived.
