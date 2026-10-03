@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/SupabaseAuthProvider';
-import { isGitRemoteProvider } from '@/lib/accessProviderRegistry';
 import { canonicalProjectGitUrl } from '@/lib/gitRemote';
 import { uploadFiles as uploadFilesApi } from '@/lib/uploadApi';
 import {
@@ -20,7 +19,7 @@ import { pickDirectoryFiles } from '@/lib/directoryPicker';
 import { applyPolicy, collectIgnoreRulesFromDrop } from '@/lib/uploadPolicy';
 import { FileImportDialog } from '@/components/FileImportDialog';
 import { T } from '../lib/tokens';
-import type { DashboardConnection } from '../lib/types';
+import type { DashboardEntrypoint } from '../lib/types';
 import { GitCredentialIssuePanel } from '@/features/files/components/access-points/connect-methods/GitCredentialIssuePanel';
 
 // =====================================================================
@@ -65,7 +64,7 @@ interface GetStartedPanelProps {
   /** Current AP list from the dashboard payload.  We look here first
    *  for the built-in root Git Remote AP so the CLI card can seed from
    *  server truth. */
-  connections: DashboardConnection[];
+  connections: DashboardEntrypoint[];
   /** Called after files upload starts.  Wire this to SWR `mutate` of
    *  the dashboard + tree so the empty state collapses back into the
    *  regular canvas the moment data shows up. */
@@ -492,18 +491,14 @@ function GitSyncBlock({
   connections,
 }: {
   projectId: string;
-  connections: DashboardConnection[];
+  connections: DashboardEntrypoint[];
 }) {
-  // Look for the built-in root Git Remote access surface in dashboard
-  // truth. We accept '/' / null / '' as legacy Project-root encodings because older
-  // rows may use different root path encodings.
+  // Only a persisted Access surface's explicit target identifies Project root.
   const gitRemote = useMemo(() => (
-    connections.find(
-      (c) =>
-        isGitRemoteProvider(c.provider) &&
-        (c.path === '/' || c.path === null || c.path === ''),
+    connections.filter(c => c.resource_kind === 'access').find(
+      c => c.kind === 'git_remote' && c.target.kind === 'project_root' && c.target.project_id === projectId,
     ) ?? null
-  ), [connections]);
+  ), [connections, projectId]);
   const [copied, setCopied] = useState<string | null>(null);
 
   // The Git remote endpoint that backs this access point. Stock
@@ -583,7 +578,7 @@ function GitSyncBlock({
         {gitRemote ? (
           <>
             <GitCredentialIssuePanel
-              connectorId={gitRemote.id}
+              connectorId={gitRemote.resource_id}
               gitUrl={apUrl}
               scopeMode={gitRemote.scope_mode === 'r' ? 'r' : 'rw'}
               target={{ kind: 'project_root', project_id: projectId }}

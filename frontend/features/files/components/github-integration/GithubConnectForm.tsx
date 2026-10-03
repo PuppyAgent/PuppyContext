@@ -23,6 +23,7 @@ import {
   type SynchronizeGithubRepo,
 } from '@/lib/synchronizeGithubApi';
 import { useTranslations } from 'next-intl';
+import { useEntrypointRequestContext } from '@/lib/hooks/useEntrypointRequestContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface Props {
@@ -39,6 +40,7 @@ export function GithubConnectForm({
   onConnected,
 }: Readonly<Props>) {
   const t = useTranslations('integrations.github');
+  const captureContext = useEntrypointRequestContext(projectId, String(oauthConnectionId));
 
   const [repos, setRepos] = useState<SynchronizeGithubRepo[] | null>(null);
   const [reposError, setReposError] = useState<string | null>(null);
@@ -59,21 +61,24 @@ export function GithubConnectForm({
 
   useEffect(() => {
     let cancelled = false;
+    const isCurrent = captureContext();
+    setWebhookSecret(''); setSubmitting(false); setSubmitError(null);
+    if (!isCurrent()) return;
     setRepos(null);
     setReposError(null);
     listSynchronizeGithubRepos(projectId, oauthConnectionId)
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setRepos(res.repos);
       })
       .catch((err: Error) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setReposError(err.message || t('errorGeneric'));
       });
     return () => {
       cancelled = true;
     };
-  }, [projectId, oauthConnectionId, t]);
+  }, [projectId, oauthConnectionId, t, captureContext]);
 
   const selectedRepo = useMemo(
     () => repos?.find((r) => r.full_name === selectedFullName) ?? null,
@@ -90,7 +95,8 @@ export function GithubConnectForm({
   // need a per-repo invalidation strategy that isn't worth the
   // complexity for a one-shot connect form.
   useEffect(() => {
-    if (!selectedRepo) {
+    const isCurrent = captureContext();
+    if (!selectedRepo || !isCurrent()) {
       setBranches(null);
       setBranchesError(null);
       return;
@@ -103,7 +109,7 @@ export function GithubConnectForm({
       selectedRepo.owner, selectedRepo.name,
     )
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setBranches(res.branches);
         const fallback = selectedRepo.default_branch;
         const def = res.branches.find((b) => b.is_default)?.name
@@ -112,7 +118,7 @@ export function GithubConnectForm({
         setBranch(def);
       })
       .catch((err: Error) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         setBranchesError(err.message || t('errorGeneric'));
         // Fall back to the repo's GitHub-side default so the user can
         // still proceed even if the branch list endpoint blew up.
@@ -121,7 +127,7 @@ export function GithubConnectForm({
     return () => {
       cancelled = true;
     };
-  }, [selectedRepo, projectId, oauthConnectionId, t]);
+  }, [selectedRepo, projectId, oauthConnectionId, t, captureContext]);
 
   const filteredRepos = useMemo(() => {
     if (!repos) return [];
@@ -137,7 +143,8 @@ export function GithubConnectForm({
     (!autoImport || webhookSecret.trim().length > 0);
 
   async function handleSubmit() {
-    if (!selectedRepo) return;
+    const isCurrent = captureContext();
+    if (!selectedRepo || !isCurrent()) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -149,11 +156,11 @@ export function GithubConnectForm({
         auto_pull: autoImport,
         webhook_secret: autoImport ? webhookSecret.trim() : null,
       });
-      onConnected(status);
+      if (isCurrent()) onConnected(status);
     } catch (err) {
-      setSubmitError((err as Error).message || t('errorGeneric'));
+      if (isCurrent()) setSubmitError((err as Error).message || t('errorGeneric'));
     } finally {
-      setSubmitting(false);
+      if (isCurrent()) setSubmitting(false);
     }
   }
 
@@ -294,7 +301,7 @@ function BranchPicker({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const listboxRef = useRef<HTMLDivElement | null>(null);
 
-  const branchList = branches ?? [];
+  const branchList = useMemo(() => branches ?? [], [branches]);
 
   // When the menu opens, prime the keyboard cursor on whichever row is
   // currently selected (or row 0 if nothing is selected yet) so the

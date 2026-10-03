@@ -76,7 +76,7 @@ export interface SynchronizeBindingCreate {
 export interface SynchronizeBinding {
   id: string;
   project_id: string;
-  path: string | null;
+  path: string;
   direction: string;
   provider: string;
   config: Record<string, unknown>;
@@ -174,6 +174,20 @@ export function createSynchronizeApi(t: CloudTransport) {
     if (!id?.trim()) throw new Error('A Synchronize binding ID is required');
     return `${base}/bindings/${encodeURIComponent(id)}`;
   };
+  const explicitId = (id: string) => typeof id === 'string' && Boolean(id.trim());
+  const project = (id: string) => {
+    if (!explicitId(id)) throw new Error('An explicit Synchronize Project ID is required');
+    return encodeURIComponent(id);
+  };
+  const validateBinding = (binding: SynchronizeBinding, id?: string) => {
+    if (!binding || !explicitId(binding.id) || !explicitId(binding.project_id) || typeof binding.path !== 'string'
+      || (id !== undefined && binding.id !== id)) throw new Error('Synchronize returned an invalid binding identity or target path');
+    return binding;
+  };
+  const validateRun = (run: SynchronizeRun) => {
+    if (!run || !explicitId(run.id) || !explicitId(run.synchronize_binding_id)) throw new Error('Synchronize run is missing its binding ID or own ID');
+    return run;
+  };
   const boundedLimit = (limit: number, max: number) => Number.isFinite(limit) ? Math.min(max, Math.max(1, Math.trunc(limit))) : 20;
   return {
     listSynchronizeProviders: () => t.get<SynchronizeProviderSpec[]>(`${base}/providers`),
@@ -183,38 +197,59 @@ export function createSynchronizeApi(t: CloudTransport) {
       return t.get<SynchronizeProviderResources>(`${base}/providers/${encodeURIComponent(provider)}/resources${query.size ? `?${query}` : ''}`);
     },
     async createSynchronizeBinding(body: SynchronizeBindingCreate) {
+      project(body.project_id);
       const result = await t.post<SynchronizeBindingCreated>(`${base}/bindings`, body);
       if (!result.binding?.id || result.binding.project_id !== body.project_id
         || (result.execution_result && result.execution_result.synchronize_binding_id !== result.binding.id)) {
         throw new Error('Synchronize creation returned inconsistent resource identities');
       }
+      validateBinding(result.binding);
       return result;
     },
     async listSynchronizeBindings(projectId: string): Promise<SynchronizeBinding[]> {
-      const rows = await t.get<SynchronizeBinding[]>(`${base}/bindings?project_id=${encodeURIComponent(projectId)}`);
+      const rows = await t.get<SynchronizeBinding[]>(`${base}/bindings?project_id=${project(projectId)}`);
       if (!Array.isArray(rows) || rows.some((row) => !row?.id || row.project_id !== projectId)) {
         throw new Error('Synchronize list returned an invalid binding or another project');
       }
+      const seen = new Set<string>();
+      for (const row of rows) {
+        validateBinding(row);
+        if (seen.has(row.id)) throw new Error('Synchronize list returned duplicate binding identities');
+        seen.add(row.id);
+      }
       return rows;
     },
-    updateSynchronizeBinding: (id: string, body: SynchronizeBindingUpdate) => t.patch<SynchronizeBinding>(bindingPath(id), body),
+    async updateSynchronizeBinding(id: string, body: SynchronizeBindingUpdate) {
+      return validateBinding(await t.patch<SynchronizeBinding>(bindingPath(id), body), id);
+    },
     deleteSynchronizeBinding: (id: string) => t.del<unknown>(bindingPath(id)),
     updateSynchronizeTrigger: (id: string, body: SynchronizeTriggerUpdate) => t.patch<unknown>(`${bindingPath(id)}/trigger`, body),
     pauseSynchronizeBinding: (id: string) => t.post<unknown>(`${bindingPath(id)}/pause`, {}),
     resumeSynchronizeBinding: (id: string) => t.post<unknown>(`${bindingPath(id)}/resume`, {}),
-    refreshSynchronizeBinding: (id: string) => t.post<SynchronizePullResult>(`${bindingPath(id)}/refresh`, {}),
+    async refreshSynchronizeBinding(id: string) {
+      const result = await t.post<SynchronizePullResult>(`${bindingPath(id)}/refresh`, {});
+      if (!Array.isArray(result?.results) || result.results.length !== 1 || result.results.some(row => !row || row.synchronize_binding_id !== id)) throw new Error('Synchronize refresh returned another binding');
+      return result;
+    },
     async listSynchronizeRuns(id: string, limit = 20, offset = 0) {
       const rows = await t.get<SynchronizeRun[]>(`${bindingPath(id)}/runs?limit=${boundedLimit(limit, 100)}&offset=${Math.max(0, Math.trunc(offset) || 0)}`);
-      if (rows.some((row) => row.synchronize_binding_id !== id)) throw new Error('Synchronize history returned another binding');
-      return rows;
+      if (!Array.isArray(rows) || rows.some((row) => !row || row.synchronize_binding_id !== id)) throw new Error('Synchronize history returned another binding');
+      const seen = new Set<string>();
+      return rows.map(row => {
+        validateRun(row);
+        if (seen.has(row.id)) throw new Error('Synchronize history returned duplicate run identities');
+        seen.add(row.id);
+        return row;
+      });
     },
     async getSynchronizeRun(id: string) {
-      const run = await t.get<SynchronizeRun>(`${base}/runs/${encodeURIComponent(id)}`);
-      if (!run.synchronize_binding_id) throw new Error('Synchronize run is missing its binding ID');
+      if (!explicitId(id)) throw new Error('An explicit Synchronize run ID is required');
+      const run = validateRun(await t.get<SynchronizeRun>(`${base}/runs/${encodeURIComponent(id)}`));
+      if (run.id !== id) throw new Error('Synchronize detail returned another run');
       return run;
     },
-    listFailedSynchronizeRuns: (projectId: string, limit = 50) => t.get<SynchronizeFailedRun[]>(`${base}/failed-runs?project_id=${encodeURIComponent(projectId)}&limit=${boundedLimit(limit, 200)}`),
-    getSynchronizeStatus: (projectId: string) => t.get<SynchronizeStatus>(`${base}/status?project_id=${encodeURIComponent(projectId)}`),
+    listFailedSynchronizeRuns: (projectId: string, limit = 50) => t.get<SynchronizeFailedRun[]>(`${base}/failed-runs?project_id=${project(projectId)}&limit=${boundedLimit(limit, 200)}`),
+    getSynchronizeStatus: (projectId: string) => t.get<SynchronizeStatus>(`${base}/status?project_id=${project(projectId)}`),
     bootstrapSynchronizeBindings: (body: SynchronizeBindingCreate) => t.post<{ bindings_created: number }>(`${base}/bootstrap`, body),
     pullSynchronizeBindings(params: { synchronize_binding_id?: string; project_id?: string; provider?: string }) {
       const query = new URLSearchParams();
@@ -228,6 +263,6 @@ export function createSynchronizeApi(t: CloudTransport) {
       }
       return t.post<SynchronizePullResult>(`${base}/pull?${query}`, {});
     },
-    pushSynchronizePath: (projectId: string, path: string) => t.post<SynchronizePushResult>(`${base}/push/${path.split('/').map(encodeURIComponent).join('/')}?project_id=${encodeURIComponent(projectId)}`, {}),
+    pushSynchronizePath: (projectId: string, path: string) => t.post<SynchronizePushResult>(`${base}/push/${path.split('/').map(encodeURIComponent).join('/')}?project_id=${project(projectId)}`, {}),
   };
 }

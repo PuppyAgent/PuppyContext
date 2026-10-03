@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link2 } from 'lucide-react';
 import { T } from '../lib/tokens';
-import type { DashboardConnection } from '../lib/types';
+import type { DashboardEntrypoint } from '../lib/types';
 
 // Same path-normalization rule used in page.tsx's `accessByPath`
 // builder and AccessPointsListCard.  The chip needs to broadcast its
@@ -50,7 +50,7 @@ export function ApChip({
   hoveredPath,
   onHoverPath,
 }: {
-  aps: DashboardConnection[];
+  aps: DashboardEntrypoint[];
   // Path of the tree row this chip lives on.  Used as the
   // hover-sync key so AccessPointsListCard can match against an
   // AP's normalized path and highlight the corresponding card.

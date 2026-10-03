@@ -13,7 +13,7 @@ import { listFailedSynchronizeRuns, resumeSynchronizeBinding } from '@/lib/synch
 import React, { useState } from 'react';
 
 /**
- * Failed sync kind: a sync_run row with ``status='failed'``. Fills
+ * Failed Synchronize kind: a SynchronizeRun row with ``status='failed'``. Fills
  * PUP-5 gap G1 — sync jobs always existed in the connectors layer
  * but had no list endpoint exposed to the frontend.
  *

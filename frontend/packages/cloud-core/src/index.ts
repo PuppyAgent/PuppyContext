@@ -60,3 +60,5 @@ export type { RepositoryScope, ScopeMode } from "./endpoints/scopes";
 // ── Access resources and independent repository identity ───────────────────
 export * from "./endpoints/accessSurfaces";
 export * from "./endpoints/repositoryIdentity";
+export * from "./endpoints/activity";
+export * from "./endpoints/resourceDashboard";

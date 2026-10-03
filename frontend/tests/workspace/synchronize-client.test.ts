@@ -10,9 +10,10 @@ function transport() {
 describe('canonical Synchronize client', () => {
   it('uses one canonical binding identity for create/list/edit/run/pause/delete', async () => {
     const t = transport();
-    const binding = { id: 'binding/1', project_id: 'project/1' };
+    const binding = { id: 'binding/1', project_id: 'project/1', path: '' };
     t.post.mockResolvedValue({ binding, execution_result: { synchronize_binding_id: binding.id, synchronize_run_id: 'run' } });
     t.get.mockResolvedValue([binding]);
+    t.patch.mockResolvedValue(binding);
     const api = createSynchronizeApi(t as CloudTransport);
     const body = { project_id: 'project/1', provider: 'url', config: { source: { metadata: { connection_id: 'unchanged' } } } };
     await api.createSynchronizeBinding(body);
@@ -23,6 +24,7 @@ describe('canonical Synchronize client', () => {
     await api.updateSynchronizeTrigger(binding.id, { sync_mode: 'manual' });
     await api.pauseSynchronizeBinding(binding.id);
     await api.resumeSynchronizeBinding(binding.id);
+    t.post.mockResolvedValue({ synced: 1, results: [{ synchronize_binding_id: binding.id }] });
     await api.refreshSynchronizeBinding(binding.id);
     await api.deleteSynchronizeBinding(binding.id);
     expect(t.patch.mock.calls.map(([path]) => path)).toEqual([
@@ -47,6 +49,25 @@ describe('canonical Synchronize client', () => {
     expect(() => api.deleteSynchronizeBinding('')).toThrow('binding ID');
     expect(t.get).toHaveBeenCalledTimes(3);
     expect(t.del).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous paths, duplicates and foreign update/refresh/detail echoes', async () => {
+    const t = transport(); const api = createSynchronizeApi(t);
+    const binding = { id: 'binding', project_id: 'project', path: '' };
+    t.get.mockResolvedValue([{ ...binding, path: null }]);
+    await expect(api.listSynchronizeBindings('project')).rejects.toThrow('target path');
+    t.get.mockResolvedValue([binding, binding]);
+    await expect(api.listSynchronizeBindings('project')).rejects.toThrow('duplicate');
+    t.patch.mockResolvedValue({ ...binding, id: 'foreign' });
+    await expect(api.updateSynchronizeBinding('binding', {})).rejects.toThrow('identity');
+    t.post.mockResolvedValue({ results: [{ synchronize_binding_id: 'foreign' }] });
+    await expect(api.refreshSynchronizeBinding('binding')).rejects.toThrow('another binding');
+    t.get.mockResolvedValue({ id: 'other-run', synchronize_binding_id: 'binding' });
+    await expect(api.getSynchronizeRun('run')).rejects.toThrow('another run');
+    t.get.mockClear();
+    await expect(api.listSynchronizeBindings('')).rejects.toThrow('Project ID');
+    await expect(api.getSynchronizeRun('')).rejects.toThrow('run ID');
+    expect(t.get).not.toHaveBeenCalled();
   });
 
   it('uses canonical provider, status, bootstrap, pull and push contracts', async () => {
@@ -88,8 +109,7 @@ describe('canonical Synchronize client', () => {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) scan(path);
         else if (/\.(ts|tsx)$/.test(path)) {
-          // GitHub's independently tracked webhook cutover is not the generic API.
-          const source = readFileSync(path, 'utf8').replaceAll('/api/v1/integrations/github/webhook', 'GITHUB_WEBHOOK_PENDING_058');
+          const source = readFileSync(path, 'utf8');
           expect(source, path).not.toMatch(/\/api\/v1\/integrations(?:[/'"`?])/);
         }
       }

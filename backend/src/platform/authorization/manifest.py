@@ -46,6 +46,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
     ("GET", "/api/v1/projects/{project_id}"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/authorization"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/dashboard"): _human(ProjectAction.PROJECT_READ),
+    ("GET", "/api/v1/projects/{project_id}/dashboard/resources"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/readiness"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/git-view/health"): _human(ProjectAction.PROJECT_READ),
     ("POST", "/api/v1/projects/{project_id}/git-view/rebuild-cache"): _human(ProjectAction.PROJECT_MANAGE),
@@ -290,6 +291,7 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("GET", "/api/v1/analytics/access-timeseries"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/analytics/access-summary"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/activity"): _human(ProjectAction.HISTORY_READ),
+    ("GET", "/api/v1/activity/items"): _human(ProjectAction.HISTORY_READ),
 })
 
 PROJECT_ROUTE_AUTHORIZATION.update({

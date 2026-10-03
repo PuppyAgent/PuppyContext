@@ -127,6 +127,7 @@ export const createProjectSession = () => createStore<ProjectSession>((set, get)
       cur.type === panel.type &&
       cur.nodeId === panel.nodeId &&
       cur.accessEndpointId === panel.accessEndpointId &&
+      cur.synchronizeBindingId === panel.synchronizeBindingId &&
       cur.agentId === panel.agentId &&
       cur.mcpEndpointId === panel.mcpEndpointId &&
       cur.sandboxEndpointId === panel.sandboxEndpointId &&

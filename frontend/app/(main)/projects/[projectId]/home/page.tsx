@@ -4,7 +4,9 @@ import { useProjectSession } from '@/features/workspace/session';
 import { use, useMemo, useEffect, useState } from 'react';
 import { useWorkspaceRouter as useRouter } from '@/features/workspace/navigation';
 import { useOnboarding } from '@/lib/hooks/useOnboarding';
-import { get } from '@/lib/apiClient';
+import { getResourceDashboard } from '@/lib/resourceDashboardApi';
+import { useAuth } from '@/contexts/SupabaseAuthProvider';
+import { dashboardEntrypoint } from './lib/types';
 import useSWR from 'swr';
 import { treeList, getProjectHistory, sortNodes } from '@/lib/contentTreeApi';
 
@@ -12,7 +14,7 @@ import { T } from './lib/tokens';
 import { formatRelative } from './lib/format';
 import type {
   ProjectDashboard,
-  DashboardConnection,
+  DashboardEntrypoint,
   TreeNode,
 } from './lib/types';
 
@@ -102,6 +104,7 @@ export default function HomePage({
 }) {
   const { projectId } = use(params);
   const router = useRouter();
+  const { userId, session, isAuthReady } = useAuth();
   const openPanel = useProjectSession(state => state.openPanel);
 
   // Shared hover key for the Data ApChip ↔ AccessPointsListCard
@@ -116,9 +119,9 @@ export default function HomePage({
 
   // Data
 
-  const { data: dashboard, mutate: mutateDashboard } = useSWR<ProjectDashboard>(
-    projectId ? `/api/v1/projects/${projectId}/dashboard` : null,
-    (url: string) => get<ProjectDashboard>(url),
+  const { data: dashboard, error: dashboardError, mutate: mutateDashboard } = useSWR<ProjectDashboard>(
+    projectId && userId && isAuthReady ? ['resource-dashboard', userId, projectId] : null,
+    () => getResourceDashboard(projectId),
     {
       refreshInterval: 120_000,
       revalidateOnFocus: true,
@@ -126,6 +129,10 @@ export default function HomePage({
       dedupingInterval: 5_000,
     },
   );
+
+  useEffect(() => {
+    if (userId && isAuthReady) void mutateDashboard();
+  }, [userId, isAuthReady, session?.access_token, mutateDashboard]);
 
   const { data: treeEntries, mutate: mutateTree } = useSWR(
     projectId ? ['home-tree', projectId] : null,
@@ -162,8 +169,8 @@ export default function HomePage({
     return buckets;
   }, [commits]);
 
-  const connections = useMemo<DashboardConnection[]>(() => {
-    return dashboard?.connections || [];
+  const connections = useMemo<DashboardEntrypoint[]>(() => {
+    return dashboard?.resources.map(dashboardEntrypoint) || [];
   }, [dashboard]);
 
   // Auto-complete onboarding steps based on real data
@@ -211,7 +218,7 @@ export default function HomePage({
   // require a long visual leap that the TopologyCanvas already
   // serves more directly.
   const accessByPath = useMemo(() => {
-    const map = new Map<string, DashboardConnection[]>();
+    const map = new Map<string, DashboardEntrypoint[]>();
     for (const conn of connections) {
       // Normalize the three legacy Project-root path representations the
       // backend can produce into a single key — '' — so downstream
@@ -380,6 +387,11 @@ export default function HomePage({
 
   // Keep the page header band mounted during the initial data load so
   // the loader is centered in the same body region as the final page.
+  if (dashboardError) {
+    return <div role="alert" style={{ padding: 24 }}>
+      Failed to load project resources. <button type="button" onClick={() => void mutateDashboard()}>Retry</button>
+    </div>;
+  }
   if (!dashboard || dashboard.project.id !== projectId) {
     return <ProjectPageLoadingShell title="Home" />;
   }

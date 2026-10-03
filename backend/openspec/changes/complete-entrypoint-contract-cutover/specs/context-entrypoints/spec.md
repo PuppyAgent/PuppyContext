@@ -26,6 +26,21 @@ One-time database source management SHALL use ImportDatabaseSource resources wit
 - **WHEN** a caller supplies legacy/unknown/repeated/blank selectors, a foreign source or another resource domain's ID
 - **THEN** the request fails before broadening selection, exposing secrets or writing content
 
+### Requirement: Domain-qualified resource aggregation
+Dashboard resources SHALL retain explicit resource kind, resource ID and Project ownership. Access targets SHALL derive from persisted surface/Scope facts, not Provider, name or path matching. Activity SHALL emit synchronize_run without rewriting its own IDs or historical text. Synchronize permission spelling SHALL change without role escalation.
+
+#### Scenario: Equal resource IDs across domains
+- **WHEN** an Access surface and Synchronize binding have the same ID, name or destination
+- **THEN** inventory, statistics, navigation, pause/delete and execution remain scoped to the explicitly selected resource domain
+
+#### Scenario: Failed or obsolete inventory
+- **WHEN** canonical inventory reads fail or a client receives only legacy connections or sync_run aliases
+- **THEN** the failure remains visible and the client does not fabricate an empty successful inventory or retry a legacy URL
+
+#### Scenario: Stale user context
+- **WHEN** Project, source, user/session or component lifetime changes during an asynchronous request
+- **THEN** delayed completions cannot update the new context or attach the previous resource to it
+
 ### Requirement: Joint closure evidence
 Final closure SHALL require every original ISSUE-058 and ISSUE-059 criterion, including actual consumer/queue/configuration retirement, schema/data verification and version-specific delivery evidence. Local test doubles SHALL be identified as such.
 

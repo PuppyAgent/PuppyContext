@@ -125,6 +125,7 @@ profile_router_duration = time.time() - profile_router_start
 
 imports_router_start = time.time()
 from src.platform.activity.router import router as activity_router
+from src.platform.activity.public_router import router as activity_public_router
 from src.platform.imports.router import router as imports_router
 
 imports_router_duration = time.time() - imports_router_start
@@ -765,6 +766,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router, tags=["analytics"])
     app.include_router(profile_router, tags=["profile"])
     app.include_router(imports_router, prefix="/api/v1", tags=["imports"])
+    app.include_router(activity_public_router, prefix="/api/v1", tags=["activity"])
     app.include_router(activity_router, prefix="/api/v1", tags=["activity"])
     from src.platform.imports.database.public_router import router as import_database_sources_router
 
@@ -791,7 +793,9 @@ def create_app() -> FastAPI:
 
     app.include_router(sandbox_endpoint_router, prefix="/api/v1", tags=["sandbox-endpoints"])
     from src.platform.project.dashboard_router import router as dashboard_router
+    from src.platform.project.resource_dashboard import router as resource_dashboard_router
 
+    app.include_router(resource_dashboard_router, prefix="/api/v1", tags=["projects"])
     app.include_router(dashboard_router, prefix="/api/v1", tags=["projects"])
     from src.platform.access.public_router import project_router as public_project_access_router
     from src.platform.access.public_router import router as public_access_router

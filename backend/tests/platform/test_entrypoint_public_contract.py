@@ -46,7 +46,7 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
         binding["properties"].pop(field)
     # Canonical S2 routes are an explicit additive contract, not a wildcard
     # exemption. Existing route/schema fingerprints must remain unchanged.
-    for filename in ("synchronize_contract_delta.json", "access_contract_delta.json", "github_database_contract_delta.json"):
+    for filename in ("synchronize_contract_delta.json", "access_contract_delta.json", "github_database_contract_delta.json", "aggregate_contract_delta.json"):
         delta = json.loads(Path(__file__).with_name(filename).read_text())
         for category in ("paths", "schemas"):
             assert not expected["contract"][category].keys() & delta[category].keys()

@@ -6,7 +6,8 @@ queue orchestration. Its explicit projections disappear into the application
 boundary when 049/061 and all legacy consumers complete cutover; do not add a
 second implementation of the operations below.
 """
-from typing import Annotated, Callable
+from collections.abc import Callable
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -19,15 +20,25 @@ from src.platform.authorization.service import AuthorizationService
 from src.platform.synchronize import router as operations
 from src.platform.synchronize.arq_client import SyncArqClient
 from src.platform.synchronize.dependencies import (
-    get_sync_arq_client, get_synchronize_engine, get_synchronize_provider_registry,
+    get_sync_arq_client,
+    get_synchronize_engine,
+    get_synchronize_provider_registry,
     get_synchronize_service,
 )
 from src.platform.synchronize.engine import SynchronizeEngine
 from src.platform.synchronize.public_schemas import (
-    SynchronizeBinding, SynchronizeBindingCreate, SynchronizeBindingCreated,
-    SynchronizeBindingUpdate, SynchronizeBootstrapResult, SynchronizeExecutionResult,
-    SynchronizeFailedRun, SynchronizePullResult, SynchronizePushResult, SynchronizeRun,
-    SynchronizeStatus, SynchronizeTriggerUpdate,
+    SynchronizeBinding,
+    SynchronizeBindingCreate,
+    SynchronizeBindingCreated,
+    SynchronizeBindingUpdate,
+    SynchronizeBootstrapResult,
+    SynchronizeExecutionResult,
+    SynchronizeFailedRun,
+    SynchronizePullResult,
+    SynchronizePushResult,
+    SynchronizeRun,
+    SynchronizeStatus,
+    SynchronizeTriggerUpdate,
 )
 from src.platform.synchronize.service import SynchronizeService
 from src.provider.registry import ProviderRegistry
@@ -70,6 +81,8 @@ def _reply(result: ApiResponse, project: Callable) -> ApiResponse:
 
 def _binding(value) -> SynchronizeBinding:
     fields = _dict(value)
+    if not isinstance(fields.get("path"), str):
+        raise HTTPException(409, "Synchronize target path requires repair; an absent path is not an explicit Project root.")
     fields["last_synchronize_commit_id"] = fields.pop("last_sync_commit_id")
     return SynchronizeBinding(**fields)
 

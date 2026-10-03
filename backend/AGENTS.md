@@ -212,6 +212,11 @@ audit/transaction/outbox。
 | `/api/v1/access/surfaces` | platform/access/public_router | AccessSurface canonical API；kind / Repository Contract v2 |
 | `/api/v1/access` | platform/access/router | 058 有限兼容；新客户端不得 fallback |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
+| `/api/v1/imports/database/sources` | platform/imports/database/public_router | ImportDatabaseSource；单次保存、不创建持续绑定 |
+| `/api/v1/projects/{project_id}/synchronize/github` | platform/synchronize/github/public_router | GitHub 专属 binding/pull/push/logs；独立于 generic binding ID |
+| `/api/v1/synchronize/github/webhook` | platform/synchronize/github/public_router | 原始 body HMAC 与去重；canonical binding 引用 |
+| `/api/v1/projects/{project_id}/dashboard/resources` | platform/project/resource_dashboard | resource_kind/resource_id 聚合；分域 usage，不按裸 ID 合并 |
+| `/api/v1/activity/items` | platform/activity/public_router | 只读 typed activity；synchronize_run，原历史文字不改写 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |
 | `/internal` | internal | 内部 API |
 
