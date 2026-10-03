@@ -66,7 +66,7 @@ PG/S3 证明。native oracle 使用 file://（否则 depth/filter 可能被本�
 |---|---|---|
 | G01 | 原生 Git init；组件 fixture 初始化 | 真正空仓库/unborn HTTP clone、首次多 ref 发布、生命周期 |
 | G02–G04 | object unit、HTTP 二进制/mode/symlink 往返 | 极限尺寸、全产品入口和真实 S3 保真 |
-| G05–G11 | object graph、上述原始对象/DAG/tag recipes、原空提交失败用例 | 修复所有目标失败；完整生产发布/冷读/GC |
+| G05–G11 | object graph、原始对象/DAG/tag recipes；空提交身份、显式 root/Scope head CAS、冷读与竞争已修复 | 修复所有目标失败；完整生产发布/冷读/GC |
 | G12 | 原生 SHA-1/SHA-256、PG ref 对照 | per-repo SHA-256 的对象存储、协议、跨实例全链路 |
 | G13–G14 | opaque header、gitlink/.gitmodules 字节 | 真正签名及用户 trust 验证、attributes/filter 执行隔离 |
 | G15–G23 | SQL ref 事务、原/新增 branch/tag/generic ref recipes | 广告快照、任意字节 refs、策略、跨实例 CAS、API 接入 |
@@ -91,6 +91,22 @@ PG/S3 证明。native oracle 使用 file://（否则 depth/filter 可能被本�
 第二实例读取、对象丢失/损坏、GC 与 publication 交错、租约/代际失效、恢复演练、
 旧客户端和持续写入中的迁移。这些未完成项不会以空 `pass`、skip 或 native oracle
 计为已覆盖；现有 07/08、A6–A11 与 M01–M20 仍然约束最终关闭。
+
+### 版本身份与发布竞争修复
+
+空提交不再因 tree 相同被吞掉。兼容 SQL 先锁 Project，再检查 root/Scope 的显式
+expected head（包括不存在），原发布点双客户端竞争断言保留并扩到 Scope。
+无 expected head 的旧 RPC 仍维持原合同；新客户端使用 `_checked` 入口，旧 schema
+不得静默降级。升级不重写旧数据、原函数身份/default/ACL 不变，失败回滚和重试有
+实际 PG 证据；生产 history adapter 经真实 SDK/PostgREST 验证 checked/用量路径。
+
+receive 的不可变私有对象快照不再把 cache lease 持有到 SQL 发布，缓存删除也不影响
+在途请求。放开真正竞争后，另修复 Scope 旧可见 alias 导致 stale CAS retry 自动合并
+并错误确认的问题。相关对象测试仍是磁盘，不等于实际 S3 receipt/pin/GC 完成。
+
+托管 prefix-ref oracle 校正为 stock **bare** Git，原恰一成功断言未放宽。
+独立 100 次对照：bare 100 次恰一成功，worktree 19 次因文件 reflog 目录竞态双失败。
+该 worktree/Git 版本问题继续记录，不能宣称上游 Git bug 已被本任务修复。
 
 ## 4. 运行与判读
 

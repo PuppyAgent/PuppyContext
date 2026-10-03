@@ -11,7 +11,7 @@ release pointers. Six new tables are empty on upgrade: repository metadata,
 byte-valued refs (including HEAD), closure receipts, ref transactions, reflog
 entries and ref events (outbox). The service role can read these tables but
 cannot enable authority or mutate refs/results directly. No runtime entrypoint
-calls the new RPC in this tranche. No production activation RPC is provided.
+calls the native ref-transaction RPC in this tranche. No production activation RPC is provided.
 
 Legacy/shadow repositories retain their existing authority. Native fixture
 repositories are created explicitly by the database owner in disposable tests.
@@ -143,3 +143,40 @@ Git acceptance is required before publication: object presence alone cannot
 convert a receiver rejection to success. The receive ref snapshot is strict,
 so a control-plane outage cannot become an empty namespace. This does not add
 atomic DB CAS to legacy named refs or activate native repository authority.
+
+## Version identity and source-head CAS compatibility repair
+
+`20261003030000_fix_legacy_publication_head_cas.sql` keeps the old publish RPC
+identity, defaults, ACLs and unguarded tree-CAS contract. It locks the Project
+before the source-head row (including absence), and honors explicit expected
+heads for both root and Scope. Root-first Git submissions now provide that
+expected identity and publish new commits even when their tree is unchanged.
+Ordinary non-Git content no-ops retain their previous behavior.
+
+Two backend-only `_checked` wrappers make schema-before-code fail closed,
+including the storage-usage path. The production history adapter selects these
+when the expected source head is present (empty means expected absence). It
+never falls back to the older RPC: that RPC accepted the argument while ignoring
+it for root writes before the repair. No new definer privileges, native refs
+activation, object receipts or data backfill are introduced.
+
+Receive requests take a request-owned immutable object snapshot under the cache
+lease, then release that lease before Git admission and database publication.
+Only required reachable objects are retained, using hard links with copy fallback;
+pruning cannot invalidate the active receive. The unchanged publication-barrier
+race can now reach SQL concurrently instead of deadlocking behind the cache lock.
+This trades per-request snapshot work for correct lock lifetime; large-history
+performance remains an explicit gate.
+
+Releasing that lock exposed a second stale-write defect: a Scope's old visible
+alias remained acceptable after another writer advanced its canonical head. An
+alias is now admitted only while the canonical Scope head is absent. This keeps
+root-derived/excluded/legacy projections compatible without turning a stale Git
+CAS retry into automatic merge and acknowledgement. Both first-attempt and
+retry rejection are covered.
+
+The SQL tests use explicit expected heads (unchanged acceptance assertions),
+concurrent absent/existing rows, populated upgrade, late-DDL rollback/retry and
+original RPC/ACL preservation. Actual Supabase tests exercise the production
+history adapter through the real SDK/PostgREST and deny client JWT invocation.
+Objects in the HTTP conformance fixture are still disk-backed, not real S3.

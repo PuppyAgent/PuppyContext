@@ -72,7 +72,7 @@ class Postgres:
     def value(self, statement):
         return self.sql(statement).stdout.strip()
 
-    def publish(self, project, old, new, commit):
+    def publish(self, project, old, new, commit, *, expected_head=None, scope="", scope_head=""):
         values = [
             project,
             old,
@@ -87,8 +87,16 @@ class Postgres:
             "test:writer",
             "{}",
         ]
+        guard = ""
+        if expected_head is not None:
+            guard = (
+                ",p_expected_scope_head_commit_id=>" + literal(expected_head)
+                + ",p_scope_path=>" + literal(scope)
+                + ",p_scope_head_commit_id=>" + literal(scope_head)
+            )
         return (
             "SELECT row_to_json(result) FROM public.publish_version_project_update("
             + ",".join(literal(v) for v in values)
+            + guard
             + ") result;"
         )

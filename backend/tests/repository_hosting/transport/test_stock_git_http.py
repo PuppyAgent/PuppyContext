@@ -46,9 +46,6 @@ def test_feature_branch_and_lightweight_tag_roundtrip_without_changing_main(host
     restored.run("fsck", "--full", "--strict")
 
 
-@pytest.mark.hosting_gap(
-    "same-tree Git commit is acknowledged as a no-op, but clone still returns the old commit"
-)
 def test_empty_commit_retains_new_commit_identity_when_tree_is_unchanged(hosted, tmp_path):
     git, remote, _state, _scope, initial = hosted
     git.run("commit", "--allow-empty", "-m", "metadata-only commit")
@@ -60,10 +57,7 @@ def test_empty_commit_retains_new_commit_identity_when_tree_is_unchanged(hosted,
     assert restored.text("rev-parse", "HEAD^{tree}") == git.text("rev-parse", initial + "^{tree}")
 
 
-@pytest.mark.parametrize("hosted", [""], indirect=True)
-@pytest.mark.hosting_gap(
-    "same-tree pushes currently bypass publication; after that is fixed, publication must also enforce head CAS"
-)
+@pytest.mark.parametrize("hosted", ["", "docs"], indirect=True)
 def test_two_same_tree_git_pushes_cannot_both_acknowledge_the_same_old_head(
     hosted, tmp_path, monkeypatch
 ):

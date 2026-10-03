@@ -3,6 +3,8 @@ from threading import Barrier
 
 import pytest
 
+from tests.repository_hosting.harness.git import Git
+
 pytestmark = pytest.mark.hosting_native
 
 
@@ -38,8 +40,17 @@ def test_failed_batch_does_not_advance_any_ref(git_repo):
     assert git_repo.refs() == before
 
 
-def test_ref_prefix_create_race_has_one_winner(git_repo):
+def test_ref_prefix_create_race_has_one_winner(git_repo, tmp_path):
     oid = git_repo.commit({"a": b"base"})
+    # Hosting ref transactions use a stock bare repository as their oracle,
+    # not a worktree with implicit filesystem reflogs. Git 2.50.1's worktree
+    # reflog D/F race can reject both writers (recorded separately); it is not
+    # a guarantee of our PostgreSQL reflog implementation. Retain the exact
+    # one-winner/ref-state assertions against the declared hosting profile.
+    bare = tmp_path / "prefix-oracle.git"
+    git_repo.run("clone", "--bare", "--no-hardlinks", git_repo.path, bare)
+    git_repo = Git(bare)
+    assert git_repo.text("rev-parse", "--is-bare-repository") == "true"
     gate = Barrier(2)
 
     def create(name):

@@ -123,12 +123,12 @@ def test_new_and_legacy_column_writers_preserve_each_others_saved_root(pg_projec
         )
 
 
-@pytest.mark.hosting_gap(
-    "current root-hash CAS cannot reject an old head when both commits share a tree"
-)
 def test_same_tree_different_commits_require_head_cas(pg_project):
     pg, project = pg_project
-    first = json.loads(pg.value(pg.publish(project, "1" * 40, "1" * 40, "a" * 40)))
-    second = json.loads(pg.value(pg.publish(project, "1" * 40, "1" * 40, "b" * 40)))
+    # Both submissions observed the same absent source head. Supply its
+    # identity at the RPC boundary; old unguarded clients intentionally retain
+    # their tree-CAS contract (tested separately), not implicit OID-CAS.
+    first = json.loads(pg.value(pg.publish(project, "1" * 40, "1" * 40, "a" * 40, expected_head="")))
+    second = json.loads(pg.value(pg.publish(project, "1" * 40, "1" * 40, "b" * 40, expected_head="")))
     assert first["published"] is True
     assert second["published"] is False

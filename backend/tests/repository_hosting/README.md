@@ -92,11 +92,11 @@ Scope 合同，也不接通 dormant SQL authority。
 
 真实 pgTAP 曾暴露新函数 search_path 不符合 ISSUE-053（由前向 migration 修复），以及 Python 大量租户污染全局 billing claim 队列。现在先用一个合成 org 让 GC smoke probe 必定运行，再执行全部原 SQL 文件，最后跑 Python；不放宽原 SQL 断言。9 个文件 / 329 项 pgTAP 与定向 147 项测试（含 44 项真实 Auth/PostgREST）已通过；均非全量托管、真实 S3 或部署验收。
 
-额外观察：本机 Git 2.50.1 的 prefix-ref 并发创建会偶发两个请求都失败（100 次独立试验中 6 次，reflog 目录冲突，无新 ref）。原 `test_ref_prefix_create_race_has_one_winner` 断言未放宽，仅增加 stderr 诊断；不能用某次重跑通过宣称该 oracle 已稳定。
+原生 oracle 校正：此前误用 worktree 默认开启的文件 reflog 对照托管 ref 事务，Git 2.50.1 存在 prefix/reflog 目录竞争，曾 6/100 双失败。新独立对照中 worktree 19/100 双失败、bare 默认 100/100 恰一成功。`test_ref_prefix_create_race_has_one_winner` 现在明确使用 stock bare Git，保留原恰一成功与最终 ref 断言；没有 skip、重试或放宽断言。**这不是修复 stock Git 的 worktree bug**，客户端版本/profile 门禁仍需跟踪它；PG reflog 事务由真实 SQL 用例另行验证。
 
 已知缺口由测试里的 `hosting_gap` 标记逐项说明。普通模式使用 **strict XFAIL**：能力修好后出现 XPASS，要求移除标记；`--target` 则直接作为失败报告。初始化/清理错误不会被缺口标记隐藏。
 
-目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送，以及空提交被确认却未保存。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上只证明当前 SHA-1 对象层，不启用尚未实现的 native refs 或 SHA-256 托管。旧运行时 PG 层仍有“文件树相同但 head 不同”的失败目标测试；新 SQL 原语通过同树旧 OID 对照，不等于旧 RPC/transport 已切换。完整目标门禁继续保留这项失败，不能以新增局部测试替换。
+目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送；空提交丢失与显式 source-head CAS 已由下述兼容修复纠正。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上只证明当前 SHA-1 对象层，不启用尚未实现的 native refs 或 SHA-256 托管。`20261003030000_fix_legacy_publication_head_cas.sql` 追加修复 root/Scope 显式 expected-head，并先锁 Project 来串行化不存在的 Scope 行。原目标测试保持成功/拒绝断言，显式提供同一个旧 head；没有旧 head 的 legacy RPC 继续树 CAS，不能宣称它自动获得 OID CAS。生产 adapter 对带 head 的写入使用新增 `_checked` RPC（含用量路径），旧 schema 缺此入口必须失败，禁止静默回退。空提交现在是真实新版本；receive 私有对象快照释放缓存锁后再发布，保留原发布点竞争断言；同时修复 Scope 旧可见 alias 在重试中越过新 canonical head 的问题。新增 SQL/升级、实际 SDK/PostgREST/JWT 与 HTTP 冷读/竞争用例；没有接通 native authority、S3 receipts 或命名 refs 原子事务。
 
 原 `tests/conflicts/cases.py` 的 117 条不是 117 条现成测试。本运行器执行其中 **100 条**，采用相同起点、固定发布顺序制造 CAS 重试；真正并发另在 `concurrency/` 和 PG 用例验证。其余 **17 条未算作覆盖**，原因在 `harness/catalog_scope.py::EXCLUDED`：有些依赖旧 scope 所有权模型，有些需要不同入口或尚未搭好的删除/移动竞态。原样本和断言未改。C04（同源重命名）与 F12（待审提案 ID 碰撞）现已修复并移除对应缺口标记；剩余 A04/B11/C01 的预期与现行产品 LWW 策略不一致，继续保留失败，不提交 conflict markers 或反转现行删除策略来凑全绿。
 

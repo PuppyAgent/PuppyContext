@@ -205,7 +205,7 @@ class FakeHistoryManager:
             if self._root_hash != old_root_hash:
                 return False, None
             norm = scope_path.strip("/")
-            if norm and expected_scope_head_commit_id is not None:
+            if expected_scope_head_commit_id is not None:
                 current_scope_head = self._scope_head_commit_ids.get(norm, "")
                 if current_scope_head != expected_scope_head_commit_id:
                     return False, None

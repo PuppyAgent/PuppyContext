@@ -16,8 +16,11 @@
 - [x] Run actual Supabase migrations, all 9 pgTAP files / 329 tests, and 44 real
   GoTrue/PostgREST boundary cases. Fix new-definer search paths in a forward
   migration; run SQL before Python tenants with one org to exercise GC smoke.
-- [ ] Resolve the observed stock-Git prefix/reflog create race without weakening
-  the original oracle; 6/100 standalone attempts had two failed writers.
+- [x] Correct the hosting prefix-ref oracle to use stock bare Git, retaining its
+  one-winner/ref-state assertions. A fresh 100-attempt probe passed 100/100 for
+  bare defaults; worktree defaults had 19 double failures (reflog D/F race).
+- [ ] Track the upstream worktree reflog race in the client/version matrix;
+  correcting the hosting oracle profile does not fix stock Git itself.
 - [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
@@ -71,12 +74,21 @@
   injected DDL failure/retry. Auth and object-closure receipts are fixture stubs.
 - [x] Verify dormant expansion/ACLs through actual owned Supabase/PostgREST;
   preserve old SQL files and assert new-definer hardening rollback/data/ACL safety.
+- [x] Repair legacy source-head CAS with Project-first locking and expected
+  identity for root/Scope, including absent rows; retain old RPCs and ACLs.
+- [x] Preserve metadata-only Git commits and require versioned checked RPCs,
+  including metered publication; fail closed on old schemas, with no fallback.
+- [x] Release receive cache leases before publication via private immutable
+  snapshots; fix stale Scope aliases exposed by actual concurrent publication.
+- [x] Verify populated SQL repair/rollback/retry and production adapter through
+  real SDK/PostgREST with backend/client roles; native authority stays dormant.
 - [ ] Complete target-environment security/deployment gates; local fixture success
   does not authorize activation or prove real-user upgrade compatibility.
 - [ ] Implement durable object receipts/pins and GC-publication coordination.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including
   ref policy, lifecycle leases, non-atomic orchestration and result-query consumers.
-  Existing root-first same-tree CAS and transport targets still fail.
+  The compatibility source-head CAS is repaired; native ref service, durable
+  receipts/GC, named-ref atomicity and remaining transport targets still need work.
 - [ ] Integrate full Git transport and advertised protocol capabilities.
 - [ ] Integrate product/automatic writers, reads, Scope adapters and lifecycle.
 - [ ] Complete maintenance, export/restore, derived events and usage verification.

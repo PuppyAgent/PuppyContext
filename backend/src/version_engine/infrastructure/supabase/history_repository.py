@@ -369,6 +369,12 @@ class SupabaseHistoryManager:
                 }
             )
 
+        if expected_scope_head_commit_id is not None:
+            # The pre-repair RPC accepts but ignores this argument for root
+            # writes. Require the versioned entrypoint; never fall back to an
+            # older schema and silently lose head-CAS protection.
+            rpc_name += "_checked"
+
         try:
             resp = self._client.rpc(rpc_name, rpc_args).execute()
             data = resp.data

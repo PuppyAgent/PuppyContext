@@ -9,6 +9,8 @@ and DB CAS only.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import tempfile
 from contextlib import contextmanager
@@ -291,21 +293,29 @@ def quarantine_bare_repo(
     include_blobs: bool = True,
     follow_history: bool = False,
     extra_refs: dict[str, str] | None = None,
+    detach_cache: bool = False,
 ) -> Path:
-    """Yield an isolated object DB; callers choose boundary or full closure."""
+    """Yield an isolated object DB, optionally independent of the cache lease.
 
+    Receive admission/publication must not retain the transport cache lock.
+    A private immutable snapshot lets concurrent requests reach the database
+    CAS and survives pruning while Git or publication consumes its objects.
+    """
+
+    if detach_cache and not (follow_history and include_blobs):
+        raise ValueError("detached receive snapshot requires full object closure")
     named_refs = _sanitize_named_refs(extra_refs or {})
-    with transport_bare_repo(
-        repo,
-        scope_path,
-        scope_excludes,
-        follow_history=follow_history,
-        include_blobs=include_blobs,
-        extra_roots=list(named_refs.values()),
-    ) as cache_bare:
-        with tempfile.TemporaryDirectory(prefix="puppyone-git-quarantine-") as tmp:
-            bare_dir = Path(tmp) / "repo.git"
-            _ensure_bare_repo(bare_dir)
+    with tempfile.TemporaryDirectory(prefix="puppyone-git-quarantine-") as tmp:
+        bare_dir = Path(tmp) / "repo.git"
+        _ensure_bare_repo(bare_dir)
+        with transport_bare_repo(
+            repo,
+            scope_path,
+            scope_excludes,
+            follow_history=follow_history,
+            include_blobs=include_blobs,
+            extra_roots=list(named_refs.values()),
+        ) as cache_bare:
             alternates = bare_dir / "objects" / "info" / "alternates"
             alternates.parent.mkdir(parents=True, exist_ok=True)
             alternates.write_text(
@@ -313,10 +323,34 @@ def quarantine_bare_repo(
                 encoding="utf-8",
             )
             cache_ref = cache_bare / "refs" / "heads" / "main"
-            if cache_ref.exists():
-                _write_main_ref(bare_dir, cache_ref.read_text(encoding="ascii").strip())
+            head = cache_ref.read_text(encoding="ascii").strip() if cache_ref.exists() else ""
+            _write_main_ref(bare_dir, head)
             _write_named_refs(bare_dir, named_refs)
-            yield bare_dir
+            if not detach_cache:
+                yield bare_dir
+                return
+            _detach_receive_cache(bare_dir, cache_bare, [head, *named_refs.values()])
+            alternates.unlink()
+        # Only a disposable cache lease was released; canonical authority and
+        # the final old-head compare-and-swap still belong to PostgreSQL.
+        yield bare_dir
+
+
+def _detach_receive_cache(bare_dir: Path, cache_bare: Path, roots: list[str]) -> None:
+    """Retain only required immutable loose objects, not the whole cache.
+
+    Hard links retain bytes after cache unlink/atomic replacement. Cross-device
+    filesystems fall back to a copy under the lease. No canonical object is
+    deleted or promoted here. Large-history snapshot cost remains measurable.
+    """
+    for object_id in _reachable_object_ids_from_bare(cache_bare, roots):
+        source = cache_bare / "objects" / object_id[:2] / object_id[2:]
+        target = bare_dir / "objects" / object_id[:2] / object_id[2:]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(source, target)
+        except OSError:
+            shutil.copyfile(source, target)
 
 
 class GitObjectQuarantine:
@@ -621,6 +655,7 @@ def official_receive_pack_quarantine(
         include_blobs=True,
         follow_history=True,
         extra_refs=extra_refs,
+        detach_cache=True,
     ) as bare_dir:
         try:
             output = _run_official_receive_pack(bare_dir, request_path)
@@ -659,6 +694,7 @@ def official_receive_pack_quarantine(
             include_blobs=True,
             follow_history=True,
             extra_refs=extra_refs,
+            detach_cache=True,
         ) as bare_dir:
             output = _run_official_receive_pack(bare_dir, request_path)
             yield OfficialReceivePackQuarantine(
