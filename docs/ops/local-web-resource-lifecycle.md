@@ -3,11 +3,12 @@
 > Status: Operational
 > Canonical owner: Puppyone Cloud Engineering
 > Code source: `puppyone-cloud`
-> Last verified: 2026-10-03 against `puppyone-cloud@43d3aa92`
+> Last verified: 2026-10-04 against `puppyone-cloud@c3f0c2cf`
 
-These changes are locally verified task-branch work, not a published release.
+These changes are verified and integrated into local `qubits`, not pushed or
+published.
 Desktop's service admission/ownership contract has one canonical owner:
-`puppy-issues@88c2de66:document/puppyone-desktop/operations/local-cloud-development.md`.
+`puppy-issues@b56f5ed5:document/puppyone-desktop/operations/local-cloud-development.md`.
 This document owns the Web build, health interface and regression harness.
 
 ## Explicit production preview
@@ -80,6 +81,13 @@ health/login regression on frontend PRs and `qubits`/`main` changes. Its YAML an
 local commands were checked; no remote workflow run or branch-protection change
 is claimed.
 
+On 2026-10-04, the latest local `qubits` integration was reverified: all 222
+frontend unit tests, TypeScript, production preview build and the BFF,
+hydration and deployment contracts passed. Desktop separately passed 115
+related tests, including the actual standalone executable and assets. A
+120-request production smoke window retained about 0.12 MiB for health and
+0.45 MiB for login. This is local evidence, not a remote CI or release result.
+
 ## Known development-runtime gap
 
 With Next 15.5.9, 200 synthetic development login requests retained about
@@ -96,7 +104,7 @@ raise budgets, periodically clear build caches, or schedule restarts and call
 that the root-cause fix. Long-duration soak and a verified upstream repair remain
 follow-up work; finite passing windows cannot exclude slower leaks.
 
-Sources: `puppyone-cloud@43d3aa92:frontend/scripts/build-local-login.mjs`,
-`puppyone-cloud@43d3aa92:frontend/app/api/health/route.ts`,
-`puppyone-cloud@43d3aa92:frontend/scripts/check-server-memory.mjs`, and
-`puppyone-cloud@43d3aa92:.github/workflows/frontend-resource-regression.yml`.
+Sources: `puppyone-cloud@c3f0c2cf:frontend/scripts/build-local-login.mjs`,
+`puppyone-cloud@c3f0c2cf:frontend/app/api/health/route.ts`,
+`puppyone-cloud@c3f0c2cf:frontend/scripts/check-server-memory.mjs`, and
+`puppyone-cloud@c3f0c2cf:.github/workflows/frontend-resource-regression.yml`.
