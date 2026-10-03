@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "bash tests/run.sh",
-    "test:unit": "node tests/fs_golden.test.mjs && node tests/fs_cli_mapping.test.mjs && node tests/template_commands.test.mjs && node tests/mcp_config.test.mjs",
+    "test:unit": "node tests/fs_golden.test.mjs && node tests/fs_cli_mapping.test.mjs && node tests/template_commands.test.mjs && node tests/mcp_config.test.mjs && node tests/entrypoint_commands.test.mjs",
     "test:verbose": "bash tests/run.sh --verbose"
   },
   "files": [

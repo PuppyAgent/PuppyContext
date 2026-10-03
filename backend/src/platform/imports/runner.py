@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from src.provider._base import AuthRequirement, FetchResult
-from src.platform.imports.providers import get_import_provider_registry
+from src.platform.imports.providers import get_import_provider_registry, require_import_provider
 from src.platform.imports.repository import ImportJob
 from src.platform.project.write_lease import (
     ProjectWriteLease,
@@ -100,11 +100,7 @@ class OneTimeImportRunner:
         on_phase: PhaseCallback | None = None,
     ) -> ImportRunResult:
         registry = get_import_provider_registry()
-        adapter = registry.get(job.provider)
-        if not adapter and job.provider == "notion":
-            adapter = registry.get("url")
-        if not adapter:
-            raise ValueError(f"Unknown import provider: {job.provider}")
+        adapter = require_import_provider(registry, job.provider)
 
         spec = adapter.spec()
         config = dict(job.config or {})

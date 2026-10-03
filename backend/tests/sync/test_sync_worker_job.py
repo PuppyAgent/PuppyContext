@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from src.platform.synchronize.jobs import execute_sync_run
+from src.platform.synchronize.jobs import execute_synchronize_run as execute_sync_run
 
 
 @dataclass
@@ -122,7 +122,7 @@ async def test_sync_worker_returns_completed_result_from_engine():
     assert result == {
         "status": "completed",
         "run_id": "run-1",
-        "connection_id": "conn-1",
+        "synchronize_binding_id": "conn-1",
         "path": "/Gmail",
         "commit_id": "commit-1",
     }
@@ -238,7 +238,7 @@ async def test_sync_worker_does_not_overwrite_terminal_status_set_by_engine(term
     assert result == {
         "status": terminal_status,
         "run_id": "run-1",
-        "connection_id": "conn-1",
+        "synchronize_binding_id": "conn-1",
     }
     assert engine.calls == [("conn-1", "scheduled", "run-1")]
     assert run_repo.completed == []

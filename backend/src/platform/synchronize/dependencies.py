@@ -57,6 +57,7 @@ def _build_synchronize_service(
     registry = registry or get_synchronize_provider_registry()
     svc = SynchronizeService(
         repository=SynchronizeRepository(supabase or SupabaseClient()),
+        registry=registry,
     )
     for provider in registry.providers():
         adapter = registry.get(provider)

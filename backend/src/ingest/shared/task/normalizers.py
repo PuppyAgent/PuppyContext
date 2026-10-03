@@ -6,7 +6,7 @@ SaaS normalizers removed — SaaS imports now go through ImportJob or Synchroniz
 
 
 from src.infra.file_formats import detect_ingest_type as detect_file_ingest_type
-from src.ingest.file.tasks.models import ETLTask, ETLTaskStatus
+from src.platform.upload.tasks.models import ETLTask, ETLTaskStatus
 from src.ingest.schemas import (
     IngestStatus,
     IngestTaskResponse,

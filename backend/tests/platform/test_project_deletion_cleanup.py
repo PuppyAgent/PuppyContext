@@ -175,7 +175,7 @@ class ExternalIngestStub:
         self.cleaned: list[str] = []
 
     async def snapshot(self, project_id):
-        from src.ingest.file.ocr.external_cleanup import ExternalIngestCleanupSnapshot
+        from src.infra.file_processing.ocr.external_cleanup import ExternalIngestCleanupSnapshot
 
         return ExternalIngestCleanupSnapshot(project_id=project_id)
 

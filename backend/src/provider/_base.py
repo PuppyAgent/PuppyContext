@@ -36,13 +36,6 @@ class AuthRequirement(str, Enum):
     ACCESS_KEY = "access_key"
 
 
-class TriggerMode(str, Enum):
-    MANUAL   = "manual"
-    POLL     = "poll"
-    WEBHOOK  = "webhook"
-    REALTIME = "realtime"
-
-
 # ============================================================
 # Credentials (passed to fetch by SynchronizeEngine)
 # ============================================================
@@ -137,7 +130,6 @@ class ProviderSpec:
     display_name: str
     capabilities: Capability
     supported_directions: list[str]
-    default_trigger: TriggerMode = TriggerMode.MANUAL
     default_node_type: str = "json"
     auth: AuthRequirement = AuthRequirement.NONE
     oauth_type: Optional[str] = None
@@ -145,8 +137,6 @@ class ProviderSpec:
     config_schema: Optional[dict] = None
 
     # Dynamic UI and registry fields
-    supported_sync_modes: tuple[str, ...] = ("manual", "scheduled")
-    default_sync_mode: str = "manual"
     creation_mode: str = "direct"  # direct | bootstrap
     config_fields: tuple[ConfigField, ...] = ()
     icon: Optional[str] = None
@@ -200,7 +190,7 @@ class BaseProvider(ABC):
           - Manage OAuth token refresh (SynchronizeEngine handles that)
         """
 
-    async def pull(self, sync: "Sync") -> "FetchResult":
+    async def pull(self, source: "SourceInput") -> "FetchResult":
         """Pull latest data from external source.
 
         Default raises
@@ -214,14 +204,14 @@ class BaseProvider(ABC):
         )
 
     async def push(
-        self, sync: "Sync", content: Any, node_type: str,
+        self, source: "SourceInput", content: Any, node_type: str,
     ) -> PushResult:
         """Push data to external source. Override for bidirectional connectors."""
         raise NotImplementedError(
             f"{self.spec().provider} does not support push"
         )
 
-    async def list_resources(self, sync: "Sync") -> List["ResourceInfo"]:
+    async def list_resources(self, source: "SourceInput") -> List["ResourceInfo"]:
         return []
 
     async def list_source_resources(
@@ -234,10 +224,10 @@ class BaseProvider(ABC):
     ) -> tuple[list[SourceResource], Optional[str]]:
         return [], None
 
-    async def setup_trigger(self, sync: "Sync") -> Optional[Any]:
+    async def setup_trigger(self, source: "SourceInput") -> Optional[Any]:
         return None
 
-    async def teardown_trigger(self, sync: "Sync") -> None:
+    async def teardown_trigger(self, source: "SourceInput") -> None:
         pass
 
 
@@ -260,4 +250,4 @@ class ProviderSetup:
 
 
 if TYPE_CHECKING:
-    from src.provider.schemas import Sync, PushResult, ResourceInfo
+    from src.provider.schemas import SourceInput, ResourceInfo

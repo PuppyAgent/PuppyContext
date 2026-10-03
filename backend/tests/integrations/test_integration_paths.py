@@ -1,5 +1,5 @@
 from src.provider._base import FetchResult
-from src.provider.schemas import Sync
+from src.platform.synchronize.models import SynchronizeBinding as Sync
 from src.platform.synchronize.paths import (
     canonical_provider,
     plan_fetch_result,

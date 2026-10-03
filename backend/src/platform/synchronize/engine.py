@@ -7,12 +7,15 @@ project-root Version Engine write -> connection state update.
 from __future__ import annotations
 
 import time
+from copy import deepcopy
 from typing import Any
 
 from src.config import settings
 from src.provider._base import AuthRequirement, Capability
 from src.provider.registry import ProviderRegistry
+from src.provider.schemas import MaterializationInput, SourceInput
 from src.platform.synchronize.run_repository import SyncRunRepository
+from src.platform.synchronize.providers import require_synchronize_provider
 from src.platform.synchronize.paths import plan_fetch_result, plan_materialized_result
 from src.platform.synchronize.repository import SynchronizeRepository
 from src.platform.synchronize.version_write_port import (
@@ -76,10 +79,17 @@ class SynchronizeEngine:
             return None
 
         adapter = self.registry.get(connection.provider)
-        if not adapter:
-            log_error(
-                f"[SynchronizeEngine] No connector registered for provider: {connection.provider}"
+        try:
+            require_synchronize_provider(
+                adapter, mode=(connection.trigger or {}).get("type", "manual"),
+                direction=connection.direction, config=connection.config,
             )
+        except ValueError as exc:
+            # Capabilities can disappear while a job is queued. Fail durably,
+            # before billing, fetching credentials or publishing content.
+            self.repository.update_error(connection.id, str(exc))
+            if run_id and self.run_repo:
+                self.run_repo.complete(run_id, status="failed", error=str(exc))
             return None
 
         # Runtime is reserved at the common AccessSurface execution boundary so
@@ -88,7 +98,7 @@ class SynchronizeEngine:
         # a per-invocation identity; when they have a run repository, prepare
         # that durable run before reserving so crash retries reuse the same id.
         if settings.RUNTIME_METERING_MODE != "disabled" and not _runtime_accounted:
-            from src.ingest.file.config import etl_config
+            from src.platform.synchronize.config import synchronize_config
 
             prepared_run_id = run_id
             if prepared_run_id is None and self.run_repo is not None:
@@ -123,7 +133,7 @@ class SynchronizeEngine:
                     "user_id": connection.created_by,
                     "maximum_runtime_units": max(
                         1,
-                        etl_config.sync_task_timeout // 60 + 1,
+                        synchronize_config.synchronize_task_timeout // 60 + 1,
                     ),
                 },
                 operation=lambda: self.execute(
@@ -203,7 +213,11 @@ class SynchronizeEngine:
             if materializer is not None:
                 write_plan = plan_materialized_result(
                     sync=connection,
-                    materialized=materializer.materialize(result, connection),
+                    materialized=materializer.materialize(result, MaterializationInput(
+                        source=deepcopy((connection.config or {}).get("source") or {}),
+                        # Existing output provenance is not a Provider-owned binding.
+                        provenance={"connection_id": connection.id},
+                    )),
                 )
             else:
                 target_exists_as_file = self._target_exists_as_file(
@@ -337,7 +351,21 @@ class SynchronizeEngine:
                 log_debug(f"[SynchronizeEngine] Could not create push run record: {exc}")
 
         try:
-            push_result = await adapter.push(connection, content, node_type)
+            require_synchronize_provider(
+                adapter, mode=(connection.trigger or {}).get("type", "manual"),
+                direction=connection.direction, config=connection.config,
+            )
+            credentials = await self.registry.resolve_credentials(
+                oauth_type=spec.oauth_type,
+                user_id=connection.created_by or (connection.config or {}).get("user_id", ""),
+                required=spec.auth not in {AuthRequirement.NONE, AuthRequirement.OPTIONAL_OAUTH},
+            )
+            push_result = await adapter.push(
+                SourceInput(config={key: deepcopy(value) for key, value in (connection.config or {}).items()
+                                    if key in {"source", "options", "materialization_schema"}},
+                            credentials=credentials),
+                content, node_type,
+            )
             if not push_result.success:
                 error = push_result.error or "Push returned failure"
                 self.repository.update_error(connection.id, error)

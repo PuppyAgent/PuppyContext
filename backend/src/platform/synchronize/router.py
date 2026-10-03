@@ -110,21 +110,9 @@ class ProviderResourcesResponse(BaseModel):
 
 
 def _connectable_specs(registry: ProviderRegistry) -> list[dict]:
-    modes_allowed = {"manual", "scheduled", "realtime"}
-    specs: list[dict] = []
-    for spec in registry.specs_to_dicts():
-        modes = [
-            mode for mode in (spec.get("supported_sync_modes") or [])
-            if mode in modes_allowed
-        ]
-        if not modes:
-            continue
-        spec["supported_sync_modes"] = modes
-        if spec.get("default_sync_mode") not in modes:
-            spec["default_sync_mode"] = modes[0]
-        spec["category"] = "datasource"
-        specs.append(spec)
-    return specs
+    from src.platform.synchronize.providers import synchronize_specs
+
+    return synchronize_specs(registry)
 
 
 def _ensure_project_access(
@@ -615,7 +603,10 @@ async def update_connection_trigger(
     trigger_data = dict(body.trigger or {})
     if not trigger_data.get("type"):
         trigger_data["type"] = body.sync_mode
-    service.repository.update(connection_id, trigger=trigger_data)
+    try:
+        service.update_trigger(connection_id, mode=body.sync_mode, trigger=trigger_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         from src.infra.scheduler.service import get_scheduler_service

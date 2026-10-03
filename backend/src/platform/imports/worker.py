@@ -12,11 +12,10 @@ load_dotenv(_env_path, override=False)
 
 from arq.connections import RedisSettings  # noqa: E402
 
-from src.ingest.file.config import etl_config  # noqa: E402
+from src.platform.imports.config import import_config  # noqa: E402
 from src.platform.imports.jobs import execute_import_job  # noqa: E402
 from src.platform.imports.repository import ImportJobRepository  # noqa: E402
 from src.platform.imports.runner import OneTimeImportRunner  # noqa: E402
-from src.platform.synchronize.github.jobs import execute_github_import, execute_github_sync_pull  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 async def startup(ctx: dict) -> None:
     ctx["import_job_repository"] = ImportJobRepository()
     ctx["one_time_import_runner"] = OneTimeImportRunner()
-    ctx["arq_queue_name"] = etl_config.import_arq_queue_name
+    ctx["arq_queue_name"] = import_config.import_arq_queue_name
     logger.info("Import ARQ worker startup complete")
 
 
@@ -34,9 +33,9 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [execute_import_job, execute_github_import, execute_github_sync_pull]  # noqa: RUF012
+    functions = [execute_import_job]  # noqa: RUF012
     on_startup = startup
     on_shutdown = shutdown
-    redis_settings = RedisSettings.from_dsn(etl_config.etl_redis_url)
-    queue_name = etl_config.import_arq_queue_name
-    job_timeout = etl_config.import_task_timeout
+    redis_settings = RedisSettings.from_dsn(import_config.redis_url)
+    queue_name = import_config.import_arq_queue_name
+    job_timeout = import_config.import_task_timeout

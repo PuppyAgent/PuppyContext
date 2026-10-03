@@ -1,7 +1,7 @@
 """Unit tests for the PUP-3 folder-upload policy.
 
 Covers the pure policy module
-(``src.ingest.policy.upload_policy``); end-to-end HTTP rejection from
+(``src.platform.upload.policy``); end-to-end HTTP rejection from
 ``/upload/init`` and ``/ap-fs/upload`` lives in the router test files
 (``test_upload_init_policy.py``) which exercise the wiring.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.ingest.policy.upload_policy import (
+from src.platform.upload.policy import (
     DEFAULT_BLOCKLIST_SEGMENTS,
     PER_BATCH_MAX_BYTES,
     PER_BATCH_MAX_FILES,
@@ -197,7 +197,7 @@ class TestCrossLanguageParity:
     *claimed* a CI string comparison existed but never did).
 
     The upload policy is duplicated by hand in three files:
-      - backend/src/ingest/policy/upload_policy.py   (source of truth)
+      - backend/src/platform/upload/policy.py   (source of truth)
       - frontend/lib/uploadPolicy.ts
       - cli/src/commands/fs/lib/upload-policy.js
 
@@ -211,7 +211,7 @@ class TestCrossLanguageParity:
     from pathlib import Path as _Path
 
     _REPO_ROOT = _Path(__file__).resolve().parents[3]
-    _PY = _REPO_ROOT / "backend/src/ingest/policy/upload_policy.py"
+    _PY = _REPO_ROOT / "backend/src/platform/upload/policy.py"
     _TS = _REPO_ROOT / "frontend/lib/uploadPolicy.ts"
     _JS = _REPO_ROOT / "cli/src/commands/fs/lib/upload-policy.js"
 

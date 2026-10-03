@@ -97,9 +97,9 @@ async def test_execute_github_import_runs_branch(monkeypatch):
 
     monkeypatch.setattr(gh_jobs, "GithubSyncRepository", lambda: _Repo())
     monkeypatch.setattr(gh_jobs, "import_branch", _imp)
-    out = await gh_jobs.execute_github_import({}, "int-9", branch="main",
+    out = await gh_jobs.execute_synchronize_github_pull({}, "int-9", branch="main",
                                               force=False, triggered_by="webhook")
-    assert out["status"] == "success" and out["integration_id"] == "int-9"
+    assert out["status"] == "success" and out["synchronize_github_binding_id"] == "int-9"
     assert seen["fetched"] == "int-9" and seen["import"]["branch"] == "main"
 
 
@@ -108,5 +108,5 @@ async def test_execute_github_import_missing_integration(monkeypatch):
         async def get_by_id(self, iid):
             return None
     monkeypatch.setattr(gh_jobs, "GithubSyncRepository", lambda: _Repo())
-    out = await gh_jobs.execute_github_import({}, "missing")
-    assert out["status"] == "skipped" and out["reason"] == "integration_not_found"
+    out = await gh_jobs.execute_synchronize_github_pull({}, "missing")
+    assert out["status"] == "skipped" and out["reason"] == "binding_not_found"
