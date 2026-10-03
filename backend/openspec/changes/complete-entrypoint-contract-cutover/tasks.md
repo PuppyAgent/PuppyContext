@@ -5,10 +5,10 @@
 - [x] 1.4 Audit existing Automation/Access resource identities, ID collisions, lifecycle/reload/retry, Scope-only and foreign/absent target cases; resolve findings rather than renaming alone. Independent 059 A1 review does not require a new orchestration product; production Main/preload/App window recovery is verified below.
 
 ## 2. Joint verification and retirement
-- [ ] 2.1 Review and integrate ready 053/049/054/060/061 deliveries; preserve their independent WIP and ownership.
-- [ ] 2.2 Verify real isolated persistence, non-empty upgrade/fresh install/retry, authorization and actual client/runtime request paths; retain per-criterion evidence.
-- [ ] 2.3 Collect exact supported versions, old producer/process/client/webhook and delayed/retry queue exit facts. Obtain authorization before remote/environment operations.
-- [ ] 2.4 Retire legacy HTTP/DTO/aliases and compatibility snapshots only when the corresponding exit facts are established; execute post-contract recovery checks.
+- [x] 2.1 Review and integrate ready 053/049/054/060/061 deliveries; preserve their independent WIP and ownership.
+- [x] 2.2 Verify real isolated persistence, non-empty upgrade/fresh install/retry, authorization and actual client/runtime request paths; retain per-criterion evidence.
+- [ ] 2.3 Collect exact supported target versions and applicable consumer/process/webhook/configuration exit facts. Obtain authorization before remote operations; do not reopen/reassign 061's withdrawn legacy-version/old-queue migration scope.
+- [x] 2.4 Retire legacy HTTP/DTO/aliases in the locally verified release pair; replace current compatibility expectations with an exact retirement delta, retaining immutable historical snapshots. Execute post-contract recovery checks. Hosted exit remains 2.3.
 
 ## 3. Close original issues honestly
 - [x] 3.1 Run complete regression/types/lint/build/architecture/OpenAPI checks, integrate passing code locally and reverify.
@@ -90,7 +90,41 @@ PUPPYONE_DESKTOP_SOURCE=/absolute/path/to/desktop \
   uv run pytest -q tests/platform/test_entrypoint_desktop_window.py
 ```
 
-Tasks 2.x/3.3 remain open: 049 D05/D06 source mapping/classification, real upgrade
-and fresh-install checks, target-environment consumer/queue exit, final contract
-retirement and release/recovery evidence. No remote operation is authorized by
-these local tests.
+At that historical checkpoint tasks 2.x/3.3 remained open. The final follow-up
+below supersedes the local implementation/migration/recovery gaps, not hosted
+acceptance. No remote operation is authorized by local tests.
+
+## Final Release A/B and source retirement — 2026-10-04
+
+049 was taken over as the sole migration implementation, not left unassigned.
+Release A `1d20cf18`, Release B `d4e9732c` and cleanup increments `acfdf12f`,
+`a60f5ea3`, `5ed64637` are committed and integrated locally. Final repositories,
+Import source separation, Activity/SQL/direct readers, guarded Contracts and
+reviewed historical privacy are implemented. Legacy router registries and generic,
+Database, GitHub and Access DTO bridges are removed; producer-owned result and
+credential identities are checked, not relabeled. Exact retirement removes 43
+paths without rewriting historical fixtures or unrelated mounted fingerprints.
+
+Final source gates: backend **2772 / 27 skipped / 76 deselected**, joint actual
+CLI/SDK/Redis/production-window **31**, fresh real stack **14**, populated
+A→B/real Provider/client-library/recovery **9**, native PostgreSQL **5**, Web
+**216**, Desktop **376**, CLI units/types/Automation boundary pass. Desktop
+`7aff3539` fixes the occupied-default-port window harness without stopping another
+service. The populated run's Desktop SHA is reconstructed as `af79fc7e`, not
+recorded in its original receipt; the later window directly records `7aff3539`.
+Do not merge those evidence scopes or label the later unrelated `cf489551` tested.
+
+Canonical docs, release/recovery runbook, indexes and original audits are updated
+in the shared `puppy-issues` worktree, with allowlisted evidence under
+`dev issues/1-pending/evidence/2026-10-04-entrypoint-final/`. Original acceptance
+text is hash-checked unchanged except checkboxes; 56 audit validations pass.
+Global docs initially remain blocked only by another agent's rust-native-frontend
+README metadata; no unrelated file is altered or gate suppressed.
+
+Tasks 2.3/3.3 remain open: target source-row dispositions, supported installed
+versions, consumer/webhook/configuration exit, final CI/CD/package release and
+hosted rollout/recovery need scoped authorization/evidence. Native Auth stubs,
+window backend doubles, actual migrated-stack clients and retained-platform public
+control-plane restore remain explicitly distinct. 061 is archived under its
+accepted revised scope; its withdrawn old-version/queue requirement is not
+transferred. No remote query, push, DDL or deployment has occurred.
