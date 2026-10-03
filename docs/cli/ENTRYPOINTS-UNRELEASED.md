@@ -140,3 +140,46 @@ The scanner also blocks on serialized job payloads outside the named queues;
 it does not remove orphaned jobs. A clean snapshot cannot prove producers stopped. Rollback must stop new producers
 and drain new work before restarting old workers; serialized dispatch names are
 not interchangeable and no permanent legacy aliases are registered.
+
+## Real local runtime acceptance (no database/queue/auth doubles)
+
+Use a clean worktree without `.env` files, installed backend/CLI dependencies,
+local Docker/Compose and **Supabase CLI 2.107.0**. From the repository root:
+
+```bash
+backend/.venv/bin/python scripts/test_entrypoint_local_runtime.py \
+  --supabase-bin /path/to/supabase-2.107.0 \
+  --artifacts /tmp/entrypoint-local-acceptance \
+  --base-port 29600
+```
+
+The artifact directory must be new and ports `base+32/79/80/90/91/92/93` free.
+The harness builds the committed MinIO source, starts isolated PostgreSQL,
+GoTrue, PostgREST, Kong, Redis and MinIO, applies/replays committed migrations,
+and launches the actual API, MCP service and three ARQ worker processes.
+Credentials are generated locally; app processes do not inherit hosted secrets.
+All exposed infrastructure/app ports bind loopback. No Supabase reset, remote
+push, deployment, published migration rewrite or shared Docker prune occurs.
+Default teardown stops only its own processes/Compose project, retaining its
+volumes and private evidence. `--keep` leaves that isolated stack running;
+`processes.json` and `compose-command.json` identify it.
+
+Fourteen checks exercise actual CLI dispatch, URL and public GitHub snapshots,
+manually triggered Synchronize runs, multipart Upload completion/abort, the
+registered Upload worker finalizer, root/nonroot MCP and Sandbox creation,
+Dashboard/foreign-user denial, actual MCP credential/scoped reads, idempotency,
+cancellation, queue isolation, producer stop, PostgreSQL/Redis/MinIO/app restart,
+durable failure/retry and final read-only drain. `receipt.json` records source
+SHA/dirty state, resource/commit/run identities and checks, not credentials.
+
+This exposed and fixed two failures hidden by substituted repositories/adapters:
+Import jobs were not projecting their URL into shared `source.resource_url`,
+and MCP/Sandbox repositories used removed `ScopeService.create(mode=...)` and
+attempted to create a Scope for Project root. Source projection now belongs to
+Import; Access uses `max_mode` and a NULL root `scope_id`.
+
+The URL input is public HTML from httpbingo.org; GitHub snapshot reads the public
+`octocat/Hello-World` repository. This needs network access but **no hosted
+Puppyone service or provider secret**. It is not live OAuth/continuous GitHub,
+paid OCR/LLM, scheduler, old-release upgrade, in-flight hard-kill recovery or
+cloud-cutover acceptance. Those limitations must not be erased from the receipt.

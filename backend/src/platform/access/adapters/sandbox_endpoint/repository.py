@@ -84,6 +84,8 @@ class SandboxEndpointRepository:
 
     def _scope_for_path(self, project_id: str, path: str | None) -> dict:
         normalized = (path or "").strip("/")
+        if not normalized:
+            return {"id": None, "path": ""}
         scope_svc = ScopeService()
         for scope in scope_svc.list_for_project(project_id):
             if (scope.path or "") == normalized:
@@ -93,7 +95,7 @@ class SandboxEndpointRepository:
             name=normalized.rsplit("/", 1)[-1] if normalized else "Root",
             path=normalized,
             exclude=[],
-            mode="rw",
+            max_mode="rw",
         )
         return {"id": scope.id, "path": scope.path}
 
