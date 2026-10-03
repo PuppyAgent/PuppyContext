@@ -41,6 +41,21 @@ Dashboard resources SHALL retain explicit resource kind, resource ID and Project
 - **WHEN** Project, source, user/session or component lifetime changes during an asynchronous request
 - **THEN** delayed completions cannot update the new context or attach the previous resource to it
 
+#### Scenario: CLI Dashboard cutover
+- **WHEN** the actual CLI requests Project status in human or JSON mode
+- **THEN** it uses only dashboard/resources, preserves kind-qualified IDs and explicit Access targets, rejects invalid inventory before success output, and preserves classification/authorization failures without legacy fallback
+
+### Requirement: Real Desktop window identity recovery
+The existing Desktop Automation flow SHALL rediscover the same binding and its run history after a real BrowserWindow reload and after a failed-run or inventory-read retry. Acceptance SHALL exercise the production Main, preload, App, session transport and resource clients, not substitute a JavaScript component remount. This requirement SHALL NOT create a new multi-step orchestration product beyond the existing feature.
+
+#### Scenario: Create, reload and retry
+- **WHEN** a user creates a binding, the initial execution fails, and the Desktop window reloads before retry
+- **THEN** the new renderer document reads the same server-owned binding ID, submits refresh to that binding and displays both the prior failed run and the new run
+
+#### Scenario: Unavailable inventory after reload
+- **WHEN** the binding inventory request fails during window recovery
+- **THEN** the UI shows an error, and explicit retry restores the same binding/history without manufacturing an empty successful inventory
+
 ### Requirement: Joint closure evidence
 Final closure SHALL require every original ISSUE-058 and ISSUE-059 criterion, including actual consumer/queue/configuration retirement, schema/data verification and version-specific delivery evidence. Local test doubles SHALL be identified as such.
 

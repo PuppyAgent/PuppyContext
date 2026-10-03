@@ -11,7 +11,7 @@ const dashboard = () => ({
   ], tools: [], uploads: [],
 });
 class Exit extends Error {}
-async function run(data, { status = 200, json = true, detail = "Not Found" } = {}) {
+async function run(data, { status = 200, json = true, detail = "Not Found", project = "project-1" } = {}) {
   const saved = { fetch: globalThis.fetch, log: console.log, error: console.error, exit: process.exit };
   const calls = [], logs = [];
   let code = 0;
@@ -29,7 +29,7 @@ async function run(data, { status = 200, json = true, detail = "Not Found" } = {
     registerGlobalCommands(program);
     assert.match(program.commands[0].description(), /Synchronize.*Access/);
     await program.parseAsync(["node", "puppyone", ...(json ? ["--json"] : []), "--api-url", "http://unit.test",
-      "--api-key", "test-token", "--project", "project-1", "status"]);
+      "--api-key", "test-token", "--project", project, "status"]);
   } catch (error) {
     if (!(error instanceof Exit)) throw error;
     code = Number(error.message);
@@ -39,10 +39,13 @@ async function run(data, { status = 200, json = true, detail = "Not Found" } = {
     console.error = saved.error;
     process.exit = saved.exit;
   }
-  assert.equal(calls.length, 1, "never fall back to an untyped dashboard or retry a failed read as empty");
-  assert.equal(new URL(calls[0].url).pathname, "/api/v1/projects/project-1/dashboard/resources");
-  assert.equal(calls[0].options.method, "GET");
-  assert.equal(calls[0].options.headers["X-PuppyOne-Repository-Contract"], "2");
+  assert.equal(calls.length, project.trim() ? 1 : 0, "never fall back, broaden a blank selector or retry a failed read as empty");
+  if (calls.length) {
+    assert.equal(new URL(calls[0].url).pathname, `/api/v1/projects/${encodeURIComponent(project)}/dashboard/resources`);
+    assert.equal(calls[0].options.method, "GET");
+    assert.equal(calls[0].options.headers["X-PuppyOne-Repository-Contract"], "2");
+  }
+  assert.equal(logs.length, json ? 1 : logs.length, "JSON emits exactly one result, not partial success");
   return { code, output: logs.join("\n"), data: json ? JSON.parse(logs.at(-1)) : null };
 }
 const result = await run(dashboard());
@@ -53,7 +56,18 @@ assert.match(human.output, /synchronize:same/);
 assert.match(human.output, /access:same/);
 assert.match(human.output, /scope:scope-1/);
 assert.match(human.output, /path:notes/);
-assert.doesNotMatch(human.output, /Access Points/);
+assert.doesNotMatch(human.output, /Access Points|LAST SYNC/);
+assert.match(human.output, /LAST ACTIVITY/);
+const encoded = dashboard();
+encoded.project.id = "project/1";
+for (const row of encoded.resources) {
+  row.project_id = encoded.project.id;
+  if (row.target) row.target.project_id = encoded.project.id;
+}
+assert.equal((await run(encoded, { project: encoded.project.id })).code, 0);
+const blank = await run(dashboard(), { project: " " });
+assert.equal(blank.code, 1);
+assert.equal(blank.data.error.code, "PROJECT_REQUIRED");
 const empty = await run({ ...dashboard(), resources: [] }, { json: false });
 assert.match(empty.output, /import create/);
 assert.match(empty.output, /synchronize add/);
@@ -62,6 +76,8 @@ assert.doesNotMatch(empty.output, /access add <provider>/);
 
 for (const mutate of [
   data => { delete data.resources; data.connections = []; },
+  data => { delete data.resources; data.access_points = []; },
+  data => { data.nodes = null; },
   data => { data.project.id = "foreign"; },
   data => { data.resources[0].project_id = "foreign"; },
   data => { data.resources.push(data.resources[0]); },
@@ -72,6 +88,7 @@ for (const mutate of [
   data => { data.resources[1].target.scope_id = ""; },
   data => { data.resources[1].target.kind = "project_root"; },
   data => { data.resources[1].credential = "secret-must-not-leak"; },
+  data => { data.resources[1].mcp_api_key = "secret-must-not-leak"; },
 ]) {
   const invalid = dashboard(); mutate(invalid);
   const failed = await run(invalid);
@@ -80,11 +97,11 @@ for (const mutate of [
   assert.equal(failed.data.success, false);
   assert.doesNotMatch(failed.output, /secret-must-not-leak/);
 }
-for (const status of [403, 404, 409, 503]) {
+for (const status of [403, 404, 405, 409, 503]) {
   const failed = await run(null, { status });
   assert.equal(failed.code, 1);
   assert.equal(failed.data.success, false);
-  if (status === 404) assert.equal(failed.data.error.code, "SERVER_UPGRADE_REQUIRED");
+  if (status === 404 || status === 405) assert.equal(failed.data.error.code, "SERVER_UPGRADE_REQUIRED");
 }
 const missingProject = await run(null, { status: 404, detail: "Project not found" });
 assert.notEqual(missingProject.data.error.code, "SERVER_UPGRADE_REQUIRED");

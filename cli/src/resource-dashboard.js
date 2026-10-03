@@ -44,8 +44,8 @@ export async function getResourceDashboard(client, projectId) {
       await client.get(`/projects/${encodeURIComponent(projectId)}/dashboard/resources`), projectId,
     );
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404 && error.message === "Not Found") {
-      throw new ApiError(404, "SERVER_UPGRADE_REQUIRED", "This server does not expose the resource Dashboard API.",
+    if (error instanceof ApiError && ((error.status === 404 && error.message === "Not Found") || error.status === 405)) {
+      throw new ApiError(error.status, "SERVER_UPGRADE_REQUIRED", "This server does not expose the resource Dashboard API.",
         "Upgrade the server to the canonical /dashboard/resources contract; no legacy request was attempted.");
     }
     throw error;
