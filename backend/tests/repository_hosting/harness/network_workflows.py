@@ -149,7 +149,7 @@ NETWORK_WORKFLOWS = [
     *[Workflow(f"protocol-v{version}", ("G44", "G46"), ("clone", "push"), partial(protocol_version, version=version), "HTTP must negotiate the requested protocol version, not silently fall back" if version else "") for version in (0, 1, 2)],
     *[Workflow("shallow-" + mode, ("G47", "G48") if mode == "deepen" else ("G48",), ("clone", "fetch", "push") if mode == "deepen" else ("clone", "push"), partial(shallow_workflow, mode=mode)) for mode in ("deepen", "push")],
     Workflow("partial-clone-lazy-fetch", ("G49",), ("clone", "rev-list", "show"), partial_clone, "filter/promisor negotiation and authorized lazy fetch are not implemented"),
-    Workflow("fresh-clone-history-queries", ("G39", "G40", "G41", "G42"), ("log", "show", "diff", "blame", "merge-base", "rev-list", "describe", "range-diff", "grep"), query_history, "tagging an existing ancestor commit fails receive-pack connectivity with missing necessary objects"),
+    Workflow("fresh-clone-history-queries", ("G39", "G40", "G41", "G42"), ("log", "show", "diff", "blame", "merge-base", "rev-list", "describe", "range-diff", "grep"), query_history),
     Workflow("fresh-clone-bisect", ("G42",), ("bisect",), bisect_history),
     Workflow("client-maintenance", ("G54", "G56"), ("repack", "pack-refs", "commit-graph", "multi-pack-index", "verify-pack", "reflog", "gc", "fsck"), client_maintenance),
     Workflow("client-archive", ("G53",), ("archive",), client_archive),

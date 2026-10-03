@@ -347,7 +347,9 @@ def _is_valid_tree(repo, tree_id: str, seen: set[str]) -> bool:
         if entry.is_dir:
             if not _is_valid_tree(repo, entry.sha1_hex, seen):
                 return False
-        else:
+        elif not entry.is_gitlink:
+            # Mode 160000 names a commit in another repository. Its absence
+            # here is normal, not corruption of this view's object closure.
             blob_ids.append(entry.sha1_hex)
     if not blob_ids:
         return True

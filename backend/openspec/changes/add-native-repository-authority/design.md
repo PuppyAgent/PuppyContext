@@ -126,3 +126,20 @@ open. A separately observed native Git prefix/reflog race remains unresolved;
 its existing target assertion is retained. Passing these foundation tests MUST
 NOT enable receive-pack capabilities or mark M02/M04, much less ISSUE-062,
 complete.
+
+## Legacy receive closure repair (2026-10-03)
+
+A push client may omit any object reachable from advertised refs, not merely
+objects in the latest tree. Actual receive POST therefore uses the complete
+reachable-history cache, including stored named refs; profile-specific closure
+receipts retain incremental copies. Ref advertisement remains refs-only, and
+product/API writes do not acquire this Git graph-walking dependency. Cold-cache
+receive cost and large-history performance remain acceptance work, not a claim
+that full hydration is free.
+
+A gitlink names an external repository commit and does not make a healthy view
+corrupt when absent locally; ordinary missing blobs remain corruption. Stock
+Git acceptance is required before publication: object presence alone cannot
+convert a receiver rejection to success. The receive ref snapshot is strict,
+so a control-plane outage cannot become an empty namespace. This does not add
+atomic DB CAS to legacy named refs or activate native repository authority.

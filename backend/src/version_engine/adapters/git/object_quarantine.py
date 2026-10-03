@@ -235,6 +235,8 @@ def receive_pack_advertisement_bare_repo(
     repo,
     scope_path: str,
     scope_excludes: list[str] | None = None,
+    *,
+    extra_refs: dict[str, str] | None = None,
 ):
     """Yield a minimal bare repo for receive-pack ref advertisement.
 
@@ -250,6 +252,7 @@ def receive_pack_advertisement_bare_repo(
         view_head = _receive_pack_advertisement_head(repo, scope_path, scope_excludes)
         _raise_if_current_corrupt(view_head)
         _write_main_ref(bare_dir, view_head.head)
+        _write_named_refs(bare_dir, _sanitize_named_refs(extra_refs or {}))
         yield bare_dir
 
 
@@ -286,15 +289,19 @@ def quarantine_bare_repo(
     scope_excludes: list[str] | None = None,
     *,
     include_blobs: bool = True,
+    follow_history: bool = False,
+    extra_refs: dict[str, str] | None = None,
 ) -> Path:
-    """Yield an isolated receive-pack object DB with cache alternates."""
+    """Yield an isolated object DB; callers choose boundary or full closure."""
 
+    named_refs = _sanitize_named_refs(extra_refs or {})
     with transport_bare_repo(
         repo,
         scope_path,
         scope_excludes,
-        follow_history=False,
+        follow_history=follow_history,
         include_blobs=include_blobs,
+        extra_roots=list(named_refs.values()),
     ) as cache_bare:
         with tempfile.TemporaryDirectory(prefix="puppyone-git-quarantine-") as tmp:
             bare_dir = Path(tmp) / "repo.git"
@@ -308,6 +315,7 @@ def quarantine_bare_repo(
             cache_ref = cache_bare / "refs" / "heads" / "main"
             if cache_ref.exists():
                 _write_main_ref(bare_dir, cache_ref.read_text(encoding="ascii").strip())
+            _write_named_refs(bare_dir, named_refs)
             yield bare_dir
 
 
@@ -588,14 +596,20 @@ def official_receive_pack_quarantine(
     roots: list[str] | None = None,
     exclude_roots: list[str] | None = None,
     scope_excludes: list[str] | None = None,
+    extra_refs: dict[str, str] | None = None,
 ) -> OfficialReceivePackQuarantine:
     """Run stock Git receive-pack against an isolated temporary repo.
 
     The temporary repo has alternates pointing at the transport cache, so Git
     can validate thin packs and existing ancestry exactly like a normal bare
-    repository would. The repo remains quarantine-only: accepted objects are
-    promoted to PuppyOne's canonical store only after Version Engine publish
-    succeeds.
+    repository would. The receiver needs the full advertised ancestry: clients
+    may omit any object reachable from that head, not just the current tree.
+    A boundary-only cache incorrectly rejects reverts and ancestor tags after
+    cache eviction. Full-closure receipts keep subsequent copies incremental.
+    Ref advertisement stays refs-only; product writes never call this walker.
+
+    The repo remains quarantine-only until admission permits object promotion;
+    objects must be durable before Version Engine publishes their references.
     """
 
     root_ids = roots or []
@@ -605,6 +619,8 @@ def official_receive_pack_quarantine(
         scope_path,
         scope_excludes,
         include_blobs=True,
+        follow_history=True,
+        extra_refs=extra_refs,
     ) as bare_dir:
         try:
             output = _run_official_receive_pack(bare_dir, request_path)
@@ -632,7 +648,7 @@ def official_receive_pack_quarantine(
                 repo,
                 scope_path,
                 scope_excludes,
-                follow_history=False,
+                follow_history=True,
                 include_blobs=True,
             )
         )
@@ -641,6 +657,8 @@ def official_receive_pack_quarantine(
             scope_path,
             scope_excludes,
             include_blobs=True,
+            follow_history=True,
+            extra_refs=extra_refs,
         ) as bare_dir:
             output = _run_official_receive_pack(bare_dir, request_path)
             yield OfficialReceivePackQuarantine(

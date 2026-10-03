@@ -109,7 +109,17 @@ backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live --targ
 
 日常模式沿用 strict XFAIL 标记已知缺口；**严格目标模式仍必须失败**，不算支持。
 新增失败数不能解释成新增同等数量的独立产品缺陷：多个命令会触发同一缺失的 ref
-事务/策略。初次执行还发现了原清单之外的 revert-range 误拒、gitlink 冷读失败、
-祖先 commit tag 的缺失对象错误，以及混合非 atomic push HTTP 400；先保留断言，
-再根据这些最小复现改内核。现行本机 oracle 是 Git 2.50.1；Linux/Windows 与版本范围
-尚不能由这次执行代替认证。
+事务/策略。初次执行发现的 revert-range 误拒、gitlink 冷读失败和祖先 commit tag
+缺失对象已按原断言修复：receive POST 使用完整广告历史的增量对象缓存，gitlink
+健康检查不要求外部 commit 本地存在。广告仍不下载对象，产品写入不调用历史遍历。
+
+接收广告和隔离仓库现在包含已有命名 refs，stock Git 拒绝不能因对象已存在被覆盖。
+因此两条 mixed-batch recipe 也通过；**这里过期 ref 被客户端预检排除/拒绝，不能
+据此宣称服务端已支持多命令部分提交或原子事务**。`push-all/tags/atomic/mirror`
+仍失败。实际 SQL 发布前还缺命名 ref CAS、跨实例与新 authority 接入。
+
+`transport/test_existing_history.py` 增加 22 条 Project/Scope 回归，包含接收前及
+回读前缓存删除、复用旧 blob、普通丢失 blob 仍判损坏、过期写入保留本地工作、
+stock Git 拒绝新/已有对象、广告/接收 refs 查询失败不得当空 namespace。存储仍是
+磁盘，控制面为替身；不是实服耐久性证明。现行本机 oracle 是 Git 2.50.1；
+Linux/Windows 与版本范围尚不能由这次执行代替认证。

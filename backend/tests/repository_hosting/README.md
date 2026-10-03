@@ -57,6 +57,14 @@ tests/repository_hosting/
 
 另有 8 项 Project/Scope Git 客户端故障/竞争回归：对象写入或发布失败后保留旧数据和本地工作、恢复重推、丢应答后 fetch 对账且重推不重复发布、同 base 两客户端恰一成功。控制面仍为替身，对象在磁盘，不把这些当作真实 PG/S3 故障或多实例证明。新增矩阵暴露的失败必须驱动后续实现；原 14 项失败不因加用例而解决，也不为“全绿”删除原断言或放开 Scope。
 
+`transport/test_existing_history.py` 另有 22 条 Project/Scope 回归。修复 receive
+只缓存当前 tree 导致的 revert/祖先 tag 误拒、gitlink 冷读 409，以及已有对象掩盖
+stock Git 拒绝的问题。receive 广告/隔离仓库包含已有命名 refs，严格读取失败不得
+当空 namespace；广告仍 refs-only。五条既有 workflow 转绿（其中两条 mixed-batch
+依赖客户端对过期 ref 的预检，不代表服务端多 ref 事务已实现）。新增测试还覆盖
+缓存删除后接收、冷读、旧 blob 复用、普通对象缺失、拒绝和恢复；不扩大 legacy
+Scope 合同，也不接通 dormant SQL authority。
+
 现在能检查的关键结果：
 
 - 首次 push 后 clone：文件字节、提交对象、执行权限、符号链接一致。

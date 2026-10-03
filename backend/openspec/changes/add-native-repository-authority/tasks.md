@@ -35,6 +35,13 @@
   declared commands; record G IDs, profile and execution boundaries in JUnit.
 - [x] Document remaining G01–G66 coverage in the test CONFORMANCE.md, including
   unimplemented APIs, real storage, migration and client-version gates.
+- [x] Absorb current local Cloud/ Desktop Access contracts before transport work.
+- [x] Reproduce and repair revert-range, ancestor-tag receive closure and gitlink
+  cold-read defects with original recipes; preserve legacy Scope restrictions.
+- [x] Require stock receive acceptance even for existing objects; seed named refs
+  in advertisement/quarantine and fail closed on control-plane snapshot failures.
+  Add 22 Project/Scope cases. Five earlier workflows pass, including two client
+  preflight mixed-batch cases; this does not implement server multi-ref transactions.
 - [ ] Resolve the failing recipes without weakening byte/graph/ref comparisons;
   test count growth is not product delivery or complete Git acceptance.
 

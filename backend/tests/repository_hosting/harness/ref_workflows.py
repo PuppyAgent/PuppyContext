@@ -146,6 +146,6 @@ REF_WORKFLOWS = [
     *[Workflow("tag-" + mode, ("G21",) if mode in {"overwrite", "delete"} else ("G11", "G20") if mode in {"annotated", "nested"} else ("G20",), ("tag", "push"), partial(tag_workflow, mode=mode), DELETE_GAP if mode == "delete" else "" if mode == "overwrite" else TYPED_GAP) for mode in ("annotated", "nested", "blob", "tree", "overwrite", "delete")],
     *[Workflow("ref-" + mode, ("G22",) if mode == "notes" else ("G23",), ("notes",) if mode == "notes" else ("replace",) if mode == "replace" else ("update-ref",), partial(generic_ref, mode=mode), GENERIC_GAP) for mode in ("notes", "replace", "custom")],
     *[Workflow("push-" + mode, ("G27",) if mode == "atomic" else ("G28",) if mode == "mirror" else ("G26",), ("push",), partial(multi_ref, mode=mode), MULTI_GAP) for mode in ("all", "tags", "atomic", "mirror")],
-    *[Workflow("mixed-batch-" + ("atomic" if atomic else "partial"), ("G27",) if atomic else ("G26",), ("push", "ls-remote"), partial(mixed_batch, atomic=atomic), MULTI_GAP if atomic else "mixed non-atomic push fails HTTP 400 instead of reporting per-ref outcomes") for atomic in (False, True)],
+    *[Workflow("mixed-batch-" + ("atomic" if atomic else "partial"), ("G27",) if atomic else ("G26",), ("push", "ls-remote"), partial(mixed_batch, atomic=atomic)) for atomic in (False, True)],
     Workflow("published-amend", ("G25", "G36"), ("commit", "push"), published_amend, REWRITE_GAP),
 ]
