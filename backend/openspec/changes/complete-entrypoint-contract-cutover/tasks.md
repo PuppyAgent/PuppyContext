@@ -11,8 +11,8 @@
 - [ ] 2.4 Retire legacy HTTP/DTO/aliases and compatibility snapshots only when the corresponding exit facts are established; execute post-contract recovery checks.
 
 ## 3. Close original issues honestly
-- [ ] 3.1 Run complete regression/types/lint/build/architecture/OpenAPI checks, integrate passing code locally and reverify.
-- [ ] 3.2 Update canonical documentation and the original 058 A1–A10 / 059 A1–A6 audit tables without reducing their criteria.
+- [x] 3.1 Run complete regression/types/lint/build/architecture/OpenAPI checks, integrate passing code locally and reverify.
+- [x] 3.2 Update canonical documentation and the original 058 A1–A10 / 059 A1–A6 audit tables without reducing their criteria.
 - [ ] 3.3 Close only after every original criterion has evidence; report any authorization-dependent blocker precisely, never label fixtures as deployed acceptance.
 
 ## Local verification receipt — 2026-10-03
@@ -38,3 +38,14 @@ Tasks 1.4 and 2.x remain open: the isolated matrix is not complete product
 cross-resource orchestration/window acceptance, physical migration/classification,
 installed-consumer exit, deployment or recovery evidence. No push, deployment,
 production query or migration has been authorized or performed.
+
+Post-integration: Cloud `8e86e89e` and Desktop `041b897d` were fast-forwarded
+into both local qubits worktrees. Repeating the full backend, Desktop and Web
+suites there produced **2703 / 376 / 216 passed**; the joint HTTP/Redis gate
+again produced **27 passed** with the qubits Desktop source. Types and the
+Automation boundary passed again. Canonical documentation and original audits
+were updated without committing the shared issue repository's staged work:
+**56 audited issues**, **400 Markdown / 329 explicit Status / 298 strictly
+governed documents**; 25 existing cross-repository link warnings remain.
+ISSUE-059 A5 is now PASS for its original isolated-regression requirement;
+A1/A2/A6 and ISSUE-058 overall remain open. Worktrees are retained for that work.
