@@ -10,13 +10,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Body, Depends, HTTPException, Path, Query, status
-from pydantic import BaseModel, Field
 
 from src.common_schemas import ApiResponse
 from src.config import settings
 from src.exceptions import AppException, ErrorCode, NotFoundException
 from src.infra.supabase.client import SupabaseClient
 from src.platform.access.surface_repository import AccessSurfaceRepository
+from src.platform.access.models import ACCESS_KINDS
+from src.platform.access import public_schemas as contracts
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import get_authorization_service
@@ -26,42 +27,8 @@ from src.platform.entitlements.dependencies import get_entitlement_service
 from src.platform.entitlements.service import EntitlementService
 from src.platform.organization.dependencies import resolve_org_ids
 from src.platform.repository_target.models import ProjectRootTarget, ScopeTarget
-from src.platform.repository_target.schemas import (
-    RepositoryTargetSchema,
-    repository_target_schema,
-)
+from src.platform.repository_target.schemas import repository_target_schema
 from src.repo.access_credentials import AccessCredentialRepository
-
-# ── Schemas ─────────────────────────────────────────────────
-
-
-class ConnectionOut(BaseModel):
-    id: str
-    project_id: str
-    target: RepositoryTargetSchema
-    provider: str
-    name: str | None = None
-    path: str | None = None
-    node_name: str | None = None
-    direction: str | None = None
-    status: str = "active"
-    access_key: str | None = None
-    has_key: bool = False
-    key_last4: str | None = None
-    gateway_id: str | None = None
-    trigger: dict | None = None
-    last_synced_at: str | None = None
-    error_message: str | None = None
-    config: dict | None = None
-    created_at: str | None = None
-    updated_at: str | None = None
-
-
-class ConnectionUpdate(BaseModel):
-    status: str | None = None
-    trigger: dict | None = None
-    config: dict | None = None
-
 
 # ── Helpers ─────────────────────────────────────────────────
 
@@ -169,7 +136,15 @@ def _created_or_updated(value: Any) -> str | None:
     return str(value)
 
 
-def _enrich(rows: list[dict], sb_client) -> list[ConnectionOut]:
+def _require_access_identity(kind: str, trigger: dict | None) -> None:
+    if kind not in ACCESS_KINDS or (trigger or {}).get("type") == "import_once":
+        raise HTTPException(
+            409,
+            "Legacy source records are not ongoing Access surfaces. Review their migration before management; use Import or Synchronize for source operations.",
+        )
+
+
+def _enrich(rows: list[dict], sb_client) -> list[contracts.AccessSurface]:
     """Resolve node names from paths and extract config.name for display.
 
     Auto-disambiguates duplicate display names by appending path or a counter,
@@ -190,7 +165,8 @@ def _enrich(rows: list[dict], sb_client) -> list[ConnectionOut]:
     for r in rows:
         cfg = r.get("config") or {}
         scope = scopes.get(r.get("scope_id"))
-        kind = r.get("kind", r.get("provider", ""))
+        kind = r.get("kind", "")
+        _require_access_identity(kind, cfg.get("trigger"))
         base_name = r.get("name") or cfg.get("name") or cfg.get("sync_url") or kind
         node_path = _normalize_scope_path((scope or {}).get("path"))
         node_name = node_path.rsplit("/", 1)[-1] if node_path else None
@@ -212,7 +188,7 @@ def _enrich(rows: list[dict], sb_client) -> list[ConnectionOut]:
     name_counts = Counter(e["base_name"] for e in entries)
     name_seen: dict[str, int] = {}
 
-    out: list[ConnectionOut] = []
+    out: list[contracts.AccessSurface] = []
     for e in entries:
         r = e["row"]
         cfg = e["cfg"]
@@ -236,7 +212,7 @@ def _enrich(rows: list[dict], sb_client) -> list[ConnectionOut]:
         key_last4 = credential.get("key_last4") if credential else None
 
         out.append(
-            ConnectionOut(
+            contracts.AccessSurface(
                 id=r["id"],
                 project_id=r["project_id"],
                 target=repository_target_schema(
@@ -247,18 +223,17 @@ def _enrich(rows: list[dict], sb_client) -> list[ConnectionOut]:
                     if r.get("scope_id") is not None
                     else ProjectRootTarget(project_id=r["project_id"])
                 ),
-                provider=e["kind"],
+                kind=e["kind"],
                 name=name,
                 path=node_path or None,
                 node_name=e["node_name"],
                 direction=cfg.get("direction"),
                 status=r.get("status", "active"),
-                access_key=None,
                 has_key=has_key,
                 key_last4=key_last4,
-                gateway_id=(e["cfg"].get("gateway_id") if isinstance(e["cfg"], dict) else None),
+                policy=_redact_config(cfg.get("policy") or {}),
                 trigger=_redact_config(cfg.get("trigger")),
-                last_synced_at=_created_or_updated(
+                last_activity_at=_created_or_updated(
                     cfg.get("last_seen_at") or cfg.get("last_run_at")
                 ),
                 error_message=cfg.get("error_message"),
@@ -348,53 +323,6 @@ def get_connection(
     return ApiResponse.success(data=_enrich([row], sb)[0], message="Access connection found")
 
 
-async def update_connection(
-    payload: ConnectionUpdate,
-    connection_id: str = Path(...),
-    current_user: CurrentUser = Depends(get_current_user),
-    authorization: AuthorizationService = Depends(get_authorization_service),
-):
-    sb = _get_client()
-
-    surfaces = AccessSurfaceRepository(sb)
-    row = surfaces.get(connection_id)
-    if not row:
-        raise NotFoundException("Access connection not found", code=ErrorCode.NOT_FOUND)
-    _require_connection_project_access(
-        authorization,
-        row["project_id"],
-        current_user.user_id,
-        ProjectAction.ACCESS_MANAGE,
-    )
-
-    fields: dict[str, Any] = {}
-    if payload.status is not None:
-        fields["status"] = payload.status
-    if payload.config is not None:
-        if _contains_secret_config_key(payload.config):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Credentials cannot be updated through access metadata; "
-                    "use the dedicated create or regenerate-key flow"
-                ),
-            )
-        cfg = dict(row.get("config") or {})
-        cfg.update(payload.config)
-        fields["config"] = cfg
-    if payload.trigger is not None:
-        if _contains_secret_config_key(payload.trigger):
-            raise HTTPException(400, "Credentials cannot be updated through access metadata; use explicit credential issuance")
-        cfg = dict(fields.get("config") or row.get("config") or {})
-        cfg["trigger"] = payload.trigger
-        fields["config"] = cfg
-
-    updated = surfaces.update(connection_id, fields)
-    return ApiResponse.success(
-        data=_enrich([updated], sb)[0], message="Access connection updated"
-    )
-
-
 async def delete_connection(
     connection_id: str = Path(...),
     current_user: CurrentUser = Depends(get_current_user),
@@ -468,7 +396,8 @@ def regenerate_key(
         ProjectAction.CREDENTIAL_MANAGE,
     )
 
-    provider = row.get("kind", row.get("provider", ""))
+    provider = row.get("kind", "")
+    _require_access_identity(provider, (row.get("config") or {}).get("trigger"))
     if provider == "git_remote":
         raise AppException(
             code=ErrorCode.CLIENT_UPGRADE_REQUIRED,
@@ -493,10 +422,11 @@ def regenerate_key(
             else ProjectRootTarget(project_id=row["project_id"])
         )
         return ApiResponse.success(
-            data={
-                "credential": new_key,
-                "target": repository_target_schema(target).model_dump(),
-            },
+            data=contracts.AccessCredentialIssued(
+                access_surface_id=row["id"],
+                credential=new_key,
+                target=repository_target_schema(target),
+            ),
             message="Key regenerated",
         )
     if provider == "sandbox":
@@ -508,7 +438,9 @@ def regenerate_key(
         if not endpoint or not endpoint.get("access_key"):
             raise NotFoundException("Sandbox endpoint not found", code=ErrorCode.NOT_FOUND)
         return ApiResponse.success(
-            data={"access_key": endpoint["access_key"]}, message="Key regenerated"
+            data=contracts.AccessCredentialIssued(
+                access_surface_id=row["id"], credential=endpoint["access_key"],
+            ), message="Key regenerated"
         )
     elif provider == "mcp":
         from src.platform.access.adapters.mcp_endpoint.repository import McpEndpointRepository
@@ -520,10 +452,11 @@ def regenerate_key(
         if not endpoint or not endpoint.get("api_key"):
             raise NotFoundException("MCP endpoint not found", code=ErrorCode.NOT_FOUND)
         return ApiResponse.success(
-            data={
-                "access_key": endpoint["api_key"],
-                "access_key_hint": endpoint.get("api_key_hint"),
-            },
+            data=contracts.AccessCredentialIssued(
+                access_surface_id=row["id"],
+                credential=endpoint["api_key"],
+                credential_hint=endpoint.get("api_key_hint"),
+            ),
             message="Key regenerated",
         )
     elif provider == "agent":
@@ -533,7 +466,9 @@ def regenerate_key(
         if not new_key:
             raise NotFoundException("Agent not found", code=ErrorCode.NOT_FOUND)
         return ApiResponse.success(
-            data={"access_key": new_key}, message="Key regenerated"
+            data=contracts.AccessCredentialIssued(
+                access_surface_id=row["id"], credential=new_key,
+            ), message="Key regenerated"
         )
     raise HTTPException(status_code=400, detail="This access surface has no bearer key")
 
@@ -547,7 +482,7 @@ def list_connection_types():
     """
     access_types = [
         {
-            "provider": "agent",
+            "kind": "agent",
             "display_name": "Chat Agent",
             "description": "Interactive AI assistant with data access",
             "auth": "none",
@@ -556,7 +491,7 @@ def list_connection_types():
             "icon": "bot",
         },
         {
-            "provider": "mcp",
+            "kind": "mcp",
             "display_name": "MCP Server",
             "description": "Model Context Protocol endpoint",
             "auth": "none",
@@ -565,7 +500,7 @@ def list_connection_types():
             "icon": "plug",
         },
         {
-            "provider": "sandbox",
+            "kind": "sandbox",
             "display_name": "Sandbox",
             "description": "Isolated script execution environment",
             "auth": "none",
@@ -575,63 +510,10 @@ def list_connection_types():
         },
     ]
 
-    return ApiResponse.success(data=access_types)
+    return ApiResponse.success(data=[contracts.AccessSurfaceKind(**row) for row in access_types])
 
 
 # ── Unified Create ─────────────────────────────────────────
-
-
-class UnifiedConnectionCreate(BaseModel):
-    """
-    Single request schema for creating ANY access type.
-    The `provider` field determines which service handles creation.
-    """
-
-    project_id: str = Field(..., description="Project ID")
-    target: RepositoryTargetSchema | None = Field(
-        None,
-        description="Required for direct Git/CLI access; ignored by other providers",
-    )
-    provider: str = Field(..., description="Access type: gmail, github, agent, mcp, sandbox, ...")
-    name: str | None = Field(None, description="Display name")
-    path: str | None = Field(None, description="Target version path")
-    config: dict = Field(default_factory=dict, description="Provider-specific configuration")
-    gateway_id: str | None = Field(
-        None, description="Gateway ID (required for datasource providers)"
-    )
-    direction: str | None = Field(None, description="Sync direction (datasource only)")
-    trigger: dict | None = Field(None, description="Trigger config (datasource/agent)")
-    credentials_ref: str | None = Field(
-        None, description="OAuth credentials reference (datasource)"
-    )
-    sync_mode: str | None = Field(
-        None, description="Sync mode: manual, scheduled, realtime (datasource)"
-    )
-    conflict_strategy: str | None = Field(None, description="Conflict strategy (datasource)")
-    accesses: list[dict] | None = Field(None, description="Node access bindings (agent/mcp)")
-    tools_config: list[dict] | None = Field(None, description="Tool bindings (mcp)")
-
-
-class UnifiedConnectionOut(BaseModel):
-    id: str
-    project_id: str
-    provider: str
-    name: str | None = None
-    status: str = "active"
-    gateway_id: str | None = None
-    target: RepositoryTargetSchema | None = None
-    git_url: str | None = None
-    git_username: str | None = None
-    git_credential: str | None = None
-    cli_access_key: str | None = None
-    mcp_api_key: str | None = Field(
-        None,
-        description="One-time MCP bearer credential returned only by creation",
-    )
-    mcp_server_url: str | None = Field(
-        None,
-        description="Canonical public MCP proxy URL; authenticate with Authorization: Bearer",
-    )
 
 
 def _public_mcp_server_url() -> str | None:
@@ -639,7 +521,7 @@ def _public_mcp_server_url() -> str | None:
     return f"{base}/api/v1/mcp/proxy" if base else None
 
 
-def _create_agent(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
+def _create_agent(payload: contracts.AccessSurfaceConfigure) -> contracts.AccessSurfaceCreated:
     from src.platform.access.adapters.agent.config.repository import AgentRepository
     from src.platform.access.adapters.agent.config.schemas import AgentBashCreate
     from src.platform.access.adapters.agent.config.service import AgentConfigService
@@ -670,10 +552,10 @@ def _create_agent(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
         task_path=cfg.get("task_path"),
         external_config=cfg.get("external_config"),
     )
-    return UnifiedConnectionOut(
+    return contracts.AccessSurfaceCreated(
         id=agent.id,
         project_id=payload.project_id,
-        provider="agent",
+        kind="agent",
         name=agent.name,
         status="active",
         mcp_api_key=agent.mcp_api_key,
@@ -682,8 +564,8 @@ def _create_agent(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
 
 
 def _create_mcp(
-    payload: UnifiedConnectionCreate, *, created_by: str | None = None
-) -> UnifiedConnectionOut:
+    payload: contracts.AccessSurfaceConfigure, *, created_by: str | None = None
+) -> contracts.AccessSurfaceCreated:
     from src.platform.access.adapters.mcp_endpoint.repository import McpEndpointRepository
     from src.platform.access.adapters.mcp_endpoint.schemas import McpAccessItem, McpToolItem
     from src.platform.access.adapters.mcp_endpoint.service import McpEndpointService
@@ -702,10 +584,10 @@ def _create_mcp(
         tools_config=tools,
         created_by=created_by,
     )
-    return UnifiedConnectionOut(
+    return contracts.AccessSurfaceCreated(
         id=row["id"],
         project_id=row["project_id"],
-        provider="mcp",
+        kind="mcp",
         name=row["name"],
         status=row["status"],
         mcp_api_key=row.get("api_key"),
@@ -713,7 +595,7 @@ def _create_mcp(
     )
 
 
-def _create_sandbox(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
+def _create_sandbox(payload: contracts.AccessSurfaceConfigure) -> contracts.AccessSurfaceCreated:
     from src.platform.access.adapters.sandbox_endpoint.repository import SandboxEndpointRepository
     from src.platform.access.adapters.sandbox_endpoint.schemas import (
         SandboxMountItem,
@@ -739,54 +621,35 @@ def _create_sandbox(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
         timeout_seconds=cfg.get("timeout_seconds", 30),
         resource_limits=resource_limits,
     )
-    return UnifiedConnectionOut(
+    return contracts.AccessSurfaceCreated(
         id=row["id"],
         project_id=row["project_id"],
-        provider="sandbox",
+        kind="sandbox",
         name=row["name"],
         status=row["status"],
     )
 
 
 async def create_connection(
-    payload: UnifiedConnectionCreate,
+    payload: contracts.AccessSurfaceConfigure,
     current_user: CurrentUser = Depends(get_current_user),
     entitlement_service: EntitlementService = Depends(get_entitlement_service),
     authorization: AuthorizationService = Depends(get_authorization_service),
 ):
     """
-    Unified entry point for creating Access surfaces.
-    Routes to the appropriate service based on `provider`.
+    Configure agent/MCP/sandbox through their registered Access adapters.
 
-    - agent: creates a chat agent
-    - mcp: creates an MCP endpoint
-    - sandbox: creates a sandbox endpoint
-    The removed ``direct`` provider returns 410 so legacy clients cannot cause
-    the server to generate a plaintext human Git credential. Human Git
-    credentials are accepted only by the client-generated, idempotent Project
-    credential endpoint.
+    Git/CLI issuance is not a configuration kind. Human Git credentials use
+    the separate client-generated, idempotent Project credential endpoint.
     """
     from src.platform.project.repository import ProjectRepositorySupabase
 
-    provider = payload.provider.lower()
-    if provider == "direct":
-        raise AppException(
-            code=ErrorCode.CLIENT_UPGRADE_REQUIRED,
-            status_code=status.HTTP_410_GONE,
-            message=(
-                "Direct Git credential creation was removed; use "
-                "POST /api/v1/projects/{project_id}/git-credentials"
-            ),
-            details={
-                "code": "legacy_direct_access_removed",
-                "required_repository_contract": 2,
-            },
-        )
+    provider = payload.kind
     if provider not in {"agent", "mcp", "sandbox"}:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unknown access provider: {provider}. Use Integration APIs "
+                f"Unknown Access kind: {provider}. Use Import or Synchronize APIs "
                 "for external datasource connections."
             ),
         )

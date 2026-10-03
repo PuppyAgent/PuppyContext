@@ -5,11 +5,41 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.platform.synchronize.github import public_schemas as github_contracts
+from src.platform.synchronize.github import service as github_service
 from src.platform.synchronize.github.importer import _do_import
 from src.platform.synchronize.public_schemas import SynchronizeBindingCreate
 from src.platform.synchronize.repository import SynchronizeRepository
 from src.platform.synchronize.router import _target_from_request
 from src.platform.synchronize.service import SynchronizeService
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["pull", "push"])
+async def test_github_result_cannot_claim_another_execution_binding(monkeypatch, method):
+    service = github_service.GithubSyncService.__new__(github_service.GithubSyncService)
+    service._bindings = SimpleNamespace(
+        get_by_project=AsyncMock(return_value={"id": "expected-binding"})
+    )
+    result = github_contracts.SynchronizeGithubResult(
+        synchronize_github_binding_id="another-binding",
+        status="success",
+        direction="inbound" if method == "pull" else "outbound",
+        git_sha=None,
+        version_commit_id=None,
+        files_changed=0,
+    )
+    monkeypatch.setattr(
+        github_service,
+        "import_branch" if method == "pull" else "export_to_branch",
+        AsyncMock(return_value=result),
+    )
+    payload = (
+        github_contracts.SynchronizeGithubPull()
+        if method == "pull" else github_contracts.SynchronizeGithubPush()
+    )
+    with pytest.raises(ValueError, match="another binding identity"):
+        await getattr(service, method)("project-1", payload)
 
 
 @pytest.mark.parametrize(

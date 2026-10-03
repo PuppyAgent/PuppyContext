@@ -226,12 +226,13 @@ def environment(monkeypatch):
 
     def configure(payload, **kwargs):
         row = memory.insert(
-            payload.project_id, kind=payload.provider, name=payload.name or payload.provider
+            payload.project_id, kind=payload.kind, name=payload.name or payload.kind
         )
-        return legacy_global.UnifiedConnectionOut(
+        return public.AccessSurfaceCreated(
             id=row.id,
             project_id=row.project_id,
-            provider=row.kind,
+            kind=row.kind,
+            status=row.status,
             name=row.name,
             mcp_api_key="one-time-test-token" if row.kind in {"agent", "mcp"} else None,
             mcp_server_url="https://example.test/mcp" if row.kind in {"agent", "mcp"} else None,
@@ -404,6 +405,23 @@ def test_invalid_selectors_do_not_expand_inventory(environment, query):
         assert client.get(BASE + "?" + query).status_code == 422
 
 
+def test_credential_reply_cannot_relabel_another_surface(environment, monkeypatch):
+    app, memory, _, _ = environment
+    surface = memory.insert("project-1", kind="cli")
+    monkeypatch.setattr(
+        legacy_global,
+        "regenerate_key",
+        lambda **kwargs: public.ApiResponse.success(data=public.AccessCredentialIssued(
+            access_surface_id="other-surface", credential="must-not-leak-issued-token",
+        )),
+    )
+    with TestClient(app, headers=HEADERS) as client:
+        response = client.post(f"{BASE}/{surface.id}/regenerate-key")
+    assert response.status_code == 409
+    assert "another surface" in response.text
+    assert "must-not-leak" not in response.text
+
+
 def test_wrong_domain_foreign_and_legacy_surface_ids_cannot_manage_resources(environment):
     app, memory, _, _ = environment
     foreign = memory.insert("project-2")
@@ -412,8 +430,10 @@ def test_wrong_domain_foreign_and_legacy_surface_ids_cannot_manage_resources(env
         denied = client.get(BASE + "?project_id=project-2")
         assert denied.status_code in (403, 404)
         assert denied.json().get("data") is None
-        assert client.get(PROJECT).json()["data"] == []
-        assert client.get(BASE).json()["data"] == []
+        for path in (PROJECT, BASE):
+            inventory = client.get(path)
+            assert inventory.status_code == 409
+            assert "Review their migration" in inventory.text
         for surface_id, expected in (
             ("synchronize-only", 404),
             (foreign.id, 404),

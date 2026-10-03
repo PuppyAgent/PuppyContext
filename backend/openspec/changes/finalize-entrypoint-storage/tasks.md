@@ -2,16 +2,16 @@
 - [x] 1.1 Confirm ownership, immutable history, final mapping and 061 delivery; retain existing worktrees.
 - [x] 1.2 Add Expand schema, redacted decision inventory/import, freeze, immutable data artifact and negative tests.
 - [x] 1.3 Verify old/new writes, exact encrypted data/history, drift refusal, receipt and retry on real PostgreSQL.
-- [ ] 1.4 After Release A rehearsal, deliver separately gated D01–D06 Contract, final repositories/direct SQL/view consumers and no runtime storage aliases.
+- [x] 1.4 After Release A rehearsal, deliver separately gated D01–D06 Contract, final repositories/direct SQL/view consumers and no runtime storage aliases.
 - [x] 1.5 Verify empty installation, populated upgrade, full installation and post-contract recovery; preserve 053 ACL/RLS.
 
 ## 2. Final resource cutover
-- [ ] 2.1 Retire legacy HTTP/DTO routes after the matching consumer/runtime exit gate, update exact current-contract tests without rewriting historical snapshots.
+- [x] 2.1 Retire legacy HTTP/DTO routes after the matching local release gate, update exact current-contract tests without rewriting historical snapshots. Target-environment exit remains 2.3, not implied by this source delivery.
 - [x] 2.2 Run actual CLI/SDK/Desktop and real persistence/Provider/worker checks on the migrated stack, including mixed Import and binding inventories and legacy read-only disposition.
 - [ ] 2.3 Assemble target-environment version, producer/process/queue/webhook, restore and consumer evidence; obtain explicit authorization before any hosted operation.
 
 ## 3. Acceptance
-- [ ] 3.1 Integrate and reverify source and executable release artifacts; update original audits and canonical docs.
+- [x] 3.1 Integrate and reverify source and executable schema/data/application artifacts; update original audits and canonical docs. This does not certify hosted CI/CD or signed packages.
 - [ ] 3.2 Close 049/059/058 only on their unchanged original evidence requirements; do not replace environment facts with local fixtures or claim an unauthorized release.
 
 ## Release A source checkpoint
@@ -43,7 +43,22 @@
 - Follow-up removes unmounted legacy APIRouter objects/decorators for generic Synchronize, GitHub, Database Import, global/project Access and Dashboard, and deletes the unused Activity transport. Operations cannot accidentally remount those routes. Generic Synchronize and Database Import now consume canonical request/result DTOs directly; obsolete schemas and service/repository aliases are removed. Old-server CLI rejection uses an explicitly obsolete test-only route, not a product compatibility router.
 - Removed the dead mixed Dashboard Connection DTO/aggregation, including its equal-ID usage join and empty-success exception handlers. The canonical domain-partitioned implementation is authoritative. Upload inventory failure now propagates; an explicit foreign Project Access list is denied rather than presented as an empty success. Security tests run against canonical routes, retain recursive credential masking and reject metadata credential writes.
 - Follow-up backend: **2766 passed, 27 skipped, 76 deselected** (`/tmp/issue058-source-retirement-backend-final.log`). Joint CLI/SDK/queue/real-window gate: **31 passed** (`/tmp/issue058-source-retirement-joint-final.log`). Exact OpenAPI retirement remains unchanged. Nine source-retirement regressions prevent router/alias resurrection. Scoped F/E9 and full checks on rewritten files pass; this is not a claim of repository-wide Ruff cleanliness.
-- Still open locally: remaining Access/GitHub private DTO adapters, final task/document/audit and redacted durable evidence refresh, final source integration/reverification. Hosted authorization and acceptance remain separate and outstanding.
+- Source-retirement increment `acfdf12f` was integrated into local Cloud `qubits`. A further GitHub increment removes all legacy GitHub request/result DTOs and import/export trigger aliases. Operations, service, importer and exporter now use canonical DTOs directly; every outcome carries its actual execution binding ID. The service rejects a foreign result identity rather than rewriting it with a later lookup. Both mismatch cases and alias/module absence have regressions.
+- Latest follow-up backend: **2770 passed, 27 skipped, 76 deselected** (`/tmp/issue058-github-dto-backend.log`); joint gate **31 passed** (`/tmp/issue058-github-dto-joint.log`). Exact mounted contracts remain unchanged. These do not replace the committed full-stack receipts above.
+- Access follow-up removes Connection/Connector/UnifiedConnection request/result DTOs, the unused update/run transports and provider/old-timestamp/credential-field translation. Project/global operations emit canonical Access DTOs; adapter creation uses canonical kinds, and explicit credential issuance returns its actual surface ID (a mismatch fails without leaking the token). Typed Git/CLI configuration cannot accidentally restore server-generated human Git credentials.
+- Access inventory validates unexpected historical source rows with 409 rather than hiding them as an empty success. Opaque user metadata, credential redaction and repository-target invariants remain intact. Metadata never issues a credential.
+- Latest Access follow-up backend: **2772 passed, 27 skipped, 76 deselected** (`/tmp/issue058-access-dto-backend-final.log`); joint gate **31 passed** (`/tmp/issue058-access-dto-joint.log`). Immutable contract fingerprints and both pending/promoted Contract pairs still match; portable lint validates 10 artifacts.
+- That checkpoint's remaining local integration/reverification and documentation work is superseded by the final receipt below. Hosted authorization and acceptance remain outstanding.
+
+## Final committed-source verification — 2026-10-04
+
+- Cloud `5ed64637` and Desktop `7aff3539` are the final tested pair. The source/router/DTO cleanup is committed and integrated; no implementation blocker remains. Later unrelated Desktop `cf489551` is not silently included in this test baseline.
+- Final backend **2772 passed / 27 skipped / 76 deselected / 54 warnings**; actual CLI/SDK/local Redis/production Electron-window joint gate **31 passed / 27 warnings**. Initial joint port collision was fixed in Desktop `7aff3539` with available-port binding and actual bound-port discovery, without stopping the unrelated listener.
+- Final committed Cloud fresh stack **14 checks**, populated A→B/recovery **9 checks**, native PostgreSQL **5 checks**. Web **216**, Desktop **376**, CLI units, Web/Desktop source/test types and Automation boundary pass. Historical draft/d4e receipts are not relabeled as 5ed.
+- The populated receipt records both Cloud releases but does not record Desktop SHA. The shared reviewed evidence explicitly labels `af79fc7e` as reconstruction from the run's checkout/reflog, not direct receipt attestation; its two consumed client files are unchanged in `7aff3539`. Actual migrated-stack clients and the later isolated-backend window are different gates.
+- Canonical data model, public contracts, source/consumer docs, release/recovery runbook, indexes and original 049/058/059 audits are refreshed in the shared `puppy-issues` working tree. Durable reviewed evidence: `dev issues/1-pending/evidence/2026-10-04-entrypoint-final/verification.json` plus reviewed native/window reports. Private credentials, sessions, dumps and restore catalogs are not copied. Existing shared staged/concurrent work is preserved, not blanket-committed.
+- Audit validator passes 56 issues; normalized Section 2 hashes confirm all three original acceptance criteria/exclusions are unchanged except completion checkboxes. Global documentation validation initially reports only two metadata errors in another agent's `document/puppyone-desktop/platform/rust-native-frontend/README.md`; no suppression or unrelated edit is used to claim a pass.
+- Source and local migration/recovery completion do not establish hosted versions, target source classification, supported consumer/webhook exit, hosted CI/CD/package release or target recovery. 049/058/059 remain OPEN; Qubits authorization remains unanswered. 061's withdrawn legacy-version/old-queue scope stays archived. No remote query, DDL, push or deployment was performed.
 
 Reproduce populated local acceptance with installed dependencies and no `.env` inputs:
 

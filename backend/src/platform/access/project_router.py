@@ -7,7 +7,8 @@ from fastapi import Depends, HTTPException, Query
 from src.common_schemas import ApiResponse
 from src.exceptions import AppException
 from src.platform.access.models import AccessSurface
-from src.platform.access.router import _contains_secret_config_key, _redact_config
+from src.platform.access.router import _contains_secret_config_key, _redact_config, _require_access_identity
+from src.platform.access import public_schemas as contracts
 from src.platform.access.service import AccessService
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
@@ -16,12 +17,6 @@ from src.platform.authorization.models import ProjectAction
 from src.platform.repository_target.schemas import (
     repository_target_domain,
     repository_target_schema,
-)
-from src.repo.schemas import (
-    ConnectorIn,
-    ConnectorOut,
-    ConnectorPatch,
-    TargetAccessEnableIn,
 )
 
 def get_access_service() -> AccessService:
@@ -33,11 +28,13 @@ def _reject_credential_metadata(*values) -> None:
         raise HTTPException(400, "Credentials cannot be written through Access metadata; use explicit credential issuance.")
 
 
-def _to_out(c: AccessSurface) -> ConnectorOut:
-    return ConnectorOut(
+def _to_out(c: AccessSurface) -> contracts.AccessSurface:
+    _require_access_identity(c.kind, c.trigger)
+    return contracts.AccessSurface(
         id=c.id,
+        project_id=c.project_id,
         target=repository_target_schema(c.target),
-        provider=c.kind,
+        kind=c.kind,
         name=c.name,
         direction=c.direction,                    # type: ignore[arg-type]
         config=_redact_config(c.config),
@@ -45,8 +42,7 @@ def _to_out(c: AccessSurface) -> ConnectorOut:
         oauth_connection_id=c.oauth_connection_id,
         trigger=_redact_config(c.trigger),
         status=c.status,
-        last_run_at=c.last_run_at,
-        last_run_id=c.last_run_id,
+        last_activity_at=c.last_run_at,
         error_message=c.error_message,
         created_by=c.created_by,
         created_at=c.created_at,
@@ -57,13 +53,6 @@ def _to_out(c: AccessSurface) -> ConnectorOut:
 def list_connectors(
     provider: str | None = Query(None),
     direction: str | None = Query(None),
-    include_non_access: bool = Query(
-        False,
-        description=(
-            "Include legacy import-only connector rows. The default response "
-            "contains only ongoing Access methods."
-        ),
-    ),
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_READ)
     ),
@@ -73,13 +62,14 @@ def list_connectors(
         str(authorized.project.id),
         kind=provider,
         direction=direction,
-        access_surface_only=not include_non_access,
+        # Unexpected historical source rows require repair, not empty success.
+        access_surface_only=False,
     )
     return ApiResponse.success(data=[_to_out(c) for c in items], message="Connectors listed")
 
 
 def create_connector(
-    payload: ConnectorIn,
+    payload: contracts.AccessSurfaceCreate,
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_MANAGE)
     ),
@@ -91,7 +81,7 @@ def create_connector(
         c = service.create(
             project_id=str(authorized.project.id),
             target=repository_target_domain(payload.target),
-            kind=payload.provider,
+            kind=payload.kind,
             direction=payload.direction,
             name=payload.name,
             config=payload.config,
@@ -106,7 +96,7 @@ def create_connector(
 
 
 def enable_target_access(
-    payload: TargetAccessEnableIn,
+    payload: contracts.AccessTargetEnable,
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_MANAGE)
     ),
@@ -132,7 +122,7 @@ def enable_target_access(
 
 def update_connector(
     connector_id: str,
-    payload: ConnectorPatch,
+    payload: contracts.AccessSurfaceUpdate,
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_MANAGE)
     ),
@@ -144,7 +134,7 @@ def update_connector(
     _reject_credential_metadata(payload.config, payload.policy, payload.trigger.model_dump() if payload.trigger else None)
     patch = payload.model_dump(exclude_unset=True)
     if "trigger" in patch and patch["trigger"] is not None:
-        # Pydantic gave us a TriggerSpec dict-like; pass through.
+        # The canonical trigger is already a dictionary after model_dump.
         patch["trigger"] = dict(patch["trigger"])
     try:
         updated = service.update(connector_id, patch)
@@ -172,23 +162,6 @@ def activate_agent_connector(
     if updated is None:
         raise HTTPException(status_code=404, detail="Connector not found after activation")
     return ApiResponse.success(data=_to_out(updated), message="Agent connector activated")
-
-
-async def run_connector(
-    connector_id: str,
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.AUTOMATION_RUN)
-    ),
-    service: AccessService = Depends(get_access_service),
-):
-    existing = service.get(connector_id)
-    if existing is None or existing.project_id != str(authorized.project.id):
-        raise HTTPException(status_code=404, detail="Connector not found")
-    try:
-        run_id = await service.run_now(connector_id)
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
-    return ApiResponse.success(data={"run_id": run_id}, message="Run triggered")
 
 
 def pause_connector(

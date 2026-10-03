@@ -314,12 +314,19 @@ def test_legacy_access_router_cannot_issue_server_generated_human_git_secrets():
     assert "issue_git_http_token" not in git_branch
 
     unified_create = router.split("# ── Unified Create", 1)[1]
-    assert 'if provider == "direct":' in unified_create
-    assert "HTTP_410_GONE" in unified_create
-    assert "legacy_direct_access_removed" in unified_create
-    assert "/projects/{project_id}/git-credentials" in unified_create
     assert "issue_git_http_token" not in unified_create
-    assert '"provider": "direct"' not in router.split("# ── Unified Create", 1)[0]
+    assert '"kind": "direct"' not in router.split("# ── Unified Create", 1)[0]
+    from pydantic import ValidationError
+    from src.platform.access.public_schemas import AccessSurfaceConfigure, AccessSurfaceCreated
+
+    for fields in (
+        {"kind": "direct"}, {"kind": "git_remote"}, {"kind": "cli"},
+        {"kind": "mcp", "provider": "direct"},
+    ):
+        with pytest.raises(ValidationError):
+            AccessSurfaceConfigure(project_id="project-1", **fields)
+    assert "git_credential" not in AccessSurfaceCreated.model_fields
+    assert "cli_access_key" not in AccessSurfaceCreated.model_fields
 
 
 @pytest.mark.parametrize(

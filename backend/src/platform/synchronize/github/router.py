@@ -9,17 +9,7 @@ from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import get_authorization_service
 from src.platform.authorization.models import ProjectAction
 from src.platform.authorization.service import AuthorizationService
-from src.platform.synchronize.github.schemas import (
-    GithubBranchList,
-    GithubExportRequest,
-    GithubImportRequest,
-    GithubIntegrationCreate,
-    GithubIntegrationStatus,
-    GithubIntegrationUpdate,
-    GithubRepoList,
-    GithubSyncLogList,
-    GithubSyncRunResult,
-)
+from src.platform.synchronize.github import public_schemas as contracts
 from src.platform.synchronize.github.service import (
     GithubSyncNotFound,
     GithubSyncService,
@@ -73,9 +63,9 @@ async def _require_owned_github_oauth(oauth_connection_id: int, user: CurrentUse
 
 async def connect(
     project_id: str,
-    payload: GithubIntegrationCreate,
+    payload: contracts.SynchronizeGithubBindingCreate,
     user=Depends(_manage_user),
-) -> ApiResponse[GithubIntegrationStatus]:
+) -> ApiResponse[contracts.SynchronizeGithubBinding]:
     await _require_owned_github_oauth(payload.oauth_connection_id, user)
     try:
         result = await _service().connect(project_id, payload)
@@ -89,9 +79,9 @@ async def connect(
 
 async def update(
     project_id: str,
-    payload: GithubIntegrationUpdate,
+    payload: contracts.SynchronizeGithubBindingUpdate,
     user=Depends(_manage_user),
-) -> ApiResponse[GithubIntegrationStatus]:
+) -> ApiResponse[contracts.SynchronizeGithubBinding]:
     try:
         result = await _service().update(project_id, payload)
         return ApiResponse.success(data=result, message="github integration updated")
@@ -112,7 +102,7 @@ async def disconnect(
 async def get_status(
     project_id: str,
     user=Depends(_read_user),
-) -> ApiResponse[GithubIntegrationStatus | None]:
+) -> ApiResponse[contracts.SynchronizeGithubBinding | None]:
     result = await _service().status(project_id)
     return ApiResponse.success(data=result, message="github integration status retrieved")
 
@@ -121,7 +111,7 @@ async def list_repos(
     project_id: str,
     oauth_connection_id: int = Query(..., description="The user's GitHub OAuth row id"),
     user=Depends(_read_user),
-) -> ApiResponse[GithubRepoList]:
+) -> ApiResponse[contracts.SynchronizeGithubRepos]:
     """List the OAuth user's GitHub repositories.
 
     The OAuth connection id is supplied explicitly so the UI can drive
@@ -146,7 +136,7 @@ async def list_branches(
     repo_owner: str = Query(..., min_length=1),
     repo_name: str = Query(..., min_length=1),
     user=Depends(_read_user),
-) -> ApiResponse[GithubBranchList]:
+) -> ApiResponse[contracts.SynchronizeGithubBranches]:
     """List branches for a (owner, repo) pair.
 
     Drives the connect-form's branch dropdown. ``oauth_connection_id``
@@ -166,36 +156,12 @@ async def list_branches(
         raise HTTPException(status_code=502, detail="GitHub branch discovery failed") from e
 
 
-async def import_now(
-    project_id: str,
-    payload: GithubImportRequest,
-    user=Depends(_manage_user),
-) -> ApiResponse[GithubSyncRunResult]:
-    try:
-        result = await _service().import_now(project_id, payload)
-        return ApiResponse.success(data=result, message="github import completed")
-    except GithubSyncNotFound:
-        raise HTTPException(status_code=404, detail=_DETAIL_NOT_CONFIGURED)
-
-
-async def export_now(
-    project_id: str,
-    payload: GithubExportRequest,
-    user=Depends(_manage_user),
-) -> ApiResponse[GithubSyncRunResult]:
-    try:
-        result = await _service().export_now(project_id, payload)
-        return ApiResponse.success(data=result, message="github export completed")
-    except GithubSyncNotFound:
-        raise HTTPException(status_code=404, detail=_DETAIL_NOT_CONFIGURED)
-
-
 async def sync_log(
     project_id: str,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user=Depends(_read_user),
-) -> ApiResponse[GithubSyncLogList]:
+) -> ApiResponse[contracts.SynchronizeGithubLogs]:
     try:
         result = await _service().list_sync_log(
             project_id, limit=limit, offset=offset,

@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
 from src.config import settings
-from src.platform.access.router import UnifiedConnectionCreate, _create_agent, _create_mcp
+from src.platform.access.public_schemas import AccessSurfaceConfigure
+from src.platform.access.router import _create_agent, _create_mcp
 
 
 def test_unified_mcp_create_returns_one_time_bearer_contract(monkeypatch) -> None:
@@ -28,9 +29,9 @@ def test_unified_mcp_create_returns_one_time_bearer_contract(monkeypatch) -> Non
     monkeypatch.setattr(settings, "PUBLIC_URL", "https://api.example.test/")
 
     result = _create_mcp(
-        UnifiedConnectionCreate(
+        AccessSurfaceConfigure(
             project_id="project-1",
-            provider="mcp",
+            kind="mcp",
             name="Docs",
         ),
         created_by="user-1",
@@ -63,9 +64,9 @@ def test_unified_agent_create_preserves_one_time_mcp_bearer(monkeypatch) -> None
     monkeypatch.setattr(settings, "PUBLIC_URL", "https://api.example.test")
 
     result = _create_agent(
-        UnifiedConnectionCreate(
+        AccessSurfaceConfigure(
             project_id="project-1",
-            provider="agent",
+            kind="agent",
             name="Assistant",
         )
     )

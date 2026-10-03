@@ -41,7 +41,7 @@ from src.provider.github.client import (
 from src.platform.synchronize.github.repository import (
     GithubSyncRepository, GithubSyncLogRepository,
 )
-from src.platform.synchronize.github.schemas import GithubSyncRunResult
+from src.platform.synchronize.github.public_schemas import SynchronizeGithubResult
 from src.utils.logger import log_error, log_info, log_warning
 
 
@@ -123,12 +123,11 @@ async def import_branch(
     branch: Optional[str] = None,
     force: bool = False,
     triggered_by: str = "manual",
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     """Pull *branch* from GitHub into the bound version scope.
 
-    Returns the same shape ``service.import_now`` exposes to the
-    router so both manual triggers and the webhook handler get a
-    consistent result.
+    Manual and queued triggers return the canonical result with the actual
+    execution binding identity, never a subsequent Project lookup.
 
     Side effects: writes one version-history row, one
     ``synchronize_github_logs`` row, and updates ``last_pulled_*`` on the
@@ -182,7 +181,8 @@ async def import_branch(
             error=f"GitHub API unreachable ({type(e).__name__}): {e}",
         )
     except ImportConflict as e:
-        result = GithubSyncRunResult(
+        result = SynchronizeGithubResult(
+            synchronize_github_binding_id=binding_id,
             status="conflict", direction="inbound",
             git_sha=None, version_commit_id=e.version_head,
             files_changed=None,
@@ -210,7 +210,7 @@ async def _do_import(
     sync_log: GithubSyncLogRepository,
     binding_repo: GithubSyncRepository,
     force: bool = False,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     project_id = binding["project_id"]
     owner = binding["github_repo_owner"]
@@ -226,7 +226,8 @@ async def _do_import(
         log_info(
             f"[GithubImport] sha {git_sha[:12]} already imported, skipping"
         )
-        return GithubSyncRunResult(
+        return SynchronizeGithubResult(
+            synchronize_github_binding_id=binding_id,
             status="success", direction="inbound",
             git_sha=git_sha, version_commit_id=prior.get("version_commit_id"),
             files_changed=0,
@@ -244,7 +245,8 @@ async def _do_import(
             binding_id, direction="inbound", status="failed",
             git_sha=git_sha, error_message=msg,
         )
-        return GithubSyncRunResult(
+        return SynchronizeGithubResult(
+            synchronize_github_binding_id=binding_id,
             status="failed", direction="inbound",
             git_sha=git_sha, version_commit_id=None,
             files_changed=None, error_message=msg,
@@ -329,7 +331,8 @@ async def _do_import(
         f"files={files_changed}"
     )
 
-    return GithubSyncRunResult(
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
         status="success", direction="inbound",
         git_sha=git_sha, version_commit_id=version_commit_id,
         files_changed=files_changed,
@@ -458,12 +461,13 @@ async def _load_oauth_token(oauth_id: int) -> Optional[dict]:
 async def _record_failure(
     sync_log: GithubSyncLogRepository,
     binding_id: str, *, error: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     await sync_log.record(
         binding_id, direction="inbound", status="failed",
         error_message=error,
     )
-    return GithubSyncRunResult(
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
         status="failed", direction="inbound",
         git_sha=None, version_commit_id=None,
         files_changed=None, error_message=error,

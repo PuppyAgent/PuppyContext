@@ -38,7 +38,7 @@ from src.platform.synchronize.github.repository import (
     GithubSyncRepository,
     GithubSyncLogRepository,
 )
-from src.platform.synchronize.github.schemas import GithubSyncRunResult
+from src.platform.synchronize.github.public_schemas import SynchronizeGithubResult
 from src.utils.logger import log_error, log_info
 from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
 
@@ -49,7 +49,7 @@ async def export_to_branch(
     message: str | None = None,
     triggered_by: str = "manual",
     write_lease_factory: ProjectWriteLeaseFactory = ProjectWriteLease,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     project_id = binding["project_id"]
     owner = binding["github_repo_owner"]
@@ -83,7 +83,7 @@ async def _export_with_write_lease(
     owner: str,
     repo_name: str,
     write_lease_factory: ProjectWriteLeaseFactory,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     # Admission is the first side-effecting step. Even an export that later
     # fails OAuth validation must be rejected once Project deletion closes.
     async with write_lease_factory(project_id, "github.export"):
@@ -105,7 +105,7 @@ async def _export_after_admission(
     project_id: str,
     owner: str,
     repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     oauth_id = binding.get("oauth_connection_id")
     sync_log = GithubSyncLogRepository()
@@ -153,7 +153,7 @@ async def _do_export_with_failure_recording(
     project_id: str,
     owner: str,
     repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     try:
         return await _do_export(
@@ -207,7 +207,7 @@ async def _do_export(
     commit_message: str | None, sync_log: GithubSyncLogRepository,
     binding_repo: GithubSyncRepository,
     project_id: str, owner: str, repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
 
     # 1. List the version scope's current contents.
@@ -218,7 +218,8 @@ async def _do_export(
             binding_id, direction="outbound", status="failed",
             error_message=msg,
         )
-        return GithubSyncRunResult(
+        return SynchronizeGithubResult(
+            synchronize_github_binding_id=binding_id,
             status="failed", direction="outbound",
             git_sha=None, version_commit_id=None, files_changed=0,
             error_message=msg,
@@ -274,7 +275,8 @@ async def _do_export(
         f"[GithubExport] done integration={binding_id} "
         f"git_sha={new_git_sha[:12]} files={files_changed}"
     )
-    return GithubSyncRunResult(
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
         status="success", direction="outbound",
         git_sha=new_git_sha, version_commit_id=head,
         files_changed=files_changed,
@@ -317,12 +319,13 @@ def _local_head_commit_id(project_id: str) -> str:
 async def _record_failure(
     sync_log: GithubSyncLogRepository,
     binding_id: str, error: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     await sync_log.record(
         binding_id, direction="outbound", status="failed",
         error_message=error,
     )
-    return GithubSyncRunResult(
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
         status="failed", direction="outbound",
         git_sha=None, version_commit_id=None,
         files_changed=None, error_message=error,

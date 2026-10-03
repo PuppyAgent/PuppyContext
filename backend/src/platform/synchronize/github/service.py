@@ -12,20 +12,7 @@ from src.platform.synchronize.github.repository import (
     GithubSyncLogRepository,
     GithubSyncRepository,
 )
-from src.platform.synchronize.github.schemas import (
-    GithubBranchList,
-    GithubBranchSummary,
-    GithubExportRequest,
-    GithubImportRequest,
-    GithubIntegrationCreate,
-    GithubIntegrationStatus,
-    GithubIntegrationUpdate,
-    GithubRepoList,
-    GithubRepoSummary,
-    GithubSyncLogEntry,
-    GithubSyncLogList,
-    GithubSyncRunResult,
-)
+from src.platform.synchronize.github import public_schemas as contracts
 from src.provider.github.client import GithubApi
 from src.utils.logger import log_info
 
@@ -45,7 +32,7 @@ class GithubSyncService:
     # ── connect / disconnect ──────────────────────
 
     async def connect(self, project_id: str,
-                      payload: GithubIntegrationCreate) -> GithubIntegrationStatus:
+                      payload: contracts.SynchronizeGithubBindingCreate) -> contracts.SynchronizeGithubBinding:
         # Cross-check the schema-level invariant ahead of the DB so we
         # surface a clean 400 instead of a Postgres CHECK violation.
         if payload.auto_pull and not payload.webhook_secret:
@@ -70,7 +57,7 @@ class GithubSyncService:
         return _row_to_status(row)
 
     async def update(self, project_id: str,
-                     payload: GithubIntegrationUpdate) -> GithubIntegrationStatus:
+                     payload: contracts.SynchronizeGithubBindingUpdate) -> contracts.SynchronizeGithubBinding:
         existing = await self._bindings.get_by_project(project_id)
         if not existing:
             raise GithubSyncNotFound(project_id)
@@ -95,13 +82,13 @@ class GithubSyncService:
             log_info(f"[GithubIntegration] disconnect project={project_id}")
         return existed
 
-    async def status(self, project_id: str) -> GithubIntegrationStatus | None:
+    async def status(self, project_id: str) -> contracts.SynchronizeGithubBinding | None:
         row = await self._bindings.get_by_project(project_id)
         return _row_to_status(row) if row else None
 
     # ── repo discovery (for the UI picker) ────────
 
-    async def list_user_repos(self, oauth_connection_id: int) -> GithubRepoList:
+    async def list_user_repos(self, oauth_connection_id: int) -> contracts.SynchronizeGithubRepos:
         oauth = await _load_oauth_token(oauth_connection_id)
         if not oauth:
             raise GithubSyncNotFound(
@@ -112,8 +99,8 @@ class GithubSyncService:
             repos = await api.list_user_repos()
         finally:
             await api.aclose()
-        return GithubRepoList(repos=[
-            GithubRepoSummary(
+        return contracts.SynchronizeGithubRepos(repos=[
+            contracts.SynchronizeGithubRepo(
                 owner=(r.get("owner") or {}).get("login", ""),
                 name=r.get("name", ""),
                 full_name=r.get("full_name", ""),
@@ -125,7 +112,7 @@ class GithubSyncService:
 
     async def list_repo_branches(
         self, oauth_connection_id: int, owner: str, name: str,
-    ) -> GithubBranchList:
+    ) -> contracts.SynchronizeGithubBranches:
         """List branches for a repo so the UI picker can populate its
         dropdown. The default branch is flagged inline so the picker
         can pre-select it without a second round-trip."""
@@ -144,11 +131,11 @@ class GithubSyncService:
             default_branch = repo_meta.get("default_branch") or ""
         finally:
             await api.aclose()
-        return GithubBranchList(
+        return contracts.SynchronizeGithubBranches(
             repo_owner=owner,
             repo_name=name,
             branches=[
-                GithubBranchSummary(
+                contracts.SynchronizeGithubBranch(
                     name=b.get("name", ""),
                     sha=(b.get("commit") or {}).get("sha", ""),
                     protected=bool(b.get("protected", False)),
@@ -160,18 +147,23 @@ class GithubSyncService:
 
     # ── sync triggers ─────────────────────────────
 
-    async def pull(self, project_id: str, payload: GithubImportRequest) -> tuple[str, GithubSyncRunResult]:
+    async def pull(
+        self, project_id: str, payload: contracts.SynchronizeGithubPull,
+    ) -> contracts.SynchronizeGithubResult:
         binding = await self._bindings.get_by_project(project_id)
         if not binding:
             raise GithubSyncNotFound(project_id)
-        # Capture the actual execution identity, not a second Project lookup.
         binding_id = binding["id"]
         result = await import_branch(
             binding, branch=payload.branch, force=payload.force, triggered_by="manual",
         )
-        return binding_id, result
+        if result.synchronize_github_binding_id != binding_id:
+            raise ValueError("GitHub pull returned another binding identity")
+        return result
 
-    async def push(self, project_id: str, payload: GithubExportRequest) -> tuple[str, GithubSyncRunResult]:
+    async def push(
+        self, project_id: str, payload: contracts.SynchronizeGithubPush,
+    ) -> contracts.SynchronizeGithubResult:
         binding = await self._bindings.get_by_project(project_id)
         if not binding:
             raise GithubSyncNotFound(project_id)
@@ -179,33 +171,29 @@ class GithubSyncService:
         result = await export_to_branch(
             binding, branch=payload.branch, message=payload.message, triggered_by="manual",
         )
-        return binding_id, result
-
-    async def import_now(self, project_id: str, payload: GithubImportRequest) -> GithubSyncRunResult:
-        return (await self.pull(project_id, payload))[1]
-
-    async def export_now(self, project_id: str, payload: GithubExportRequest) -> GithubSyncRunResult:
-        return (await self.push(project_id, payload))[1]
+        if result.synchronize_github_binding_id != binding_id:
+            raise ValueError("GitHub push returned another binding identity")
+        return result
 
     # ── sync log read ─────────────────────────────
 
     async def list_sync_log(self, project_id: str, *,
-                            limit: int = 50, offset: int = 0) -> GithubSyncLogList:
+                            limit: int = 50, offset: int = 0) -> contracts.SynchronizeGithubLogs:
         binding = await self._bindings.get_by_project(project_id)
         if not binding:
             raise GithubSyncNotFound(project_id)
         rows, total = await self._sync_log.list_recent(
             binding["id"], limit=limit, offset=offset,
         )
-        return GithubSyncLogList(
+        return contracts.SynchronizeGithubLogs(
             synchronize_github_binding_id=binding["id"],
-            entries=[GithubSyncLogEntry(**r) for r in rows],
+            entries=[contracts.SynchronizeGithubLog(**r) for r in rows],
             total=total,
         )
 
 
-def _row_to_status(row: dict) -> GithubIntegrationStatus:
-    return GithubIntegrationStatus(
+def _row_to_status(row: dict) -> contracts.SynchronizeGithubBinding:
+    return contracts.SynchronizeGithubBinding(
         id=row["id"],
         project_id=row["project_id"],
         oauth_connection_id=row.get("oauth_connection_id"),
