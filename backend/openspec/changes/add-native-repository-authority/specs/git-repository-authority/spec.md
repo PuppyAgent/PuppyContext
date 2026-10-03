@@ -39,6 +39,23 @@ A new direct target SHALL require a repository-, object-format-, generation- and
 - **WHEN** anon or authenticated attempts to read or mutate authority tables or execute publication
 - **THEN** database privileges deny access, independently of RLS bypass by backend roles
 
+### Requirement: Immutable physical chunk placement
+A physical chunk or manifest key SHALL identify its exact bytes, independently of the Git object's compressor or chunk partition. Native durability proof SHALL validate Project/object namespace binding and physical integrity; compatibility-only mutable placements SHALL NOT establish such proof. Garbage collection SHALL validate all manifest-owned keys before deletion and SHALL fail closed on corruption or unavailable storage.
+
+#### Scenario: Late parts from another producer
+- **WHEN** a producer using different compression or chunk boundaries completes old part PUTs after another publication is acknowledged
+- **THEN** the acknowledged closure remains byte-exact and readable
+- **AND** its manifests cannot refer to overwritten parts with different bytes
+
+#### Scenario: Existing manifest readers
+- **WHEN** an existing reader follows the version-1 manifest's explicit chunk keys
+- **THEN** it can read new immutable placements without a new manifest wire version
+- **AND** new readers retain existing ordinal-layout compatibility without treating that layout as native durability proof
+
+#### Scenario: Foreign or malformed orphan manifest
+- **WHEN** an orphan manifest contains foreign keys, invalid coverage, or cannot be read reliably
+- **THEN** no deletion is issued from that manifest and native collection retains its safety fence
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

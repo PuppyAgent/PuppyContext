@@ -31,6 +31,11 @@ from dataclasses import dataclass
 import cachetools
 
 from src.version_engine.domain.errors import ObjectNotFoundError, StorageWriteError
+from src.version_engine.storage.chunk_manifest import (
+    chunk_manifest_root,
+    chunk_upload_plan,
+    validate_chunk_manifest,
+)
 from src.version_engine.storage.object_store import StorageBackend
 from src.version_engine.write_engine.git_object_format import decode_object, hash_object
 
@@ -514,7 +519,9 @@ class S3StorageBackend(StorageBackend):
         allow_deferred_namespace_reads: bool | None = None,
         storage_layout: ObjectStorageLayout | None = None,
         io_strategy: IOStorageStrategy | None = None,
+        require_immutable_chunks: bool = False,
     ):
+        self._require_immutable_chunks = require_immutable_chunks
         self._s3 = s3
         self._project_id = project_id
         self._supabase = supabase
@@ -556,10 +563,13 @@ class S3StorageBackend(StorageBackend):
         reader = S3StorageBackend(
             self._s3, self._project_id, supabase=self._supabase,
             allow_deferred_namespace_reads=False, io_strategy=self._io_strategy,
+            require_immutable_chunks=True,
         )
         location = reader._lookup_object_location(h)
-        if location is not None and not location.pack_key.startswith(reader._bundle_prefix + "/"):
-            raise StorageWriteError("publication object location is outside its canonical Project namespace")
+        if location is not None:
+            key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
+            if not key.startswith(reader._bundle_prefix + "/"):
+                raise StorageWriteError("publication object location is outside its canonical Project namespace")
         return reader.get(h)
 
     def _key_for(self, h: str) -> str:
@@ -575,14 +585,8 @@ class S3StorageBackend(StorageBackend):
         digest = hashlib.sha256(bundle_bytes).hexdigest()
         return f"{self._bundle_prefix}/{digest[:_HASH_PREFIX_LEN]}/{digest}.pob"
 
-    def _chunk_manifest_key_for(self, h: str) -> str:
-        return f"{self._bundle_prefix}/chunked/{h[:_HASH_PREFIX_LEN]}/{h}.json"
-
-    def _chunk_part_key_for(self, h: str, index: int) -> str:
-        return (
-            f"{self._bundle_prefix}/chunked/{h[:_HASH_PREFIX_LEN]}/{h}/"
-            f"part-{index:06d}"
-        )
+    def _chunk_bundle_prefixes(self) -> tuple[str, ...]:
+        return (self._bundle_prefix, *self._layout.deferred_bundle_prefixes)
 
     # ── Sync methods called by ObjectStore ──
 
@@ -864,7 +868,7 @@ class S3StorageBackend(StorageBackend):
 
     def _delete_chunked(self, h: str, location: "ObjectLocation") -> bool:
         manifest_key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
-        keys = self._chunked_keys_for(h, manifest_key)
+        keys = self._chunked_keys_for(h, manifest_key, location.size_bytes)
         deleted_any = False
         for key in keys:
             try:
@@ -879,41 +883,38 @@ class S3StorageBackend(StorageBackend):
             self._location_cache.pop(h, None)
         return deleted_any
 
-    def _chunked_keys_for(self, h: str, manifest_key: str) -> list[str]:
-        """All S3 keys backing a chunked object: the manifest plus every
-        part. Prefer the manifest's own chunk list; if it's gone, fall
-        back to listing the object's part prefix so a half-written object
-        still gets fully cleaned."""
-        keys = [manifest_key]
+    def _chunked_keys_for(self, h: str, manifest_key: str, size: int) -> list[str]:
+        """Validate the complete deletion set before any DELETE.
+
+        Only an absent manifest permits listing the owned object prefix.
+        Corruption, foreign keys and unavailable storage fail closed instead.
+        """
+        prefixes = self._chunk_bundle_prefixes()
+        root = chunk_manifest_root(manifest_key, h, prefixes)
         try:
             manifest_raw = _run_async(self._s3.download_file(manifest_key))
-            manifest = json.loads(manifest_raw.decode("utf-8"))
-            for chunk in manifest.get("chunks") or []:
-                key = str(chunk.get("key") or "")
-                if key:
-                    keys.append(key)
-            return keys
-        except Exception:  # noqa: BLE001 — manifest unreadable; list parts.
-            part_prefix = (
-                f"{self._bundle_prefix}/chunked/"
-                f"{h[:_HASH_PREFIX_LEN]}/{h}/"
-            )
-            try:
-                token = None
-                while True:
-                    page, _, token, truncated = _run_async(
-                        self._s3.list_files(
-                            prefix=part_prefix,
-                            max_keys=_MAX_LIST_KEYS,
-                            continuation_token=token,
-                        )
-                    )
-                    keys.extend(item.key for item in page)
-                    if not truncated or not token:
-                        break
-            except Exception as exc:  # noqa: BLE001
-                log_warning(f"[VersionS3] list chunk parts for {h[:12]}: {exc}")
-            return keys
+        except Exception as exc:
+            if not _is_not_found_error(exc):
+                raise
+            keys = [manifest_key]
+            token = None
+            while True:
+                page, _, token, truncated = _run_async(self._s3.list_files(
+                    prefix=root + "/", max_keys=_MAX_LIST_KEYS, continuation_token=token,
+                ))
+                for item in page:
+                    if not item.key.startswith(root + "/"):
+                        raise StorageWriteError("chunk listing escaped its object namespace")
+                    keys.append(item.key)
+                if not truncated:
+                    break
+                if not token:
+                    raise StorageWriteError("incomplete chunk listing")
+            return list(dict.fromkeys(keys))
+        _immutable, chunks = validate_chunk_manifest(
+            manifest_raw, key=manifest_key, oid=h, size=size, bundle_prefixes=prefixes,
+        )
+        return list(dict.fromkeys([manifest_key, *(chunk["key"] for chunk in chunks)]))
 
     def sweep_dead_bundles(self, dead_object_ids) -> tuple[int, list[str]]:
         """Delete whole ``.pob`` bundles all of whose members are dead.
@@ -1370,6 +1371,8 @@ class S3StorageBackend(StorageBackend):
         location: ObjectLocation,
     ) -> bytes:
         manifest_key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
+        prefixes = self._chunk_bundle_prefixes()
+        chunk_manifest_root(manifest_key, h, prefixes)
         try:
             with trace_phase(
                 "s3.chunked.get",
@@ -1377,15 +1380,9 @@ class S3StorageBackend(StorageBackend):
                 size_bytes=location.size_bytes,
             ):
                 manifest_raw = await self._s3.download_file(manifest_key)
-                manifest = json.loads(manifest_raw.decode("utf-8"))
-                if manifest.get("version") != 1 or manifest.get("object_id") != h:
-                    raise StorageWriteError(f"invalid chunk manifest for {h}")
-                chunks = manifest.get("chunks")
-                if not isinstance(chunks, list):
-                    raise StorageWriteError(f"invalid chunk list for {h}")
-                ordered_chunks = sorted(
-                    chunks,
-                    key=lambda item: int(item.get("offset_bytes", 0)),
+                immutable, ordered_chunks = validate_chunk_manifest(
+                    manifest_raw, key=manifest_key, oid=h, size=location.size_bytes,
+                    bundle_prefixes=prefixes, require_immutable=self._require_immutable_chunks,
                 )
                 sem = asyncio.Semaphore(_OBJECT_UPLOAD_CONCURRENCY)
 
@@ -1399,6 +1396,8 @@ class S3StorageBackend(StorageBackend):
                         raise StorageWriteError(
                             f"chunk size mismatch for {h}: {key}",
                         )
+                    if immutable and hashlib.sha256(part).hexdigest() != key.rsplit("part-", 1)[1]:
+                        raise StorageWriteError(f"chunk digest mismatch for {h}: {key}")
                     return offset, part
 
                 fetched_parts = await asyncio.gather(
@@ -1412,7 +1411,7 @@ class S3StorageBackend(StorageBackend):
                     )
                 ]
                 data = b"".join(parts)
-            if len(data) != int(manifest.get("size_bytes") or location.size_bytes):
+            if len(data) != location.size_bytes:
                 raise StorageWriteError(f"chunked object size mismatch for {h}")
             _verify_loose_hash(h, data)
             return data
@@ -1555,31 +1554,9 @@ class S3StorageBackend(StorageBackend):
         h: str,
         data: bytes,
     ) -> tuple[list[tuple[str, bytes, str]], dict]:
-        uploads: list[tuple[str, bytes, str]] = []
-        chunks: list[dict] = []
-        chunk_bytes = self._active_io_strategy().chunk_bytes
-        for index, offset in enumerate(range(0, len(data), chunk_bytes), start=1):
-            chunk = data[offset:offset + chunk_bytes]
-            key = self._chunk_part_key_for(h, index)
-            uploads.append((key, chunk, "application/octet-stream"))
-            chunks.append({
-                "key": key,
-                "offset_bytes": offset,
-                "size_bytes": len(chunk),
-            })
-
-        manifest_key = self._chunk_manifest_key_for(h)
-        manifest = json.dumps(
-            {
-                "version": 1,
-                "object_id": h,
-                "size_bytes": len(data),
-                "chunks": chunks,
-            },
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        uploads.append((manifest_key, manifest, "application/json"))
+        uploads, manifest_key = chunk_upload_plan(
+            self._bundle_prefix, h, data, self._active_io_strategy().chunk_bytes,
+        )
         row = {
             "project_id": self._project_id,
             "object_id": h,

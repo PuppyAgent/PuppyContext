@@ -118,6 +118,19 @@
   message instead of embedding different remote URLs. Offline: 2703 passed /
   27 skipped / 76 deselected. Later dependency absorption and edits are outside
   this clean receipt. The 34 remaining original targets still block acceptance.
+- [x] Reproduce chunk URI rejection and late-part PUT corruption after ACK using
+  actual owned S3 in both formats. Use immutable part/manifest keys without
+  changing manifest wire version 1; preserve legacy reads and reject mutable
+  placements as native proof. Validate all chunk locations/ranges before read
+  or deletion; test orphan GC and fail-closed corrupt/foreign manifests.
+  Selected mixed-layer run: 41 passed with all 329 pgTAP tests, including actual
+  S3 corrupt/foreign orphan rejection with zero DELETEs and a retained GC fence.
+  Small configured
+  chunks do not establish large-object or independent-process acceptance.
+- [ ] Fence outstanding object-location index writes by publication/GC epoch,
+  verify replacement safety for already acknowledged objects, and prove delayed
+  index completion cannot corrupt a later committed closure. Immutable chunk
+  bytes and final ref receipts alone do not establish these properties.
 - [ ] Complete durable publication/GC restart, remote-I/O quiescence recovery,
   long-upload lease renewal and bounded-resource/performance acceptance.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including

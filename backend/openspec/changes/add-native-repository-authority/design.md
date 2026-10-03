@@ -245,3 +245,34 @@ consumer, migration and paired recovery gates still block activation. In particu
 full-history hydration and existing byte-returning backend APIs are not a proved
 bounded-memory/large-repository transport design. No product Save imports this
 transport materializer, and no existing repository's authority is switched.
+
+## Immutable chunk placements (storage prerequisite repair)
+
+A Git OID does not identify compressed bytes or chunk boundaries. The old chunk
+keys reused an OID/ordinal and mutable manifest key. With actual owned S3, after
+allowing the chunk URI through the canonical-namespace check, a late producer's
+partial PUTs reproduced loss of a previously acknowledged object's readability
+in both formats (`chunk size mismatch`). This is a physical-placement defect,
+not a Git OID/ref normalization issue.
+
+New chunk keys contain the SHA-256 of their exact bytes, within the Project and
+object namespace. Manifest keys contain their exact JSON digest. The manifest
+wire version remains **1**, with an additional placement marker: existing readers
+already follow explicit keys and ignore additional fields. The actual S3 reader
+source from `9847a64e` read both new SHA-1/SHA-256 layouts against an in-memory
+storage double; this is old-source component evidence, not hosted deployment.
+Existing ordinal manifests remain compatibility-readable but cannot establish
+native durability. Migration must copy them to immutable placements before proof;
+this change performs no data backfill or authority activation.
+
+Native proof recognizes the chunk URI and validates canonical manifest/part
+locations, manifest digest, part digests, identity, exact size and contiguous
+coverage. GC validates the entire deletion set before issuing a DELETE. Only an
+explicitly absent manifest permits listing its owned object prefix; malformed,
+foreign or unavailable manifests fail closed. Parts are object-scoped, so deleting
+an orphan cannot remove a shared chunk belonging to another Git OID.
+
+Small configured chunks exercise actual S3 late-PUT isolation and orphan GC in
+both formats. They do not prove large-object memory/performance, process restart,
+upload/index epoch fencing or safe canonical-location replacement. Those gates,
+canonical admission and all consumer/migration work remain open.
