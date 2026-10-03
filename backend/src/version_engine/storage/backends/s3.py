@@ -241,6 +241,17 @@ class CachedStorageBackend(StorageBackend):
             or id(inner)
         )
 
+    @property
+    def publication_project_id(self) -> str | None:
+        return self._inner.publication_project_id
+
+    def get_durable(self, h: str) -> bytes:
+        return self._inner.get_durable(h)
+
+    def put_durable(self, h: str, loose_bytes: bytes) -> None:
+        self._inner.put_durable(h, loose_bytes)
+        self._remember_cached(h, loose_bytes)
+
     def _cache_key(self, h: str):
         return (self._cache_namespace, h)
 
@@ -478,7 +489,7 @@ def stage_object_writes(store_or_backend):
 def _verify_loose_hash(expected_hash: str, data: bytes) -> None:
     try:
         obj_type, content = decode_object(data)
-        actual_hash = hash_object(obj_type, content)
+        actual_hash = hash_object(obj_type, content, object_format="sha256" if len(expected_hash) == 64 else "sha1")
     except Exception as e:
         raise StorageWriteError(f"invalid git loose object for {expected_hash}: {e}") from e
     if actual_hash != expected_hash:
@@ -529,6 +540,27 @@ class S3StorageBackend(StorageBackend):
         self._location_lock = threading.Lock()
         self._deferred_warning_kinds: set[str] = set()
         self._deferred_warning_lock = threading.Lock()
+
+    @property
+    def publication_project_id(self) -> str:
+        if self._layout.project_id != self._project_id:
+            raise ValueError("object storage Project binding mismatch")
+        if self._layout.primary_namespace != _CANONICAL_STORAGE_NAMESPACE:
+            raise ValueError("native publication requires the canonical object namespace")
+        return self._project_id
+
+    def get_durable(self, h: str) -> bytes:
+        # A location cached before compaction/deletion is not current proof.
+        # Deferred namespaces are compatibility reads, not native publication
+        # evidence: a second instance must not depend on a migration switch.
+        reader = S3StorageBackend(
+            self._s3, self._project_id, supabase=self._supabase,
+            allow_deferred_namespace_reads=False, io_strategy=self._io_strategy,
+        )
+        location = reader._lookup_object_location(h)
+        if location is not None and not location.pack_key.startswith(reader._bundle_prefix + "/"):
+            raise StorageWriteError("publication object location is outside its canonical Project namespace")
+        return reader.get(h)
 
     def _key_for(self, h: str) -> str:
         return f"{self._prefix}/{h[:_HASH_PREFIX_LEN]}/{h[_HASH_PREFIX_LEN:]}"
@@ -841,6 +873,7 @@ class S3StorageBackend(StorageBackend):
             except Exception as exc:  # noqa: BLE001
                 if not _is_not_found_error(exc):
                     log_error(f"[VersionS3] delete chunk key {key}: {exc}")
+                    raise  # Unknown deletion outcome must retain the GC fence.
         self._delete_object_location_rows([h])
         with self._location_lock:
             self._location_cache.pop(h, None)
@@ -928,7 +961,7 @@ class S3StorageBackend(StorageBackend):
         except Exception as exc:  # noqa: BLE001
             if not _is_not_found_error(exc):
                 log_error(f"[VersionS3] delete bundle {pack_key}: {exc}")
-                return False
+                raise  # A timed-out DELETE may still be running remotely.
         self._delete_object_location_rows(members)
         with self._location_lock:
             for member in members:
@@ -974,6 +1007,7 @@ class S3StorageBackend(StorageBackend):
                 )
             except Exception as exc:  # noqa: BLE001
                 log_error(f"[VersionS3] delete location rows: {exc}")
+                raise  # A late index DELETE must not race a newly published location.
 
     # ── Async methods (for direct use in async contexts) ──
 

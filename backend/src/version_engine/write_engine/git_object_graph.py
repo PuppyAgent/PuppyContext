@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, NamedTuple, cast
 
-from src.version_engine.write_engine.git_object_format import decode_tree
+from src.version_engine.write_engine.git_object_format import decode_tree, object_id_bytes
 
 ObjectKind = Literal["blob", "tree", "commit", "tag"]
 _KINDS = frozenset({"blob", "tree", "commit", "tag"})
@@ -21,10 +21,11 @@ class ObjectEdge(NamedTuple):
     kind: ObjectKind
 
 
-def _oid(value: bytes) -> str:
-    if len(value) != 40 or any(char not in b"0123456789abcdef" for char in value):
-        raise ValueError("invalid SHA-1 object reference")
-    if value == b"0" * 40:
+def _oid(value: bytes, object_format: str) -> str:
+    width = object_id_bytes(object_format) * 2
+    if len(value) != width or any(char not in b"0123456789abcdef" for char in value):
+        raise ValueError(f"invalid {object_format} object reference")
+    if value == b"0" * width:
         raise ValueError("null object reference")
     return value.decode("ascii")
 
@@ -48,7 +49,7 @@ def _single(headers: dict[bytes, list[bytes]], name: bytes) -> bytes:
 
 
 def object_edges(
-    kind: str, body: bytes, *, follow_history: bool = True,
+    kind: str, body: bytes, *, follow_history: bool = True, object_format: str = "sha1",
 ) -> list[ObjectEdge]:
     """Return local dependencies, raising rather than truncating an invalid graph.
 
@@ -60,19 +61,19 @@ def object_edges(
         return []
     if kind == "tree":
         edges: list[ObjectEdge] = []
-        for entry in decode_tree(body):
-            oid = _oid(entry.sha1_hex.encode("ascii"))
+        for entry in decode_tree(body, object_format=object_format):
+            oid = _oid(entry.sha1_hex.encode("ascii"), object_format)
             if not entry.is_gitlink:
                 edges.append(ObjectEdge(oid, "tree" if entry.is_dir else "blob"))
         return edges
     if kind == "commit":
         headers = _headers(body)
-        tree = ObjectEdge(_oid(_single(headers, b"tree")), "tree")
-        parents = [ObjectEdge(_oid(value), "commit") for value in headers.get(b"parent", [])]
+        tree = ObjectEdge(_oid(_single(headers, b"tree"), object_format), "tree")
+        parents = [ObjectEdge(_oid(value, object_format), "commit") for value in headers.get(b"parent", [])]
         return [tree, *(parents if follow_history else [])]
     if kind == "tag":
         headers = _headers(body)
-        target = _oid(_single(headers, b"object"))
+        target = _oid(_single(headers, b"object"), object_format)
         target_kind = _single(headers, b"type").decode("ascii")
         if target_kind not in _KINDS:
             raise ValueError(f"invalid tag target type: {target_kind!r}")

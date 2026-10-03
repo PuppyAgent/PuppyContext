@@ -1,4 +1,4 @@
-# Dormant authority expansion — M02/M04 foundation
+# Native authority — staged implementation
 
 This is an implementation design, not the deployed architecture or a cutover
 receipt. User authorization covers local development, not target environments.
@@ -11,13 +11,15 @@ release pointers. Six new tables are empty on upgrade: repository metadata,
 byte-valued refs (including HEAD), closure receipts, ref transactions, reflog
 entries and ref events (outbox). The service role can read these tables but
 cannot enable authority or mutate refs/results directly. No runtime entrypoint
-calls the native ref-transaction RPC in this tranche. No production activation RPC is provided.
+selects the new native Git adapter yet. The publication service now calls the
+native RPC in explicit native fixtures (see the physical-publication section).
+No production activation RPC is provided.
 
 Legacy/shadow repositories retain their existing authority. Native fixture
 repositories are created explicitly by the database owner in disposable tests.
 Activation in a real environment is forbidden until the existing M01–M20,
-07 migration and 08 evidence gates pass. This includes adapting GC and readers:
-the existing collector does NOT know these roots yet.
+07 migration and 08 evidence gates pass. The collector now coordinates native roots through a durable fence; all other
+readers/writers, policy, metering, recovery and migration still require integration.
 
 ## Transaction primitive
 
@@ -54,12 +56,12 @@ Changing a request requires a new key. Results, changed-ref reflog entries, audi
 and outbox commit together. Old OIDs in reflog must become retention roots in
 the future collector. There is no janitor for these facts in this tranche.
 
-## Storage prerequisite, not storage proof
+## Initial storage prerequisite (historical foundation)
 
 A receipt describes immutable full-closure roots and types, manifest SHA-256,
 repository object format, generation, GC epoch, verification and expiry times.
-It is owner-issued in this foundation: no service-role receipt issuer is enabled
-until S3 verification and publication/GC coordination are implemented. Receipt
+It was owner-issued in the initial foundation. The subsequent pin expansion
+adds a backend issuer after physical verification and publication/GC coordination. Receipt
 constraints and publication checks are exercised with synthetic metadata only;
 these tests do not prove that objects exist in S3 or that GC is coordinated.
 
@@ -120,9 +122,9 @@ so global reconciliation batches are not polluted; one probe org prevents a
 silent no-org GC smoke skip. The runner records SQL counts/skip diagnostics and
 uses the same official Docker Hub registry as database CI.
 
-Real S3 receipts, collector interleavings, admitted/ref policy, lifecycle leases,
-consumers, restore/migration/performance and environment deployment gates remain
-open. A separately observed native Git prefix/reflog race remains unresolved;
+Selected real S3 receipt/collector interleavings are now covered below. Full
+admitted/ref policy, lifecycle/quota orchestration, consumers, restart/restore,
+migration/performance and environment deployment gates remain open. A separately observed native Git prefix/reflog race remains unresolved;
 its existing target assertion is retained. Passing these foundation tests MUST
 NOT enable receive-pack capabilities or mark M02/M04, much less ISSUE-062,
 complete.
@@ -179,4 +181,67 @@ The SQL tests use explicit expected heads (unchanged acceptance assertions),
 concurrent absent/existing rows, populated upgrade, late-DDL rollback/retry and
 original RPC/ACL preservation. Actual Supabase tests exercise the production
 history adapter through the real SDK/PostgREST and deny client JWT invocation.
-Objects in the HTTP conformance fixture are still disk-backed, not real S3.
+Objects in the original HTTP conformance fixture remain disk-backed. The new
+native-profile fixture below is separate and does not relabel that evidence.
+
+## Physical publication and native transport implementation
+
+`20261003040000_expand_publication_pins_and_gc_fence.sql` adds backend-only
+publication/read pins, immutable verified root/peel metadata, GC runs and snapshot
+RPCs. It widens the existing GC quarantine OID constraint for SHA-256 without
+changing old RPC identities or SHA-1 rows. Expansion is transactional, bounded
+and tested against populated data with a late failure and unchanged-SQL retry.
+No repository is enrolled, activated, backfilled or rewritten by the migration.
+
+`RefTransactionService` binds actors to admitted Project/full-repository grants,
+validates byte refs/direct types, acquires a pin before uploads, physically verifies
+typed closure, seals a receipt and calls the atomic SQL primitive. Recovery uses
+the SQL request digest, even after expiry/generation changes; no legacy fallback
+or cache-only durability assertion exists. Scope grants cannot use this full-repo
+interface. Lifecycle leases, ref policy and atomic billing remain caller-level
+integration work; a supplied test grant is not end-user authorization evidence.
+
+Physical reads bypass the memory cache and stale location cache. Traversal verifies
+framing, hash, ordered parents, trees and nested tags, excluding external gitlinks.
+The manifest hashes exact object identity/type/size/body facts and supplies verified
+peel metadata. SHA-256 codecs retain SHA-1 defaults for existing callers.
+
+GC discovers authority from PG. Shadow/unavailable coordination fails closed.
+Native collection protects refs, reflog states, receipts and intrinsic empty trees,
+and uses physical reads rather than process cache. Publication admission and sweep
+admission serialize. An exclusive sweep fence never expires automatically: an
+uncertain DELETE may still finish later. Recovery must prove BOTH worker and remote
+storage/index I/O quiescence; killing a worker alone is insufficient. Native S3
+and index deletion errors propagate instead of silently releasing this fence.
+
+Dry-run GC uses a read pin and does not advance the GC epoch. Readers may continue
+while writes are fenced, including during an uncertain orphan deletion: no new
+publication roots can enter the active sweep epoch, so current refs remain covered
+by its mark snapshot. Read pins protect copying against subsequent sweeps. A
+request-owned complete Git repository needs no remote pin after copying finishes.
+
+`NativeGitRepository` uses stock receive/upload-pack and preserves exact incoming
+Git objects. Advertisement is refs-only, with verified peels; protocol version is
+forwarded through a sanitized environment. Official per-command report-status,
+not target-object presence or arbitrary stdout text, governs admission. Atomic
+pushes use one SQL transaction; ordinary batches use per-command transactions.
+Disposable receive refs use stock reftable on default macOS filesystems and files
+on Linux; the canonical namespace is always PG. Local evidence covers macOS Git
+2.50.1; the Linux/version matrix is not implied by that result.
+
+Tests invoke this production adapter through a small owned ASGI fixture backed by
+actual Supabase Storage's S3-compatible endpoint and real PostgREST/PG. They compare
+the same 78 recipes with native bare Git, plus fault/GC/transaction cases. The fixture
+supplies an explicit grant, not canonical credential/consumer admission. Original
+route failures are retained. The pull-merge recipe now supplies an identical merge
+message before both executions: Git otherwise embeds different remote URLs in the
+message, legitimately changing OIDs. Exact ref/HEAD/raw-object assertions remain.
+
+`--live --s3` starts the owned object service; a required S3 layer with no passing
+S3 tests cannot pass the runner. Bucket/endpoint guards reject external resources.
+This is Supabase's actual S3-compatible service, not MinIO or AWS production proof.
+The complete admission/resource, long-upload renewal, multi-process restart,
+consumer, migration and paired recovery gates still block activation. In particular,
+full-history hydration and existing byte-returning backend APIs are not a proved
+bounded-memory/large-repository transport design. No product Save imports this
+transport materializer, and no existing repository's authority is switched.

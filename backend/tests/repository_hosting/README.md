@@ -18,11 +18,11 @@ backend/.venv/bin/python scripts/testing/run_repository_hosting.py --target -q
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live -q
 
 # 补充：独立本机 PostgreSQL 17，auth schema 为 stub，没有 Supabase/S3 服务
-backend/.venv/bin/python scripts/testing/run_repository_hosting.py --native-pg -q -m 'not hosting_supabase'
-# 上述显式排除真实 Auth/PostgREST；不是完整验收。没有 --live 时这些用例不会执行。
+backend/.venv/bin/python scripts/testing/run_repository_hosting.py --native-pg -q -m 'not hosting_supabase and not hosting_s3'
+# 上述显式排除真实 Auth/PostgREST/S3；不是完整验收。
 
 # 迁移前的严格目标入口（当前测试范围尚不完整，不能独自批准迁移）
-backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live --target -q
+backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live --s3 --target -q
 ```
 
 结果写到 `backend/.hosting-test-results/junit.xml` 和 `run.json`。后者记录 commit、工作区是否 dirty、Git/Python/数据库环境、schema 校验值、选择参数与时间，并按执行层统计通过、失败、已知缺口和跳过，不把 XFAIL / SKIP 计为支持。严格模式遇到跳过、xfail、缺失/空/损坏 JUnit 或服务初始化失败必须非零退出。`--output` 可以另指定目录；后面的 `-k`、`-m` 等参数传给 pytest。Git HTTP 测试需要允许监听本机端口。
@@ -43,13 +43,15 @@ tests/repository_hosting/
 | 测试层 | 实际验证什么 | 不代表什么 |
 |---|---|---|
 | `hosting_native` | 系统 Git 的工作区、bare ref 事务、SHA-1/SHA-256、mirror/bundle 行为 | 不代表 Cloud 已经支持 |
-| `hosting_component` | 生产对象/写入/路由代码；真实 Git HTTP；控制面用内存替身，S3 用 moto | 不代表真实 PG/S3 联合事务、生产耐久性已验收 |
+| `hosting_component` | 生产对象/写入/路由代码；真实 Git HTTP；控制面用内存替身，对象用磁盘或 moto | 不代表真实 PG/S3 联合事务、生产耐久性已验收 |
 | `hosting_live` | 临时 PostgreSQL 的真实产品迁移、RPC、并发 CAS、回滚、旧新命名兼容；`--live` 使用 Supabase，`--native-pg` 使用 auth stub，run.json 区分环境 | native PG 不代表 Supabase Auth/PostgREST/安装器验收；两者都不代表真实 S3 或未来迁移已安全 |
 | `hosting_supabase` | 真正 GoTrue 创建/登录测试用户并核验 JWT；PostgREST 实测六张表的客户端读取拒绝、backend 只读、DML 拒绝和两项 RPC 的发布/重放/查询 | 无 auth mock，但 repository/receipt 仍是 owner fixture；不代表 admitted 应用服务、真实 S3、用户数据迁移或生产配置 |
 
+`hosting_s3` 是独立实服务层：生产 Native Git adapter / RefTransactionService / S3 backend → 所属 Supabase Storage 的 S3-compatible API → 真实 PostgREST/PG。`--live --s3` 才启用；要求精确 owned loopback endpoint/bucket，缺少通过的 S3 用例不能报该层成功。不是 MinIO、AWS 生产或真实用户授权证据。
+
 **无需先合并到 qubits。** 运行器使用当前工作树的代码和 migrations，记录实际 commit、dirty 状态和 SQL 哈希；隔离测试通过才具备后续集成依据，不反过来依赖集成或部署才能测试。
 
-`--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。多数数据库用例中的 OID 是合成值；新 ref 事务另以原生 Git 产生的 SHA-1/SHA-256 同树提交做 CAS/原子性对照。receipt 都由 fixture owner 插入，没有真实 S3 闭包验证。升级用例在所属临时栈内另外创建并清理空数据库，应用真实产品迁移，但 Auth 使用 stub（即使宿主是 Supabase）；不把它算作真实 Auth 升级验收。
+`--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。多数数据库用例中的 OID 是合成值；新 ref 事务另以原生 Git 产生的 SHA-1/SHA-256 同树提交做 CAS/原子性对照。原 SQL authority 用例的 receipt 由 fixture owner 插入，不构成 S3 闭包证明；新增 native publication/S3 用例改由生产 verifier + pin/seal RPC 产生 receipt。升级用例在所属临时栈内另外创建并清理空数据库，应用真实产品迁移，但 Auth 使用 stub（即使宿主是 Supabase）；不把它算作真实 Auth 升级验收。
 
 ### Git 命令符合性与测试驱动实施
 
@@ -64,6 +66,26 @@ stock Git 拒绝的问题。receive 广告/隔离仓库包含已有命名 refs�
 依赖客户端对过期 ref 的预检，不代表服务端多 ref 事务已实现）。新增测试还覆盖
 缓存删除后接收、冷读、旧 blob 复用、普通对象缺失、拒绝和恢复；不扩大 legacy
 Scope 合同，也不接通 dormant SQL authority。
+
+### Native 实服务 profile（尚未接入正式入口）
+
+`integration/test_native_s3_transport.py` 对真实 S3/PostgREST 执行同一组 78 个
+recipe；另验证 SHA-1/SHA-256 HTTP 空库/首推、冷 clone、typed tags、rewrite 和
+删除。`test_native_s3_transactions.py` 在 stock admission **之后**插入 SQL
+竞争：atomic 全部拒绝，普通 batch 拒绝过期 main 但发布合法 side；不是客户端
+预检。`test_native_s3_history.py` 验证广告之后 force update 仍能取回旧 OID，
+以及被拒绝提案的 receipt 不会变成可读 ref。保持精确 refs/HEAD/对象字节比较。
+
+生产 collector 已接 native sweep/read pins；实测物理丢失不能被热 cache 掩盖，
+未知 DELETE 保持非过期 fence，dry-run 不推进 epoch，SHA-256 隔离期和删除正常，
+fence 期间冷读仍可用。升级/末尾 DDL 失败/原 SQL 重试保持合成存量数据及 ACL。
+read-back 必须来自 canonical Project namespace，不接受跨 Project 的 backend 或
+指向其他 namespace 的 location；旧兼容读取不因此获得 native receipt。
+
+该 ASGI fixture 显式提供 grant，**没有**替代正式凭据解析、授权、配额或生命周期
+准入；正式 Git router、产品/Scope/自动写入及 Desktop 尚未选择新 adapter。
+原路由失败继续保留，不能因新 profile 转绿就称这些目标已修复。完整资源约束、
+长上传续租、多进程/重启/恢复、消费者、迁移和部署门禁仍未完成，不得激活真实仓库。
 
 现在能检查的关键结果：
 
@@ -96,7 +118,7 @@ Scope 合同，也不接通 dormant SQL authority。
 
 已知缺口由测试里的 `hosting_gap` 标记逐项说明。普通模式使用 **strict XFAIL**：能力修好后出现 XPASS，要求移除标记；`--target` 则直接作为失败报告。初始化/清理错误不会被缺口标记隐藏。
 
-目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送；空提交丢失与显式 source-head CAS 已由下述兼容修复纠正。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上只证明当前 SHA-1 对象层，不启用尚未实现的 native refs 或 SHA-256 托管。`20261003030000_fix_legacy_publication_head_cas.sql` 追加修复 root/Scope 显式 expected-head，并先锁 Project 来串行化不存在的 Scope 行。原目标测试保持成功/拒绝断言，显式提供同一个旧 head；没有旧 head 的 legacy RPC 继续树 CAS，不能宣称它自动获得 OID CAS。生产 adapter 对带 head 的写入使用新增 `_checked` RPC（含用量路径），旧 schema 缺此入口必须失败，禁止静默回退。空提交现在是真实新版本；receive 私有对象快照释放缓存锁后再发布，保留原发布点竞争断言；同时修复 Scope 旧可见 alias 在重试中越过新 canonical head 的问题。新增 SQL/升级、实际 SDK/PostgREST/JWT 与 HTTP 冷读/竞争用例；没有接通 native authority、S3 receipts 或命名 refs 原子事务。
+目前目标断言会暴露：删除 ref、强推 main、merge commit、附注 tag、blob tag、notes、多 ref 原子推送；空提交丢失与显式 source-head CAS 已由下述兼容修复纠正。对象层的非 UTF-8 文件名字节往返、Git 字节排序、tag 的 GC 可达性、gitlink 的外部对象边界已有正向回归；还覆盖嵌套 tag→commit/tree/blob 的 native fsck、损坏图禁止 GC、缓存复制中断后重试及浅缓存不能充当完整闭包。以上旧路由测试只证明相应 SHA-1 对象层，不因新增 native 实服务 profile 而自动获得完整 refs 或 SHA-256 能力。`20261003030000_fix_legacy_publication_head_cas.sql` 追加修复 root/Scope 显式 expected-head，并先锁 Project 来串行化不存在的 Scope 行。原目标测试保持成功/拒绝断言，显式提供同一个旧 head；没有旧 head 的 legacy RPC 继续树 CAS，不能宣称它自动获得 OID CAS。生产 adapter 对带 head 的写入使用新增 `_checked` RPC（含用量路径），旧 schema 缺此入口必须失败，禁止静默回退。空提交现在是真实新版本；receive 私有对象快照释放缓存锁后再发布，保留原发布点竞争断言；同时修复 Scope 旧可见 alias 在重试中越过新 canonical head 的问题。新增 SQL/升级、实际 SDK/PostgREST/JWT 与 HTTP 冷读/竞争用例；该兼容修复本身没有接通 native authority、S3 receipts 或命名 refs 原子事务；后续独立 native profile 如上所述。
 
 原 `tests/conflicts/cases.py` 的 117 条不是 117 条现成测试。本运行器执行其中 **100 条**，采用相同起点、固定发布顺序制造 CAS 重试；真正并发另在 `concurrency/` 和 PG 用例验证。其余 **17 条未算作覆盖**，原因在 `harness/catalog_scope.py::EXCLUDED`：有些依赖旧 scope 所有权模型，有些需要不同入口或尚未搭好的删除/移动竞态。原样本和断言未改。C04（同源重命名）与 F12（待审提案 ID 碰撞）现已修复并移除对应缺口标记；剩余 A04/B11/C01 的预期与现行产品 LWW 策略不一致，继续保留失败，不提交 conflict markers 或反转现行删除策略来凑全绿。
 

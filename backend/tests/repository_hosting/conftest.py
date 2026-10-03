@@ -15,6 +15,7 @@ def pytest_addoption(parser):
         action="store_true",
         help="Run isolated PostgreSQL integration tests (native PG or Supabase)",
     )
+    group.addoption("--hosting-s3", action="store_true", help="Run owned real S3-compatible service tests")
     group.addoption(
         "--hosting-supabase",
         action="store_true",
@@ -28,6 +29,7 @@ def pytest_configure(config):
         "hosting_component: production Python code with explicitly substituted control plane",
         "hosting_live: real isolated PostgreSQL/Supabase SQL",
         "hosting_supabase: actual local Supabase Auth/PostgREST, no auth doubles",
+        "hosting_s3: actual owned S3-compatible object service, not moto or disk",
         "hosting_gap(reason): executable unmet target contract; never counted as support",
     ):
         config.addinivalue_line("markers", marker)
@@ -37,7 +39,7 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "repository_hosting" not in str(item.path):
             continue
-        for name in ("hosting_native", "hosting_component", "hosting_live", "hosting_supabase"):
+        for name in ("hosting_native", "hosting_component", "hosting_live", "hosting_supabase", "hosting_s3"):
             if item.get_closest_marker(name):
                 item.user_properties.append(("execution_layer", name))
         gap = item.get_closest_marker("hosting_gap")
@@ -49,6 +51,8 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(
                 pytest.mark.skip(reason="real PG requires --hosting-live; not acceptance evidence")
             )
+        if item.get_closest_marker("hosting_s3") and not config.getoption("--hosting-s3"):
+            item.add_marker(pytest.mark.skip(reason="real object service requires --live --s3"))
         if item.get_closest_marker("hosting_supabase") and not config.getoption("--hosting-supabase"):
             item.add_marker(
                 pytest.mark.skip(reason="real Auth/PostgREST requires --live; not acceptance evidence")

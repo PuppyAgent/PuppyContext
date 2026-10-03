@@ -21,6 +21,19 @@ from src.version_engine.write_engine.git_object_format import (
 
 
 class StorageBackend(abc.ABC):
+    @property
+    def publication_project_id(self) -> str | None:
+        """Namespace binding when the backend addresses multiple Projects."""
+        return None
+
+    def get_durable(self, h: str) -> bytes:
+        """Explicit physical read capability; unknown/caching backends fail closed."""
+        raise NotImplementedError("backend does not provide durable object readback")
+
+    def put_durable(self, h: str, loose_bytes: bytes) -> None:
+        """Write-through; caching backends must override to bypass staging."""
+        self.put(h, loose_bytes)
+
     @abc.abstractmethod
     def get(self, h: str) -> bytes:
         """Return Git loose-object bytes for object id ``h``."""
@@ -75,6 +88,9 @@ class FileSystemBackend(StorageBackend):
                 os.unlink(tmp_name)
             except FileNotFoundError:
                 pass
+
+    def get_durable(self, h: str) -> bytes:
+        return self.get(h)
 
     def exists(self, h: str) -> bool:
         return self._path_for(h).exists()

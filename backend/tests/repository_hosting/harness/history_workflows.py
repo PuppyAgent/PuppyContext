@@ -220,6 +220,11 @@ def pull_workflow(git, *, mode):
             assert git.run("pull", "--ff-only", "origin", "main", check=False).returncode != 0
             assert git.text("rev-parse", "HEAD") == local
             assert (git.path / "local.txt").read_bytes() == b"local work\n"
+        if mode == "merge":
+            # Git's default merge message embeds the remote URL (file:// vs
+            # HTTP), legitimately changing OIDs. Fix the input message before
+            # both recipes; retain exact raw-object/OID comparisons afterward.
+            git.run("config", "branch.main.mergeOptions", "--message=pull-merge-conformance")
         git.run("pull", "--no-rebase" if mode == "merge" else "--rebase", "origin", "main")
     git.commit({"after-pull.txt": b"ready\n"}, "after pull")
     push_main(git)

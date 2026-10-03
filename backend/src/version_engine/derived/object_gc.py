@@ -17,7 +17,12 @@ from typing import Any
 from src.version_engine.write_engine.git_object_format import decode_object, hash_object
 from src.version_engine.write_engine.git_object_graph import object_edges
 
-from src.version_engine.adapters.git.protocol import ZERO_ID, is_object_id
+from src.version_engine.adapters.git.protocol import ZERO_ID
+
+
+def is_object_id(value: str) -> bool:
+    return (isinstance(value, str) and len(value) in (40, 64)
+            and set(value) <= set("0123456789abcdef") and set(value) != {"0"})
 
 
 DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60
@@ -51,7 +56,33 @@ class GitObjectGcResult:
     sweep_skipped_for_safety: bool = False
 
 
-def run_git_object_gc(
+def run_git_object_gc(repo, **options) -> GitObjectGcResult:
+    """Select coordination from the authoritative DB, never a cache/feature flag."""
+    from dataclasses import replace
+
+    control_factory = getattr(getattr(repo, "history", None), "native_ref_authority", None)
+    if callable(control_factory):
+        try:
+            control = control_factory()
+            snapshot = control.snapshot(repo._project_id)
+            if snapshot is not None:
+                if snapshot["authority"] != "native":
+                    diagnostic = _run_git_object_gc(repo, **(options | {"dry_run": True}))
+                    return replace(diagnostic, dry_run=options.get("dry_run", True),
+                                   eligible_count=0, eligible_bytes=0, sweep_skipped_for_safety=True,
+                                   errors=[*diagnostic.errors, "shadow repository: collection fenced during migration"])
+                from src.version_engine.derived.repository_gc import RepositoryCollector
+                return RepositoryCollector(control).run(repo, **options)
+        except Exception as exc:
+            return GitObjectGcResult(
+                getattr(repo, "_project_id", ""), options.get("dry_run", True),
+                0, 0, 0, 0, 0, 0, 0, 0, 0,
+                errors=[f"repository GC coordination failed: {exc}"], sweep_skipped_for_safety=True,
+            )
+    return _run_git_object_gc(repo, **options)
+
+
+def _run_git_object_gc(
     repo,
     *,
     dry_run: bool = True,
@@ -59,6 +90,7 @@ def run_git_object_gc(
     max_delete: int | None = None,
     quarantine_seconds: int = 0,
     now: datetime | None = None,
+    additional_roots: tuple[str, ...] = (),
 ) -> GitObjectGcResult:
     """Collect unreachable objects for one repo and optionally delete them.
 
@@ -77,6 +109,11 @@ def run_git_object_gc(
     walk_errors: list[str] = []
     inventory_errors: list[str] = []
     roots = collect_object_gc_roots(repo, errors=root_errors)
+    for object_id in additional_roots:
+        if not is_object_id(object_id):
+            root_errors.append("invalid additional GC root")
+        else:
+            roots.add(object_id)
     reachable = mark_reachable_objects(repo, roots, errors=walk_errors)
 
     all_objects = _all_object_ids(repo, errors=inventory_errors)
@@ -335,11 +372,12 @@ def mark_reachable_objects(
 
         kinds[object_id] = obj_type
         try:
-            if hash_object(obj_type, body) != object_id:
+            object_format = "sha256" if len(object_id) == 64 else "sha1"
+            if hash_object(obj_type, body, object_format=object_format) != object_id:
                 raise ValueError("object hash mismatch")
             if expected_type is not None and obj_type != expected_type:
                 raise ValueError("unexpected object type")
-            stack.extend(object_edges(obj_type, body))
+            stack.extend(object_edges(obj_type, body, object_format=object_format))
         except Exception as exc:  # noqa: BLE001
             out_errors.append(f"walk {object_id}: {exc}")
 

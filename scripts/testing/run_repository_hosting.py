@@ -89,6 +89,8 @@ def result_exit_code(result):
     ):
         return max(1, code)
     layers = result.get("layers", {})
+    if result.get("s3") and not layers.get("hosting_s3", {}).get("passed", 0):
+        return max(1, code)
     if not layers or any(counts.get("failed", 0) for counts in layers.values()):
         return max(1, code)
     if result.get("target") and any(
@@ -262,11 +264,14 @@ def main():
         "--native-pg", action="store_true",
         help="supplementary PostgreSQL 17 with auth stubs, NOT Supabase/S3 acceptance",
     )
+    parser.add_argument("--s3", action="store_true", help="Start owned real Supabase S3-compatible Storage (requires --live)")
     parser.add_argument("--target", action="store_true", help="known gaps must fail")
     parser.add_argument(
         "--output", type=Path, default=ROOT / "backend/.hosting-test-results"
     )
     args, pytest_args = parser.parse_known_args()
+    if args.s3 and not args.live:
+        parser.error("--s3 requires --live; never use an ambient object service")
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     # Do not accidentally attribute an older successful artifact to a failed startup.
@@ -296,6 +301,8 @@ def main():
     result = {
         "live": args.live,
         "native_pg": args.native_pg,
+        "s3": args.s3,
+        "object_environment": "owned_supabase_s3" if args.s3 else "not_started",
         "database_environment": "supabase" if args.live else (
             "native_pg17_auth_stub" if args.native_pg else "not_started"
         ),
@@ -383,13 +390,14 @@ def main():
                     (55394, mail),
                 ]:
                     config = config.replace(str(old), str(new))
+                if args.s3:
+                    config += "\n[storage]\nenabled = true\n[storage.s3_protocol]\nenabled = true\n"
                 (stack.supabase / "config.toml").write_text(config)
                 try:
-                    stack.cli(
-                        "start",
-                        "--exclude",
-                        "studio,realtime,storage-api,imgproxy,edge-runtime,logflare,vector,supavisor",
-                    )
+                    excluded = "studio,realtime,imgproxy,edge-runtime,logflare,vector,supavisor"
+                    if not args.s3:
+                        excluded += ",storage-api"
+                    stack.cli("start", "--exclude", excluded)
                     stack.replace_migrations(
                         sorted((ROOT / "supabase/migrations").glob("*.sql"))
                     )
@@ -406,6 +414,19 @@ def main():
                         SUPABASE_KEY=status["SERVICE_ROLE_KEY"],
                         SUPABASE_SERVICE_ROLE_KEY=status["SERVICE_ROLE_KEY"],
                     )
+                    if args.s3:
+                        endpoint = status.get("STORAGE_S3_URL") or status.get("S3_PROTOCOL_URL")
+                        required = ("S3_PROTOCOL_ACCESS_KEY_ID", "S3_PROTOCOL_ACCESS_KEY_SECRET", "S3_PROTOCOL_REGION")
+                        if not endpoint or any(not status.get(key) for key in required):
+                            available = sorted(key for key in status if key.startswith(("S3_", "STORAGE_")))
+                            raise RuntimeError(f"owned Supabase S3 configuration missing; available field names: {available}")
+                        env.update(
+                            HOSTING_TEST_S3="1", S3_ENDPOINT_URL=endpoint,
+                            S3_ACCESS_KEY_ID=status["S3_PROTOCOL_ACCESS_KEY_ID"],
+                            S3_SECRET_ACCESS_KEY=status["S3_PROTOCOL_ACCESS_KEY_SECRET"],
+                            S3_REGION=status["S3_PROTOCOL_REGION"], S3_BUCKET_NAME="hosting-" + stack.project,
+                        )
+                        command.append("--hosting-s3")
                     command.extend(["--hosting-live", "--hosting-supabase"])
                     run_supabase_suites(stack, command, env, cli_env, result)
                 finally:

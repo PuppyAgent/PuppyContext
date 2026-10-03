@@ -84,11 +84,22 @@
   real SDK/PostgREST with backend/client roles; native authority stays dormant.
 - [ ] Complete target-environment security/deployment gates; local fixture success
   does not authorize activation or prove real-user upgrade compatibility.
-- [ ] Implement durable object receipts/pins and GC-publication coordination.
+- [x] Add physical closure verification, backend-only pin/receipt issuance and
+  GC sweep/read fencing; test actual owned S3-compatible Storage + PostgREST,
+  hot-cache masking, missing objects, lost acknowledgements and populated DDL rollback.
+- [x] Add a stock-Git native adapter with refs-only advertisement, private physical
+  readback, typed roots/peels, protocol negotiation and SQL atomic/non-atomic publication.
+  The ASGI test fixture supplies an explicit grant; the canonical router does NOT
+  select this adapter yet. This does not repair the old route's remaining targets.
+- [x] Exercise SHA-1/SHA-256 HTTP push/cold clone, rewrite/delete/atomic success,
+  and SHA-256 physical GC quarantine; preserve reader availability during fencing.
+- [ ] Complete durable publication/GC restart, remote-I/O quiescence recovery,
+  long-upload lease renewal and bounded-resource/performance acceptance.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including
   ref policy, lifecycle leases, non-atomic orchestration and result-query consumers.
-  The compatibility source-head CAS is repaired; native ref service, durable
-  receipts/GC, named-ref atomicity and remaining transport targets still need work.
+  The service/physical publication path now exists, but production admission,
+  quota/lifecycle orchestration, canonical route selection, result-query consumers
+  and legacy Scope/product integration still need work.
 - [ ] Integrate full Git transport and advertised protocol capabilities.
 - [ ] Integrate product/automatic writers, reads, Scope adapters and lifecycle.
 - [ ] Complete maintenance, export/restore, derived events and usage verification.

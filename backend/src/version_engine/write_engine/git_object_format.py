@@ -17,32 +17,45 @@ def _frame(obj_type: str, content: bytes) -> bytes:
     return f"{obj_type} {len(content)}".encode("ascii") + b"\x00" + content
 
 
-def hash_object(obj_type: str, content: bytes) -> str:
-    """Return the SHA-1 hex id for a Git object body."""
+def object_id_bytes(object_format: str) -> int:
+    if object_format not in {"sha1", "sha256"}:
+        raise ValueError("unsupported Git object format")
+    return 20 if object_format == "sha1" else 32
 
-    return hashlib.sha1(_frame(obj_type, content)).hexdigest()
+
+def hash_object(obj_type: str, content: bytes, *, object_format: str = "sha1") -> str:
+    """Hash raw Git framing without reconstructing any metadata."""
+    object_id_bytes(object_format)
+    return hashlib.new(object_format, _frame(obj_type, content)).hexdigest()
 
 
-def encode_object(obj_type: str, content: bytes) -> tuple[str, bytes]:
-    """Return ``(sha1_hex, zlib_compressed_loose_bytes)``."""
-
-    framed = _frame(obj_type, content)
-    return hashlib.sha1(framed).hexdigest(), zlib.compress(framed)
+def encode_object(obj_type: str, content: bytes, *, object_format: str = "sha1") -> tuple[str, bytes]:
+    """Return ``(oid, zlib_compressed_loose_bytes)``; SHA-1 stays the default."""
+    return hash_object(obj_type, content, object_format=object_format), zlib.compress(_frame(obj_type, content))
 
 
 EMPTY_TREE_CONTENT = b""
 EMPTY_TREE_SHA1, EMPTY_TREE_LOOSE_BYTES = encode_object("tree", EMPTY_TREE_CONTENT)
 
 
-def decode_object(loose_bytes: bytes) -> tuple[str, bytes]:
-    """Decode Git loose-object bytes into ``(type, content)``."""
-
-    framed = zlib.decompress(loose_bytes)
+def decode_object(loose_bytes: bytes, *, max_bytes: int | None = None) -> tuple[str, bytes]:
+    """Decode loose bytes; bounded verification rejects decompression bombs."""
+    if max_bytes is None:
+        framed = zlib.decompress(loose_bytes)
+    else:
+        if max_bytes < 0:
+            raise ValueError("object byte budget exceeded")
+        decoder = zlib.decompressobj()
+        framed = decoder.decompress(loose_bytes, max_bytes + 65)
+        if not decoder.eof or decoder.unused_data:
+            raise ValueError("object byte budget exceeded or invalid loose stream")
     nul = framed.index(b"\x00")
     header = framed[:nul].decode("ascii")
     obj_type, size_text = header.split(" ", 1)
     content = framed[nul + 1 :]
     size = int(size_text)
+    if max_bytes is not None and size > max_bytes:
+        raise ValueError("object byte budget exceeded")
     if len(content) != size:
         raise ValueError(
             f"git object size mismatch: header says {size}, got {len(content)}"
@@ -84,10 +97,11 @@ class TreeEntry(NamedTuple):
         return self.name.encode("utf-8", "surrogateescape")
 
 
-def _validate_sha1_hex(sha1_hex: str) -> None:
-    if len(sha1_hex) != 40:
+def _validate_sha1_hex(sha1_hex: str, object_format: str = "sha1") -> None:
+    width = 2 * object_id_bytes(object_format)
+    if len(sha1_hex) != width:
         raise ValueError(
-            f"git tree entry object id must be 40 hex characters, "
+            f"git tree entry object id must be {width} hex characters, "
             f"got {len(sha1_hex)}",
         )
     if any(char not in "0123456789abcdefABCDEF" for char in sha1_hex):
@@ -99,7 +113,7 @@ def _validate_tree_name(raw_name: bytes) -> None:
         raise ValueError("invalid git tree entry name")
 
 
-def encode_tree(entries: Iterable[TreeEntry]) -> bytes:
+def encode_tree(entries: Iterable[TreeEntry], *, object_format: str = "sha1") -> bytes:
     """Encode Git tree entries in Git's tree binary format."""
 
     sorted_entries = sorted(
@@ -111,7 +125,7 @@ def encode_tree(entries: Iterable[TreeEntry]) -> bytes:
     for entry in sorted_entries:
         if entry.mode not in _ALLOWED_TREE_MODES:
             raise ValueError(f"unsupported git tree mode: {entry.mode!r}")
-        _validate_sha1_hex(entry.sha1_hex)
+        _validate_sha1_hex(entry.sha1_hex, object_format)
         raw_name = entry.raw_name
         _validate_tree_name(raw_name)
         if raw_name in seen_names:
@@ -127,9 +141,10 @@ def encode_tree(entries: Iterable[TreeEntry]) -> bytes:
     return bytes(out)
 
 
-def decode_tree(content: bytes) -> list[TreeEntry]:
+def decode_tree(content: bytes, *, object_format: str = "sha1") -> list[TreeEntry]:
     """Decode a Git tree body into entries."""
 
+    width = object_id_bytes(object_format)
     entries: list[TreeEntry] = []
     seen_names: set[bytes] = set()
     index = 0
@@ -145,11 +160,11 @@ def decode_tree(content: bytes) -> list[TreeEntry]:
             raise ValueError("duplicate git tree entry name")
         seen_names.add(raw_name)
         name = raw_name.decode("utf-8", "surrogateescape")
-        if nul + 21 > len(content):
+        if nul + 1 + width > len(content):
             raise ValueError("truncated git tree entry object id")
-        sha1_hex = content[nul + 1 : nul + 21].hex()
+        sha1_hex = content[nul + 1 : nul + 1 + width].hex()
         entries.append(TreeEntry(name=name, mode=mode, sha1_hex=sha1_hex))
-        index = nul + 21
+        index = nul + 1 + width
     return entries
 
 
@@ -199,7 +214,7 @@ def decode_commit(content: bytes) -> dict:
     return info
 
 
-def decode_tag(content: bytes) -> dict:
+def decode_tag(content: bytes, *, object_format: str = "sha1") -> dict:
     """Decode an annotated Git tag body into its target metadata.
 
     Lightweight tags point directly at a commit and have no tag object. This
@@ -218,7 +233,7 @@ def decode_tag(content: bytes) -> dict:
             info[key] = value
     if not info.get("object") or not info.get("type"):
         raise ValueError("annotated tag is missing object/type headers")
-    _validate_sha1_hex(info["object"])
+    _validate_sha1_hex(info["object"], object_format)
     return info
 
 

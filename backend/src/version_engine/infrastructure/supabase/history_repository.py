@@ -67,6 +67,12 @@ class SupabaseHistoryManager:
         self._client = supabase.client
         self._project_id = project_id
 
+    def native_ref_authority(self):
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            RefAuthorityRepository,
+        )
+        return RefAuthorityRepository(self._client)
+
     # ── Global Head ──
     #
     # There is no dedicated "global head" column on the projects
