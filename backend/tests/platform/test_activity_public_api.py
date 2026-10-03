@@ -31,7 +31,7 @@ def environment():
             kind=kind,
             message="historical sync_run connection_id text",
         )
-        for kind in ("upload", "import", "sync_run")
+        for kind in ("upload", "import", "synchronize_run")
     ]
     repo = Mock()
     repo.list_by_project.return_value = rows
@@ -71,7 +71,7 @@ def test_canonical_activity_is_typed_and_does_not_rewrite_historical_identity_or
             == 200
         )
         repo.list_by_project.assert_called_once_with(
-            "project-1", kind="sync_run", active_only=True, limit=7
+            "project-1", kind="synchronize_run", active_only=True, limit=7
         )
         assert client.post("/api/v1/activity/items", json={}).status_code == 405
 

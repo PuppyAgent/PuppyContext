@@ -78,7 +78,7 @@ def test_status_preserves_colliding_resource_ids_and_project_policy(cli, canonic
 
 def test_status_classification_and_storage_failures_are_not_empty_success(cli, canonical, monkeypatch):
     data = facts()
-    data["connections"][0]["config"] = {"db_config": {"api_key": "private-source-secret"}}
+    data["synchronize_bindings"][0]["config"] = {"db_config": {"api_key": "private-source-secret"}}
     monkeypatch.setattr(dashboard, "SupabaseClient", lambda: SimpleNamespace(client=FakeSB(data)))
     rejected = cli(ok=False)
     assert "SOURCE_CLASSIFICATION_REQUIRED" in json.dumps(rejected)

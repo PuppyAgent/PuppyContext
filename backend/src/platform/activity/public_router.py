@@ -41,22 +41,15 @@ def list_activity_items(
     service: ActivityService = Depends(get_activity_service),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    # Temporary physical-view projection, removed with ISSUE-049's sole view
-    # migration. This is not a client fallback or a rewrite of audit/history text.
     rows = service.list_for_project(
         project_id,
         current_user.user_id,
-        kind="sync_run" if kind == "synchronize_run" else kind,
+        kind=kind,
         active_only=active_only,
         limit=limit,
     )
     items = [
-        ContextActivityItem.model_validate(
-            {
-                **row.model_dump(),
-                "kind": "synchronize_run" if row.kind == "sync_run" else row.kind,
-            }
-        )
+        ContextActivityItem.model_validate(row.model_dump())
         for row in rows
     ]
     return ApiResponse.success(ContextActivityList(items=items, total=len(items)))

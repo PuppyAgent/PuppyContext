@@ -32,7 +32,7 @@ class _FakeSupabase:
 
 def test_project_access_point_count_reads_target_tables(monkeypatch):
     sb = _FakeSupabase({
-        "connections": [
+        "synchronize_bindings": [
             {"project_id": "p1"},
             {"project_id": "p1"},
             {"project_id": "p2"},

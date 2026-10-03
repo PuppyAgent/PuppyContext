@@ -91,7 +91,7 @@ async def execute_synchronize_run(ctx: dict, run_id: str) -> dict:
 
     try:
         result = await engine.execute(
-            run.connection_id,
+            run.synchronize_binding_id,
             trigger_type=run.trigger_type,
             run_id=run.id,
         )
@@ -101,7 +101,7 @@ async def execute_synchronize_run(ctx: dict, run_id: str) -> dict:
             return {
                 "status": "completed",
                 "run_id": run_id,
-                "synchronize_binding_id": run.connection_id,
+                "synchronize_binding_id": run.synchronize_binding_id,
                 "path": result.get("path"),
                 "commit_id": result.get("commit_id"),
             }
@@ -115,7 +115,7 @@ async def execute_synchronize_run(ctx: dict, run_id: str) -> dict:
         return {
             "status": (refreshed.status if refreshed else "no_change"),
             "run_id": run_id,
-            "synchronize_binding_id": run.connection_id,
+            "synchronize_binding_id": run.synchronize_binding_id,
         }
     except asyncio.CancelledError:
         logger.error("Sync run cancelled by worker timeout: %s", run_id)

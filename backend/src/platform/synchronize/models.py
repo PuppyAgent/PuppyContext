@@ -21,7 +21,8 @@ class SynchronizeBinding:
     last_synced_at: str | None = None
     error_message: str | None = None
     remote_hash: str | None = None
-    last_sync_commit_id: str = ""
+    last_synchronize_commit_id: str = ""
+    legacy_read_only_reason: str | None = None
     created_by: str | None = None
     created_at: str | None = None
     updated_at: str | None = None

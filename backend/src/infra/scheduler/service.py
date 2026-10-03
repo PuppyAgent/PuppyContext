@@ -353,7 +353,7 @@ class SchedulerService:
 
             client = SupabaseClient().client
             result = (
-                client.table("connections")
+                client.table("synchronize_bindings")
                 .select("id, provider, trigger_type, trigger_config, status")
                 .eq("status", "active")
                 .execute()

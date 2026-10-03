@@ -58,7 +58,7 @@ class Memory:
         ]
 
     async def list_recent(self, binding_id, *, limit, offset):
-        rows = [row for row in self.logs if row["integration_id"] == binding_id]
+        rows = [row for row in self.logs if row["synchronize_github_binding_id"] == binding_id]
         return rows[offset : offset + limit], len(rows)
 
 
@@ -84,7 +84,7 @@ def environment(monkeypatch):
         memory.logs.append(
             {
                 "id": f"log-{len(executions)}",
-                "integration_id": binding["id"],
+                "synchronize_github_binding_id": binding["id"],
                 "created_at": datetime.now(UTC),
                 **result.model_dump(),
             }
@@ -92,10 +92,10 @@ def environment(monkeypatch):
         return result
 
     async def pull(binding, **options):
-        return await run(binding, "import", **options)
+        return await run(binding, "inbound", **options)
 
     async def push(binding, **options):
-        return await run(binding, "export", **options)
+        return await run(binding, "outbound", **options)
 
     monkeypatch.setattr(services, "import_branch", pull)
     monkeypatch.setattr(services, "export_to_branch", push)

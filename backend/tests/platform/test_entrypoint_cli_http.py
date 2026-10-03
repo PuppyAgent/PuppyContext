@@ -94,14 +94,14 @@ class RunStore:
         return self.rows.get(key)
 
     def list_by_sync(self, key, limit=20, offset=0):
-        return [row for row in self.rows.values() if row.connection_id == key][offset:offset + limit]
+        return [row for row in self.rows.values() if row.synchronize_binding_id == key][offset:offset + limit]
 
     def get_blocking_active_by_sync(self, key):
         return next((row for row in self.rows.values()
-                     if row.connection_id == key and row.status == "queued"), None)
+                     if row.synchronize_binding_id == key and row.status == "queued"), None)
 
     def create_queued_single_lane(self, key, **values):
-        row = SyncRun(id=f"run-{len(self.rows) + 1}", connection_id=key, status="queued", **values)
+        row = SyncRun(id=f"run-{len(self.rows) + 1}", synchronize_binding_id=key, status="queued", **values)
         self.rows[row.id] = row
         return row, True
 
@@ -306,7 +306,7 @@ def test_actual_cli_dispatch_keeps_snapshot_binding_and_surface_ownership(server
     assert len(server.bindings.rows) == len(server.runs.rows) == 1
     binding = next(iter(server.bindings.rows.values()))
     assert binding.trigger == {"type": "manual"}
-    assert next(iter(server.runs.rows.values())).connection_id == binding.id
+    assert next(iter(server.runs.rows.values())).synchronize_binding_id == binding.id
     # Real Access router and Sandbox service; only their repositories are substituted.
     surface = server.cli("access", "add", "sandbox", "My sandbox")
     assert surface["access"]["id"].startswith("surface-")

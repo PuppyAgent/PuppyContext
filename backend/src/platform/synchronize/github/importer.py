@@ -5,7 +5,7 @@ doc explicitly defers that). The flow:
 
 1. Resolve the integration row → get repo coords + OAuth token.
 2. Look up the GitHub branch HEAD → ``git_sha`` (the commit we're importing).
-3. Idempotency check: skip if ``github_sync_log`` has a successful
+3. Idempotency check: skip if ``synchronize_github_logs`` has a successful
    import for this ``git_sha`` already (covers webhook retries).
 4. Walk the branch's tree recursively → ``{path: blob_sha}``.
 5. Fetch every blob's bytes (LFS pointers / submodules are surfaced
@@ -15,7 +15,7 @@ doc explicitly defers that). The flow:
 7. Single Git-native transaction-engine operation with a splice that
    overwrites the scope to exactly the GitHub tree.
 8. Record the new ``version_commit_id`` alongside the ``git_sha`` in
-   ``github_sync_log`` and bump the integration row's watermark.
+   ``synchronize_github_logs`` and bump the binding row's watermark.
 
 This intentionally collapses the entire branch into ONE version commit;
 the strategy doc says git history is GitHub's job. If users want
@@ -131,8 +131,8 @@ async def import_branch(
     consistent result.
 
     Side effects: writes one version-history row, one
-    ``github_sync_log`` row, and updates ``last_imported_*`` on the
-    integration.
+    ``synchronize_github_logs`` row, and updates ``last_pulled_*`` on the
+    binding.
     """
     binding_id = binding["id"]
     owner = binding["github_repo_owner"]
@@ -183,13 +183,13 @@ async def import_branch(
         )
     except ImportConflict as e:
         result = GithubSyncRunResult(
-            status="conflict", direction="import",
+            status="conflict", direction="inbound",
             git_sha=None, version_commit_id=e.version_head,
             files_changed=None,
             error_message=str(e),
         )
         await sync_log.record(
-            binding_id, direction="import", status="conflict",
+            binding_id, direction="inbound", status="conflict",
             git_sha=None, version_commit_id=e.version_head, error_message=str(e),
         )
         return result
@@ -221,13 +221,14 @@ async def _do_import(
     git_tree_sha = branch_info["commit"]["commit"]["tree"]["sha"]
 
     # Idempotency: webhook deliveries retry on non-200; reject duplicate sha.
-    if await sync_log.has_successful_sha(binding_id, "import", git_sha):
+    prior = await sync_log.find_successful_sha(binding_id, "inbound", git_sha)
+    if prior:
         log_info(
             f"[GithubImport] sha {git_sha[:12]} already imported, skipping"
         )
         return GithubSyncRunResult(
-            status="success", direction="import",
-            git_sha=git_sha, version_commit_id=binding.get("last_imported_sha"),
+            status="success", direction="inbound",
+            git_sha=git_sha, version_commit_id=prior.get("version_commit_id"),
             files_changed=0,
         )
 
@@ -240,11 +241,11 @@ async def _do_import(
             f"paging is not yet implemented."
         )
         await sync_log.record(
-            binding_id, direction="import", status="failed",
+            binding_id, direction="inbound", status="failed",
             git_sha=git_sha, error_message=msg,
         )
         return GithubSyncRunResult(
-            status="failed", direction="import",
+            status="failed", direction="inbound",
             git_sha=git_sha, version_commit_id=None,
             files_changed=None, error_message=msg,
         )
@@ -311,14 +312,14 @@ async def _do_import(
     files_changed = len(write_result.paths)
 
     await sync_log.record(
-        binding_id, direction="import", status="success",
+        binding_id, direction="inbound", status="success",
         git_sha=git_sha, version_commit_id=version_commit_id,
         files_changed=files_changed,
     )
     await binding_repo.update_watermark(
         binding_id,
-        last_imported_sha=git_sha,
-        last_imported_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        last_pulled_sha=git_sha,
+        last_pulled_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 
     log_info(
@@ -329,7 +330,7 @@ async def _do_import(
     )
 
     return GithubSyncRunResult(
-        status="success", direction="import",
+        status="success", direction="inbound",
         git_sha=git_sha, version_commit_id=version_commit_id,
         files_changed=files_changed,
     )
@@ -459,11 +460,11 @@ async def _record_failure(
     binding_id: str, *, error: str,
 ) -> GithubSyncRunResult:
     await sync_log.record(
-        binding_id, direction="import", status="failed",
+        binding_id, direction="inbound", status="failed",
         error_message=error,
     )
     return GithubSyncRunResult(
-        status="failed", direction="import",
+        status="failed", direction="inbound",
         git_sha=None, version_commit_id=None,
         files_changed=None, error_message=error,
     )

@@ -74,6 +74,9 @@ class SynchronizeEngine:
             log_error(f"[SynchronizeEngine] Connection not found: {connection_id}")
             return None
 
+        if getattr(connection, "legacy_read_only_reason", None):
+            log_debug(f"[SynchronizeEngine] Retained read-only binding: {connection_id}")
+            return None
         if connection.status not in ("active", "syncing", "error"):
             log_debug(f"[SynchronizeEngine] Skipping {connection_id} (status={connection.status})")
             return None
@@ -184,7 +187,10 @@ class SynchronizeEngine:
                     run = claimed
                 else:
                     run = self.run_repo.mark_running(run.id) or run
-            self.repository.update_status(connection.id, "syncing")
+            if not self.repository.update_runtime_status(connection.id, "syncing"):
+                if run and self.run_repo:
+                    self.run_repo.complete(run.id, status="skipped", result_summary="Binding paused or disabled before execution")
+                return None
 
             spec = adapter.spec()
             user_id = connection.created_by or (connection.config or {}).get("user_id", "")
@@ -197,7 +203,7 @@ class SynchronizeEngine:
             result = await adapter.fetch(connection.config or {}, credentials)
 
             if result.content_hash and result.content_hash == connection.remote_hash:
-                self.repository.update_status(connection.id, "active")
+                self.repository.update_runtime_status(connection.id, "active")
                 if run and self.run_repo:
                     self.run_repo.complete(
                         run.id,
@@ -242,7 +248,7 @@ class SynchronizeEngine:
             commit_id = outcome.commit_id
             self.repository.update_sync_point(
                 sync_id=connection.id,
-                last_sync_commit_id=commit_id,
+                last_synchronize_commit_id=commit_id,
                 remote_hash=result.content_hash,
             )
 
@@ -259,19 +265,18 @@ class SynchronizeEngine:
                 )
 
             return {
-                "access_point_id": connection.id,
-                "connection_id": connection.id,
+                "synchronize_binding_id": connection.id,
                 "path": write_plan.result_path,
                 "provider": connection.provider,
                 "commit_id": commit_id,
                 "status": "success",
                 "summary": result.summary,
-                "run_id": run.id if run else None,
+                "synchronize_run_id": run.id if run else None,
             }
 
         except NotImplementedError:
             log_debug(f"[SynchronizeEngine] fetch not implemented for {connection.provider}")
-            self.repository.update_status(connection.id, "active")
+            self.repository.update_runtime_status(connection.id, "active")
             if run and self.run_repo:
                 self.run_repo.complete(
                     run.id,
@@ -313,7 +318,7 @@ class SynchronizeEngine:
             return None
         if connection.direction == "inbound" or connection.status != "active":
             return None
-        if commit_id and connection.last_sync_commit_id == commit_id:
+        if commit_id and connection.last_synchronize_commit_id == commit_id:
             return None
 
         adapter = self.registry.get(connection.provider)
@@ -375,7 +380,7 @@ class SynchronizeEngine:
 
             self.repository.update_sync_point(
                 sync_id=connection.id,
-                last_sync_commit_id=commit_id,
+                last_synchronize_commit_id=commit_id,
                 remote_hash=push_result.remote_hash,
             )
             if run and self.run_repo:
@@ -385,14 +390,13 @@ class SynchronizeEngine:
                     result_summary=f"Pushed commit {commit_id}",
                 )
             return {
-                "access_point_id": connection.id,
-                "connection_id": connection.id,
+                "synchronize_binding_id": connection.id,
                 "path": path,
                 "provider": connection.provider,
                 "commit_id": commit_id,
                 "direction": "push",
                 "status": "success",
-                "run_id": run.id if run else None,
+                "synchronize_run_id": run.id if run else None,
             }
         except NotImplementedError:
             if run and self.run_repo:

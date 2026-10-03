@@ -48,9 +48,9 @@ class GithubSyncService:
                       payload: GithubIntegrationCreate) -> GithubIntegrationStatus:
         # Cross-check the schema-level invariant ahead of the DB so we
         # surface a clean 400 instead of a Postgres CHECK violation.
-        if payload.auto_import and not payload.webhook_secret:
+        if payload.auto_pull and not payload.webhook_secret:
             raise ValueError(
-                "auto_import requires a webhook_secret to verify deliveries"
+                "auto_pull requires a webhook_secret to verify deliveries"
             )
 
         body = {
@@ -58,7 +58,7 @@ class GithubSyncService:
             "github_repo_owner": payload.github_repo_owner,
             "github_repo_name": payload.github_repo_name,
             "default_branch": payload.default_branch,
-            "auto_import": payload.auto_import,
+            "auto_pull": payload.auto_pull,
             "webhook_secret": payload.webhook_secret,
         }
         row = await self._bindings.upsert(project_id, body)
@@ -77,14 +77,14 @@ class GithubSyncService:
         merged = {**existing}
         for field, value in payload.model_dump(exclude_unset=True).items():
             merged[field] = value
-        if merged.get("auto_import") and not merged.get("webhook_secret"):
+        if merged.get("auto_pull") and not merged.get("webhook_secret"):
             raise ValueError(
-                "auto_import requires a webhook_secret to verify deliveries"
+                "auto_pull requires a webhook_secret to verify deliveries"
             )
         row = await self._bindings.upsert(project_id, {
             k: merged[k] for k in (
                 "oauth_connection_id", "github_repo_owner", "github_repo_name",
-                "default_branch", "auto_import", "webhook_secret",
+                "default_branch", "auto_pull", "webhook_secret",
             ) if k in merged
         })
         return _row_to_status(row)
@@ -198,7 +198,7 @@ class GithubSyncService:
             binding["id"], limit=limit, offset=offset,
         )
         return GithubSyncLogList(
-            integration_id=binding["id"],
+            synchronize_github_binding_id=binding["id"],
             entries=[GithubSyncLogEntry(**r) for r in rows],
             total=total,
         )
@@ -212,12 +212,12 @@ def _row_to_status(row: dict) -> GithubIntegrationStatus:
         github_repo_owner=row.get("github_repo_owner", ""),
         github_repo_name=row.get("github_repo_name", ""),
         default_branch=row.get("default_branch", "main"),
-        auto_import=bool(row.get("auto_import", False)),
+        auto_pull=bool(row["auto_pull"]),
         has_webhook_secret=bool(row.get("webhook_secret")),
-        last_imported_sha=row.get("last_imported_sha"),
-        last_imported_at=row.get("last_imported_at"),
-        last_exported_sha=row.get("last_exported_sha"),
-        last_exported_at=row.get("last_exported_at"),
+        last_pulled_sha=row.get("last_pulled_sha"),
+        last_pulled_at=row.get("last_pulled_at"),
+        last_pushed_sha=row.get("last_pushed_sha"),
+        last_pushed_at=row.get("last_pushed_at"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

@@ -18,7 +18,7 @@ from src.platform.authorization.dependencies import get_authorization_service
 from src.platform.repository_target.models import ProjectRootTarget
 from src.platform.synchronize import router as sync_router
 from src.platform.synchronize.dependencies import get_synchronize_service
-from src.platform.synchronize.repository import SourceConnection
+from src.platform.synchronize.models import SynchronizeBinding
 from src.platform.synchronize.schemas import connection_to_response
 from tests.authorization_fakes import authorization_for
 
@@ -54,7 +54,7 @@ async def test_legacy_access_run_cannot_dispatch_surface_id_as_binding_id(monkey
 
 
 def test_binding_response_preserves_management_state_and_redacts_secrets():
-    binding = SourceConnection(
+    binding = SynchronizeBinding(
         id="binding-id", project_id="project-1", provider="url", path="not-a-scope",
         trigger={"type": "scheduled", "schedule": "0 9 * * *", "timezone": "UTC"},
         config={"source_url": "https://example.test", "credentials_ref": "secret", "access_key": "secret"},
@@ -71,7 +71,7 @@ def test_binding_response_preserves_management_state_and_redacts_secrets():
 
 def test_binding_list_uses_binding_repository_and_keeps_different_resource_ids():
     repo = Mock()
-    repo.list_by_project.return_value = [SourceConnection(
+    repo.list_by_project.return_value = [SynchronizeBinding(
         id="binding-id", project_id="project-1", provider="url", path="not-a-scope",
         config={"source_url": "https://example.test"}, trigger={"type": "scheduled"},
     )]

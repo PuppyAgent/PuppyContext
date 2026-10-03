@@ -124,7 +124,7 @@ def fetch_dashboard_resources(sb, project_id: str) -> list[DashboardResource]:
     synchronize_usage = _usage(
         sb,
         SYNCHRONIZE_RUNS_TABLE,
-        "connection_id",
+        "synchronize_binding_id",
         [row.id for row in bindings],
         project_id=project_id,
     )

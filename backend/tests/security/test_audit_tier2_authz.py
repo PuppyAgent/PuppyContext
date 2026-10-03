@@ -193,7 +193,7 @@ def test_get_connection_run_foreign_project_forbidden():
     app.dependency_overrides[get_synchronize_service] = lambda: svc
 
     run = SimpleNamespace(
-        id="run-1", connection_id="conn-1", status="ok", worker_job_id=None,
+        id="run-1", synchronize_binding_id="conn-1", status="ok", worker_job_id=None,
         started_at=None, finished_at=None, duration_ms=None, exit_code=None,
         stdout=None, error=None, trigger_type=None, result_summary=None,
     )

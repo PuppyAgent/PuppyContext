@@ -1,4 +1,4 @@
-"""CRUD for Connect execution history stored in ``sync_runs``."""
+"""CRUD for binding-owned execution history in ``synchronize_runs``."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Optional, List
 from src.infra.supabase.client import SupabaseClient
 
 
-NEW_TABLE = "sync_runs"
+NEW_TABLE = "synchronize_runs"
 VALID_TRIGGER_TYPES = {"manual", "scheduled", "webhook", "realtime", "initial", "push"}
 ACTIVE_RUN_STATUSES = ("queued", "running")
 TERMINAL_RUN_STATUSES = ("completed", "failed", "cancelled", "skipped", "conflict")
@@ -19,7 +19,7 @@ DEFAULT_RUN_LEASE_SECONDS = 30 * 60
 @dataclass
 class SyncRun:
     id: str
-    connection_id: str
+    synchronize_binding_id: str
     status: str = "running"
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
@@ -82,7 +82,7 @@ class SyncRunRepository:
 
     def _connection_row(self, connection_id: str) -> dict | None:
         response = (
-            self.client.table("connections")
+            self.client.table("synchronize_bindings")
             .select("*")
             .eq("id", connection_id)
             .limit(1)
@@ -94,7 +94,7 @@ class SyncRunRepository:
     def _to_model(self, row: dict) -> SyncRun:
         return SyncRun(
             id=row["id"],
-            connection_id=row.get("connection_id", ""),
+            synchronize_binding_id=row["synchronize_binding_id"],
             status=_status_for_response(row.get("status", "running")),
             started_at=row.get("started_at"),
             finished_at=row.get("finished_at"),
@@ -123,11 +123,13 @@ class SyncRunRepository:
     ) -> SyncRun:
         connection = self._connection_row(sync_id)
         if not connection:
-            raise RuntimeError(f"Connection {sync_id} not found")
+            raise RuntimeError(f"Synchronize binding {sync_id} not found")
+        if connection.get("legacy_read_only_reason"):
+            raise RuntimeError("LEGACY_BINDING_READ_ONLY: historical binding cannot create execution runs")
         normalized_status = _status_for_new_table(status)
         running = normalized_status == "running"
         data = {
-            "connection_id": sync_id,
+            "synchronize_binding_id": sync_id,
             "project_id": connection["project_id"],
             "triggered_by": _normalize_trigger_type(trigger_type),
             "direction": connection.get("direction") or "inbound",
@@ -146,8 +148,8 @@ class SyncRunRepository:
             data["worker_job_id"] = worker_job_id
         response = self.client.table(NEW_TABLE).insert(data).execute()
         run = self._to_model(response.data[0])
-        self.client.table("connections").update({
-            "last_sync_run_id": run.id,
+        self.client.table("synchronize_bindings").update({
+            "last_synchronize_run_id": run.id,
         }).eq("id", sync_id).execute()
         return run
 
@@ -190,7 +192,7 @@ class SyncRunRepository:
         rows = (
             self.client.table(NEW_TABLE)
             .select("*")
-            .eq("connection_id", sync_id)
+            .eq("synchronize_binding_id", sync_id)
             .in_("status", list(ACTIVE_RUN_STATUSES))
             .order("created_at", desc=True)
             .limit(1)
@@ -419,7 +421,7 @@ class SyncRunRepository:
         rows = (
             self.client.table(NEW_TABLE)
             .select("*")
-            .eq("connection_id", sync_id)
+            .eq("synchronize_binding_id", sync_id)
             .order("started_at", desc=True)
             .range(offset, offset + limit - 1)
             .execute()
@@ -436,7 +438,7 @@ class SyncRunRepository:
         rows = (
             self.client.table(NEW_TABLE)
             .select("*")
-            .in_("connection_id", connection_ids)
+            .in_("synchronize_binding_id", connection_ids)
             .eq("status", "failed")
             .order("started_at", desc=True)
             .limit(limit)
@@ -448,10 +450,10 @@ class SyncRunRepository:
         response = (
             self.client.table(NEW_TABLE)
             .select("id", count="exact")
-            .eq("connection_id", sync_id)
+            .eq("synchronize_binding_id", sync_id)
             .execute()
         )
         return response.count or 0
 
     def delete_by_sync(self, sync_id: str) -> None:
-        self.client.table(NEW_TABLE).delete().eq("connection_id", sync_id).execute()
+        self.client.table(NEW_TABLE).delete().eq("synchronize_binding_id", sync_id).execute()

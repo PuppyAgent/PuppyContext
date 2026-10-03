@@ -1,4 +1,4 @@
-"""Contract captured from c28e38a3 BEFORE moving modules; unchanged clients use it."""
+"""Immutable historical contracts plus explicit reviewed publication/retirement deltas."""
 import hashlib
 import json
 from datetime import UTC
@@ -31,38 +31,36 @@ def contract(openapi):
     }
 
 
-def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
+def test_exact_resource_retirement_preserves_every_unrelated_contract():
     from src.main import app
 
     expected = json.loads((Path(__file__).with_name("entrypoint_contract_c28e38a3.json")).read_text())
-    # Keep the original fixture immutable: only reviewed additive deltas from
-    # 059 (binding metadata) and 060 (Import discovery) are allowed.
-    import copy
-    openapi = copy.deepcopy(app.openapi())
-    binding = openapi["components"]["schemas"]["SyncResponse"]
-    for field in ("trigger", "last_synced_at", "created_at", "updated_at"):
-        assert field in binding["properties"]
-        assert field not in binding.get("required", [])
-        binding["properties"].pop(field)
-    # Canonical S2 routes are an explicit additive contract, not a wildcard
-    # exemption. Existing route/schema fingerprints must remain unchanged.
+    # Keep the original and the four published S2 fixtures immutable. Removal
+    # is exact and reviewed, never a wildcard exemption for unrelated APIs.
     for filename in ("synchronize_contract_delta.json", "access_contract_delta.json", "github_database_contract_delta.json", "aggregate_contract_delta.json"):
         delta = json.loads(Path(__file__).with_name(filename).read_text())
         for category in ("paths", "schemas"):
             assert not expected["contract"][category].keys() & delta[category].keys()
             expected["contract"][category].update(delta[category])
-    actual = contract(openapi)
-    assert actual["paths"].pop("/api/v1/imports/providers")
-    assert actual == expected["contract"]
+    retirement = json.loads(Path(__file__).with_name("retired_entrypoint_contract_delta.json").read_text())
+    for category in ("paths", "schemas"):
+        delta = retirement[category]
+        assert delta["changed"] == {}  # canonical and unrelated wires remain identical
+        for name, digest in delta["removed"].items():
+            assert expected["contract"][category].pop(name) == digest
+        for name, digest in delta["added"].items():
+            assert name not in expected["contract"][category]
+            expected["contract"][category][name] = digest
+    assert contract(app.openapi()) == expected["contract"]
 
 
-def test_access_domain_kind_is_serialized_as_legacy_provider():
+def test_access_domain_kind_and_target_are_serialized_without_legacy_provider():
     from datetime import datetime
     from types import SimpleNamespace
     from unittest.mock import Mock
 
     from src.platform.access.models import AccessSurface
-    from src.platform.access.project_router import list_connectors
+    from src.platform.access.public_router import list_project_access_surfaces
     from src.platform.repository_target.models import ProjectRootTarget
 
     surface = AccessSurface(
@@ -74,36 +72,38 @@ def test_access_domain_kind_is_serialized_as_legacy_provider():
     )
     service = Mock()
     service.list.return_value = [surface]
-    response = list_connectors(provider="cli", direction=None, include_non_access=False,
+    response = list_project_access_surfaces(kind="cli", direction=None,
                                authorized=SimpleNamespace(project=SimpleNamespace(id="project-1")), service=service)
     payload = response.model_dump(mode="json")
-    assert payload["data"][0]["provider"] == "cli"
-    assert "kind" not in payload["data"][0]
+    assert payload["data"][0]["kind"] == "cli"
+    assert payload["data"][0]["target"] == {"kind": "project_root", "project_id": "project-1"}
+    assert "provider" not in payload["data"][0]
     service.list.assert_called_once_with("project-1", kind="cli", direction=None, access_surface_only=True)
-    assert payload["message"] == "Connectors listed"
+    assert payload["message"] == "Access surfaces listed"
 
 
-def test_sync_run_connection_id_is_authorized_and_serialized_at_http_boundary(monkeypatch):
+def test_run_binding_id_is_authorized_and_serialized_at_http_boundary(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock
 
     from src.platform.auth.models import CurrentUser
     from src.platform.synchronize import router
+    from src.platform.synchronize.public_router import get_synchronize_run
     from src.platform.synchronize.run_repository import SyncRun
     from tests.authorization_fakes import authorization_for
 
-    run = SyncRun(id="run-1", connection_id="source-1", stdout="hello")
+    run = SyncRun(id="run-1", synchronize_binding_id="source-1", stdout="hello")
     repository = Mock()
     repository.get_by_id.return_value = run
     monkeypatch.setattr(router, "_get_run_repo", lambda: repository)
     service = Mock()
     service.repository.get_by_id.return_value = SimpleNamespace(id="source-1", project_id="project-1")
-    response = router.get_connection_run(
+    response = get_synchronize_run(
         "run-1", service=service, authorization=authorization_for("project-1", role="viewer"),
         current_user=CurrentUser(user_id="user-1", role="authenticated"),
     )
     payload = response.model_dump(mode="json")["data"]
-    assert payload["access_point_id"] == "source-1"
-    assert "connection_id" not in payload
+    assert payload["synchronize_binding_id"] == "source-1"
+    assert "connection_id" not in payload and "access_point_id" not in payload
     assert payload["stdout"] == "hello"
     service.repository.get_by_id.assert_called_once_with("source-1")

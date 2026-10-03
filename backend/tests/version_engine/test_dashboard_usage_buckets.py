@@ -70,9 +70,9 @@ def _today_iso() -> str:
 def test_usage_buckets_union_connector_and_agent_runs():
     today = _today_iso()
     sb = FakeSB({
-        "sync_runs": [
-            {"connection_id": "conn1", "started_at": today},
-            {"connection_id": "conn1", "started_at": today},
+        "synchronize_runs": [
+            {"synchronize_binding_id": "conn1", "started_at": today},
+            {"synchronize_binding_id": "conn1", "started_at": today},
         ],
         "agent_execution_logs": [
             {"agent_id": "agent1", "started_at": today},
@@ -93,7 +93,7 @@ def test_usage_buckets_union_connector_and_agent_runs():
 def test_fetch_connections_never_rehydrates_scope_plaintext_key():
     today = _today_iso()
     sb = FakeSB({
-        "connections": [{
+        "synchronize_bindings": [{
             "id": "sync1",
             "project_id": "project-1",
             "provider": "gmail",
@@ -122,7 +122,7 @@ def test_fetch_connections_never_rehydrates_scope_plaintext_key():
             "path": "",
             "max_mode": "r",
         }],
-        "sync_runs": [{"connection_id": "sync1", "started_at": today}],
+        "synchronize_runs": [{"synchronize_binding_id": "sync1", "started_at": today}],
     })
 
     rows = _fetch_connections(sb, "project-1")
@@ -150,7 +150,7 @@ def test_usage_buckets_one_failing_source_does_not_zero_other():
             return super().table(name)
 
     sb = PartialSB({
-        "sync_runs": [{"connection_id": "conn1", "started_at": today}],
+        "synchronize_runs": [{"synchronize_binding_id": "conn1", "started_at": today}],
     })
 
     buckets = _fetch_usage_buckets(sb, ["conn1"])

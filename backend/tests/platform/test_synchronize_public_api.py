@@ -1,10 +1,9 @@
-"""Canonical HTTP contract exercises the same operations as legacy consumers."""
+"""Canonical HTTP lifecycle and explicit legacy-route rejection."""
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.platform.synchronize import public_router
 from src.platform.synchronize.run_repository import SyncRun
 from tests.authorization_fakes import authorization_for, install_authorization
 from tests.platform.test_synchronize_identity_http import environment as environment
@@ -20,8 +19,7 @@ BODY = {
 
 @pytest.fixture
 def canonical(environment):
-    app, bindings, runs, _queue = environment
-    app.include_router(public_router.router, prefix="/api/v1")
+    _app, bindings, runs, _queue = environment
     # Minimal persistence facts; lifecycle and authorization remain real.
     def update(binding_id, **fields):
         binding = bindings.items[binding_id]
@@ -31,7 +29,7 @@ def canonical(environment):
             binding.path = fields["target_path"]
     bindings.update = update
     runs.list_failed_for_connections = lambda ids, **_: [r for r in runs.items.values()
-        if r.connection_id in ids and r.status == "failed"]
+        if r.synchronize_binding_id in ids and r.status == "failed"]
     return environment
 
 
@@ -51,10 +49,7 @@ def test_create_reload_edit_retry_history_pause_resume_delete(canonical):
         assert execution["synchronize_binding_id"] == binding_id
         assert execution["synchronize_run_id"] == "run-1"
         assert not {"connection_id", "access_point_id", "run_id"} & execution.keys()
-        # Legacy response is independently compatible, with the same stored ID.
-        legacy = client.get("/api/v1/integrations/connections?project_id=project-1").json()["data"]
-        assert legacy[0]["id"] == binding_id
-        assert "last_sync_commit_id" in legacy[0]
+        assert client.get("/api/v1/integrations/connections?project_id=project-1").status_code == 404
     with TestClient(app) as client:
         path = f"{BASE}/bindings/{binding_id}"
         assert client.get(f"{BASE}/bindings?project_id=project-1").json()["data"][0]["id"] == binding_id
@@ -146,7 +141,7 @@ def test_absent_binding_path_is_not_serialized_as_a_project_root(canonical):
 def test_foreign_run_requires_its_own_project_grant(canonical):
     app, bindings, runs, _ = canonical
     foreign = bindings.create(project_id="other-project", provider="url")
-    runs.items["foreign-run"] = SyncRun(id="foreign-run", connection_id=foreign.id, stdout="private")
+    runs.items["foreign-run"] = SyncRun(id="foreign-run", synchronize_binding_id=foreign.id, stdout="private")
     with TestClient(app) as client:
         response = client.get(f"{BASE}/runs/foreign-run")
         assert response.status_code in {403, 404}
@@ -175,17 +170,19 @@ def test_unclassified_import_sources_are_not_reinterpreted_as_bindings(canonical
     ambiguous = bindings.create(project_id="project-1", **fields)
     base = "/api/v1/integrations" if legacy else BASE
     resource = "connections" if legacy else "bindings"
+    expected = 404 if legacy else 409
     with TestClient(app) as client:
         for path in (f"/{resource}?project_id=project-1", "/status?project_id=project-1", "/failed-runs?project_id=project-1"):
             response = client.get(base + path)
-            assert response.status_code == 409
-            assert response.json()["detail"]["code"] == "SOURCE_CLASSIFICATION_REQUIRED"
+            assert response.status_code == expected
+            if not legacy:
+                assert response.json()["detail"]["code"] == "SOURCE_CLASSIFICATION_REQUIRED"
             assert "never-return-this" not in response.text
-        assert client.delete(f"{base}/{resource}/{ambiguous.id}").status_code == 409
-        assert client.post(f"{base}/{resource}/{ambiguous.id}/pause").status_code == 409
+        assert client.delete(f"{base}/{resource}/{ambiguous.id}").status_code == expected
+        assert client.post(f"{base}/{resource}/{ambiguous.id}/pause").status_code == expected
         # A valid binding appears first: classification must gate the whole
         # batch, rather than enqueue it and fail halfway through the request.
-        assert client.post(f"{base}/pull?project_id=project-1").status_code == 409
+        assert client.post(f"{base}/pull?project_id=project-1").status_code == expected
     assert ambiguous.id in bindings.items and ambiguous.status == "active"
     queue.enqueue_sync_run.assert_not_called()
 
@@ -216,6 +213,32 @@ def test_explicit_single_binding_and_project_pull_remain_distinct(canonical):
         project = client.post(f"{BASE}/pull?project_id=project-1").json()["data"]
         assert {row["synchronize_binding_id"] for row in project["results"]} == {first.id, second.id}
     assert queue.enqueue_sync_run.call_count == 2
+
+
+def test_reviewed_historical_binding_is_visible_private_and_non_executable(canonical):
+    app, bindings, runs, queue = canonical
+    binding = bindings.create(project_id="project-1", provider="database", path="historical",
+        status="disabled", legacy_read_only_reason="Reviewed binding-only history; no Import source",
+        config={"db_config": {"ciphertext": "opaque-private-config"}, "other": "opaque-private-config",
+                "source": {"resource_name": "Historical binding"}},
+        trigger={"type": "manual", "old_secret": "opaque-private-config"})
+    runs.items["historical-run"] = SyncRun(id="historical-run", synchronize_binding_id=binding.id, status="failed")
+    with TestClient(app) as client:
+        listed = client.get(f"{BASE}/bindings?project_id=project-1")
+        assert listed.status_code == 200 and "opaque-private-config" not in listed.text
+        assert listed.json()["data"][0]["id"] == binding.id
+        status = client.get(f"{BASE}/status?project_id=project-1")
+        assert status.status_code == 200 and "opaque-private-config" not in status.text
+        assert status.json()["data"]["bindings"][0]["id"] == binding.id
+        history = client.get(f"{BASE}/bindings/{binding.id}/runs")
+        assert history.status_code == 200 and history.json()["data"][0]["id"] == "historical-run"
+        for action in ("pause", "resume", "refresh"):
+            response = client.post(f"{BASE}/bindings/{binding.id}/{action}")
+            assert response.status_code == 409 and response.json()["detail"]["code"] == "LEGACY_BINDING_READ_ONLY"
+        assert client.patch(f"{BASE}/bindings/{binding.id}", json={"target_path": "new"}).status_code == 409
+        assert client.delete(f"{BASE}/bindings/{binding.id}").status_code == 409
+    assert binding.status == "disabled" and set(runs.items) == {"historical-run"}
+    queue.enqueue_sync_run.assert_not_called()
 
 
 def test_canonical_openapi_has_no_legacy_identity_schema_fields(canonical):

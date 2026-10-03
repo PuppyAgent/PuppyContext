@@ -8,7 +8,7 @@ from src.infra.supabase.client import SupabaseClient
 from src.platform.activity.schemas import ActivityItemResponse
 
 # Kinds the view can emit; used to validate the optional filter.
-ACTIVITY_KINDS = ("upload", "import", "sync_run")
+ACTIVITY_KINDS = ("upload", "import", "synchronize_run")
 TERMINAL_ACTIVITY_STATUSES = {
     "completed",
     "success",

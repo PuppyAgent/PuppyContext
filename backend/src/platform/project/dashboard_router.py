@@ -257,7 +257,7 @@ def _path_from_scope(row: dict, cfg: dict, scopes: dict[str, dict]) -> str | Non
 def _fetch_connections(sb, project_id: str) -> list[DashboardConnection]:
     """Load dashboard rows from canonical Connect and Access tables."""
     sync_rows = (
-        sb.table("connections")
+        sb.table("synchronize_bindings")
         .select(
             "id, provider, name, direction, status, trigger_type, "
             "trigger_config, config, scope_id, external_resource_label, "
@@ -363,7 +363,7 @@ def _fetch_usage_buckets(
 ) -> dict[str, list[int]]:
     """Return per-AP daily invocation counts for the last ``days`` days.
 
-    Connect rows record runs in ``sync_runs.connection_id``; scheduled
+    Binding rows record runs in ``synchronize_runs.synchronize_binding_id``; scheduled
     agents record runs in ``agent_execution_logs.agent_id``. MCP and sandbox
     APs do not yet persist per-invocation runs anywhere, so they still report
     zeros until their execution paths are instrumented.
@@ -383,7 +383,7 @@ def _fetch_usage_buckets(
 
     # (table, id-column) pairs that record one row per AP invocation.
     for table, id_col in (
-        ("sync_runs", "connection_id"),
+        ("synchronize_runs", "synchronize_binding_id"),
         ("agent_execution_logs", "agent_id"),
     ):
         _accumulate_run_buckets(

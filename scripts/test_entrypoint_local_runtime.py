@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import os
 import secrets
@@ -32,8 +33,9 @@ BAD_SOURCE = "https://httpbingo.org/status/404"
 
 
 class Stack:
-    def __init__(self, directory: Path, port: int, supabase: Path):
-        for env_file in (ROOT/".env", ROOT/"backend/.env", ROOT/"backend/mcp_service/.env"):
+    def __init__(self, directory: Path, port: int, supabase: Path, *, source_root: Path = ROOT):
+        self.source_root = source_root.resolve()
+        for env_file in (self.source_root/".env", self.source_root/"backend/.env", self.source_root/"backend/mcp_service/.env"):
             if env_file.exists():
                 raise ValueError("Use a clean worktree without .env files; hosted secrets must not enter this test")
         docker_host = os.environ.get("DOCKER_HOST") or subprocess.check_output(
@@ -47,7 +49,7 @@ class Stack:
         self.directory = directory.resolve()
         self.project_name = "p1-entrypoints-" + secrets.token_hex(5)
         self.port = port
-        self.python = str(ROOT / "backend/.venv/bin/python")
+        self.python = str(self.source_root / "backend/.venv/bin/python")
         self.processes = {}
         self.http = httpx.Client(trust_env=False, timeout=90)
         self.base = f"http://127.0.0.1:{port + 90}"
@@ -69,7 +71,8 @@ class Stack:
             ANON_KEY=jwt("anon", secret), SERVICE_ROLE_KEY=jwt("service_role", secret),
             DATABASE_PORT=str(port+32), SUPABASE_API_PORT=str(port+80),
             BACKEND_PORT=str(port+90), FRONTEND_PORT=str(port), MINIO_CONSOLE_PORT=str(port+91),
-            S3_ACCESS_KEY="entrypointlocal", S3_SECRET_KEY=secrets.token_hex(24), S3_BUCKET="entrypoint-local")
+            S3_ACCESS_KEY="entrypointlocal", S3_SECRET_KEY=secrets.token_hex(24), S3_BUCKET="entrypoint-local",
+            DB_CONNECTOR_ENCRYPTION_KEY=base64.b64encode(secrets.token_bytes(32)).decode("ascii"))
         v = self.values
         self.private("compose.env", "".join(f"{k}={val}\n" for k, val in v.items()))
         self.private("values.json", json.dumps(v))
@@ -86,14 +89,15 @@ class Stack:
     ports: ["127.0.0.1:{port+79}:6379"]
 ''')
         self.compose = ["docker", "compose", "--project-name", self.project_name,
-            "--env-file", str(self.directory/"compose.env"), "-f", str(ROOT/"docker/docker-compose.yml"),
+            "--env-file", str(self.directory/"compose.env"), "-f", str(self.source_root/"docker/docker-compose.yml"),
             "-f", str(self.directory/"override.yml")]
         self.private("compose-command.json", json.dumps(self.compose))
         self.env = {k: os.environ[k] for k in ("PATH", "LANG", "TMPDIR") if k in os.environ}
-        self.env.update(HOME=str(self.directory/"home"), PYTHONPATH=str(ROOT/"backend"),
+        self.env.update(HOME=str(self.directory/"home"), PYTHONPATH=str(self.source_root/"backend"),
             NO_PROXY="localhost,127.0.0.1,::1", APP_ENV="development", DEBUG="false", SKIP_AUTH="false",
             SUPABASE_URL=self.auth, SUPABASE_PUBLIC_URL=self.auth, SUPABASE_KEY=v["SERVICE_ROLE_KEY"],
             SUPABASE_ANON_KEY=v["ANON_KEY"], JWT_SECRET=secret, MCP_TOKEN_SECRET="local-mcp-"+secret,
+            DB_CONNECTOR_ENCRYPTION_KEY=v["DB_CONNECTOR_ENCRYPTION_KEY"],
             ACCESS_CREDENTIAL_HASH_SECRET="local-hash-"+secret, INTERNAL_API_SECRET="local-internal-"+secret,
             S3_ENDPOINT_URL=f"http://127.0.0.1:{port+92}", S3_BUCKET_NAME=v["S3_BUCKET"], S3_REGION="us-east-1",
             S3_ACCESS_KEY_ID=v["S3_ACCESS_KEY"], S3_SECRET_ACCESS_KEY=v["S3_SECRET_KEY"],
@@ -108,9 +112,19 @@ class Stack:
         # credentials through macOS system proxies either.
         os.environ["NO_PROXY"] = self.env["NO_PROXY"]
 
-    @staticmethod
-    def git(*args):
-        return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], cwd=self.source_root, text=True).strip()
+
+    def use_source(self, source_root: Path):
+        """Switch actual child-process code only after every old process exits."""
+        if any(process.poll() is None for process in self.processes.values()):
+            raise RuntimeError("Stop every old application process before source cutover")
+        source_root = source_root.resolve()
+        if any((source_root/path).exists() for path in (".env", "backend/.env", "backend/mcp_service/.env")):
+            raise ValueError("Cutover source must not supply .env inputs")
+        self.source_root = source_root
+        self.python = str(source_root/"backend/.venv/bin/python")
+        self.env["PYTHONPATH"] = str(source_root/"backend")
 
     def private(self, name, text):
         path = self.directory/name
@@ -166,7 +180,7 @@ class Stack:
         return body
 
     def cli(self, *args):
-        result = self.run("last-cli", "node", str(ROOT/"cli/bin/puppyone.js"), "--json",
+        result = self.run("last-cli", "node", str(self.source_root/"cli/bin/puppyone.js"), "--json",
             "--api-url", self.base, "--api-key", self.token, "--project", self.project, *args, timeout=90)
         body = json.loads(result)
         assert body["success"], body
@@ -199,18 +213,18 @@ class Stack:
         # Use the committed immutable MinIO build target. The Go base already
         # includes CA/curl, avoiding another apt download for this local harness.
         self.run("minio-build", "docker", "build", "--target", "build", "-t",
-            "puppyone-entrypoint-minio-build:local", "-f", str(ROOT/"docker/Dockerfile.minio"),
-            str(ROOT/"docker"), timeout=1800, env=dict(os.environ))
+            "puppyone-entrypoint-minio-build:local", "-f", str(self.source_root/"docker/Dockerfile.minio"),
+            str(self.source_root/"docker"), timeout=1800, env=dict(os.environ))
         self.run("infra-up", *self.compose, "up", "-d", "--wait", "--wait-timeout", "150",
                  "--no-build", "db", "auth", "rest", "kong", "redis", "minio", env=dict(os.environ))
         migration_env = {**self.env, "PATH": str(self.supabase.parent)+":"+self.env["PATH"],
             "POSTGRES_PASSWORD": self.values["POSTGRES_PASSWORD"], "PGHOST": "127.0.0.1", "PGPORT": str(self.port+32)}
         for name in ("migrate", "migrate-replay"):
-            self.run(name, self.python, str(ROOT/"scripts/self_hosted_migrate.py"), env=migration_env)
+            self.run(name, self.python, str(self.source_root/"scripts/self_hosted_migrate.py"), env=migration_env)
         self.run("storage-bootstrap", self.python, "-m", "src.infra.self_hosted_bootstrap")
         for name in ("mcp", "api", "import", "synchronize", "upload"):
             self.start(name)
-        self.check("fresh committed schema + replay + real dependency readiness", readiness=self.ready())
+        self.check("fresh schema + replay + real dependency readiness", readiness=self.ready())
 
     def signup(self, label):
         r = self.http.post(self.auth+"/auth/v1/signup", headers={"apikey": self.values["ANON_KEY"]},
