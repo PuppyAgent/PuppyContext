@@ -1,7 +1,7 @@
 import type { SyncStatusSync } from '@/features/files/DataLayoutContext';
 import type { EndpointNameMap, ProviderIconLookup } from '@/features/files/components/access-points';
 import { getEndpointEntries } from '@/features/files/components/access-points/utils';
-import type { SyncEndpointInfo } from '@/features/files/components/explorer';
+import type { EntrypointBadge } from '@/features/files/components/explorer';
 import { useConnectorSpecs } from '@/lib/hooks/useData';
 import { resolveProviderIconUrl } from '@/lib/providerIcons';
 import { useMemo } from 'react';
@@ -17,7 +17,7 @@ export function useAccessPointEntries({
   tableNameById,
   syncStatusData,
 }: {
-  nodeEndpointMap: Map<string, SyncEndpointInfo[]>;
+  nodeEndpointMap: Map<string, EntrypointBadge[]>;
   savedAgents: readonly AgentNameSource[];
   tableNameById: Record<string, string>;
   syncStatusData: { bindings: SyncStatusSync[] } | undefined;

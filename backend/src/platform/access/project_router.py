@@ -5,24 +5,28 @@ Mounted at /api/v1/projects/{project_id}/connectors.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.common_schemas import ApiResponse
 from src.exceptions import AppException
+from src.platform.access.models import AccessSurface
+from src.platform.access.router import _contains_secret_config_key, _redact_config
+from src.platform.access.service import AccessService
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import AuthorizedProject, require_project_action
 from src.platform.authorization.models import ProjectAction
 from src.platform.repository_target.protocol import require_repository_target_contract
-from src.platform.repository_target.schemas import repository_target_domain, repository_target_schema
-from src.platform.access.service import AccessService
-from src.platform.access.models import AccessSurface
-from src.repo.schemas import (
-    ConnectorIn, ConnectorPatch, ConnectorOut, TargetAccessEnableIn,
+from src.platform.repository_target.schemas import (
+    repository_target_domain,
+    repository_target_schema,
 )
-
+from src.repo.schemas import (
+    ConnectorIn,
+    ConnectorOut,
+    ConnectorPatch,
+    TargetAccessEnableIn,
+)
 
 router = APIRouter(
     prefix="/projects/{project_id}/connectors",
@@ -35,6 +39,11 @@ def get_access_service() -> AccessService:
     return AccessService()
 
 
+def _reject_credential_metadata(*values) -> None:
+    if any(_contains_secret_config_key(value) for value in values):
+        raise HTTPException(400, "Credentials cannot be written through Access metadata; use explicit credential issuance.")
+
+
 def _to_out(c: AccessSurface) -> ConnectorOut:
     return ConnectorOut(
         id=c.id,
@@ -42,10 +51,10 @@ def _to_out(c: AccessSurface) -> ConnectorOut:
         provider=c.kind,
         name=c.name,
         direction=c.direction,                    # type: ignore[arg-type]
-        config=c.config,
-        policy=c.policy,
+        config=_redact_config(c.config),
+        policy=_redact_config(c.policy),
         oauth_connection_id=c.oauth_connection_id,
-        trigger=c.trigger,
+        trigger=_redact_config(c.trigger),
         status=c.status,
         last_run_at=c.last_run_at,
         last_run_id=c.last_run_id,
@@ -62,8 +71,8 @@ def _to_out(c: AccessSurface) -> ConnectorOut:
     summary="List connectors (optionally filtered)",
 )
 def list_connectors(
-    provider: Optional[str] = Query(None),
-    direction: Optional[str] = Query(None),
+    provider: str | None = Query(None),
+    direction: str | None = Query(None),
     include_non_access: bool = Query(
         False,
         description=(
@@ -99,6 +108,7 @@ def create_connector(
     current_user: CurrentUser = Depends(get_current_user),
     service: AccessService = Depends(get_access_service),
 ):
+    _reject_credential_metadata(payload.config, payload.policy, payload.trigger.model_dump() if payload.trigger else None)
     try:
         c = service.create(
             project_id=str(authorized.project.id),
@@ -163,6 +173,7 @@ def update_connector(
     existing = service.get(connector_id)
     if existing is None or existing.project_id != str(authorized.project.id):
         raise HTTPException(status_code=404, detail="Connector not found")
+    _reject_credential_metadata(payload.config, payload.policy, payload.trigger.model_dump() if payload.trigger else None)
     patch = payload.model_dump(exclude_unset=True)
     if "trigger" in patch and patch["trigger"] is not None:
         # Pydantic gave us a TriggerSpec dict-like; pass through.

@@ -1,9 +1,9 @@
-import type { Connector } from '@/lib/repoApi';
+import type { AccessSurface } from '@/lib/repoApi';
 import { getAccessProviderCardTitle, isCliProvider, isGitRemoteProvider, isMcpProvider } from '@/lib/accessProviderRegistry';
 import { T } from '@/features/access/lib/tokens';
 
-export function getConnectorDisplayName(connector: Connector): string {
-  return getAccessProviderCardTitle(connector.provider, connector.name);
+export function getConnectorDisplayName(connector: AccessSurface): string {
+  return getAccessProviderCardTitle(connector.kind, connector.name);
 }
 
 export function getProviderTileStyle(provider: string, selected: boolean) {

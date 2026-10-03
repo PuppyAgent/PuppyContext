@@ -1,6 +1,7 @@
 """Contract captured from c28e38a3 BEFORE moving modules; unchanged clients use it."""
 import hashlib
 import json
+from datetime import UTC
 from pathlib import Path
 
 
@@ -45,19 +46,21 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
         binding["properties"].pop(field)
     # Canonical S2 routes are an explicit additive contract, not a wildcard
     # exemption. Existing route/schema fingerprints must remain unchanged.
-    delta = json.loads(Path(__file__).with_name("synchronize_contract_delta.json").read_text())
-    for category in ("paths", "schemas"):
-        assert not expected["contract"][category].keys() & delta[category].keys()
-        expected["contract"][category].update(delta[category])
+    for filename in ("synchronize_contract_delta.json", "access_contract_delta.json"):
+        delta = json.loads(Path(__file__).with_name(filename).read_text())
+        for category in ("paths", "schemas"):
+            assert not expected["contract"][category].keys() & delta[category].keys()
+            expected["contract"][category].update(delta[category])
     actual = contract(openapi)
     assert actual["paths"].pop("/api/v1/imports/providers")
     assert actual == expected["contract"]
 
 
 def test_access_domain_kind_is_serialized_as_legacy_provider():
-    from datetime import datetime, timezone
+    from datetime import datetime
     from types import SimpleNamespace
     from unittest.mock import Mock
+
     from src.platform.access.models import AccessSurface
     from src.platform.access.project_router import list_connectors
     from src.platform.repository_target.models import ProjectRootTarget
@@ -66,8 +69,8 @@ def test_access_domain_kind_is_serialized_as_legacy_provider():
         id="surface-1", target=ProjectRootTarget(project_id="project-1"), kind="cli",
         name="CLI", direction="bidirectional", config={}, policy={}, oauth_connection_id=None,
         trigger={"type": "manual"}, status="active", last_run_at=None, last_run_id=None,
-        error_message=None, created_by="user-1", created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        error_message=None, created_by="user-1", created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     service = Mock()
     service.list.return_value = [surface]
@@ -83,6 +86,7 @@ def test_access_domain_kind_is_serialized_as_legacy_provider():
 def test_sync_run_connection_id_is_authorized_and_serialized_at_http_boundary(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock
+
     from src.platform.auth.models import CurrentUser
     from src.platform.synchronize import router
     from src.platform.synchronize.run_repository import SyncRun

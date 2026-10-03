@@ -2,7 +2,7 @@
 
 import { StatusDot as BaseStatusDot } from '@/components/ui/StatusDot';
 import type { ProviderIconLookup } from '@/features/files/components/access-points/types';
-import type { SyncEndpointInfo } from '@/features/files/components/explorer';
+import type { EntrypointBadge } from '@/features/files/components/explorer';
 import {
   isMcpProvider,
   isSandboxProvider,
@@ -64,7 +64,7 @@ export function AccessPointProviderIcon({
   ep,
   providerIcons,
 }: {
-  ep: SyncEndpointInfo;
+  ep: Pick<EntrypointBadge, 'provider'>;
   providerIcons: ProviderIconLookup;
 }) {
   if (ep.provider.startsWith('agent:')) return <AgentMiniIcon />;

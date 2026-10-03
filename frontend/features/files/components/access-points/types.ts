@@ -1,7 +1,7 @@
-import type { SyncEndpointInfo } from '@/features/files/components/explorer';
+import type { EntrypointBadge } from '@/features/files/components/explorer';
 
 export interface EndpointEntry {
-  ep: SyncEndpointInfo;
+  ep: EntrypointBadge;
   nodeId: string;
   name: string;
   nodeName?: string;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { T } from '@/features/access/lib/tokens';
 import type { ConnectorEditPatch } from '@/features/access/hooks/useAccessData';
 import { ConnectorConnectDialog } from '@/features/access/components/ConnectorConnectDialog';
@@ -25,7 +25,7 @@ export function ConnectorList({
   canManage,
 }: {
   readonly scope: RepositoryView | undefined;
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;
   readonly onPauseResume: (id: string) => Promise<void> | void;
@@ -33,7 +33,7 @@ export function ConnectorList({
   readonly pendingConnectorIds: ReadonlySet<string>;
   readonly canManage: boolean;
 }) {
-  const [connectDialogConnector, setConnectDialogConnector] = useState<Connector | null>(null);
+  const [connectDialogConnector, setConnectDialogConnector] = useState<AccessSurface | null>(null);
 
   return (
     <>

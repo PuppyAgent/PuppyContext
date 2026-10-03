@@ -23,7 +23,7 @@ import type { TableData } from '@/lib/projectsApi';
 import {
   matchRepositoryViewForPath,
   repositoryViewKey,
-  type Connector,
+  type AccessSurface,
   type RepoIdentity,
   type RepositoryView,
 } from '@/lib/repoApi';
@@ -93,7 +93,7 @@ interface DataPageRightPanelProps {
   /** Redesign 2026-05-02: scope list for matching the current URL path. */
   readonly scopes: RepositoryView[];
   /** Redesign 2026-05-02: connectors indexed by scope_id. */
-  readonly connectorsByTarget: Map<string, Connector[]>;
+  readonly connectorsByTarget: Map<string, AccessSurface[]>;
   /** Redesign 2026-05-02: current canonical URL path (empty string for root). */
   readonly currentScopePath: string;
   /** Redesign 2026-05-02: project identity payload (URL + prompt_template + scope keys). */
@@ -103,7 +103,7 @@ interface DataPageRightPanelProps {
   onEditorSave: (newValue: string) => Promise<void>;
   onToggleEditorFullScreen: () => void;
   onRollbackComplete: () => void;
-  onSyncCreated: (nodeId: string) => void | Promise<void>;
+  onSyncCreated: (nodeId: string, synchronizeBindingId?: string) => void | Promise<void>;
   onAccessPointHover: (nodeId: string | null) => void;
   /** Refresh scopes / connectors / repo identity after a scope CRUD
    *  mutation. Wired at page level to useDataLayout().mutateRepo, which

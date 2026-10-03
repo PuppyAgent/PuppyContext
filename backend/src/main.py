@@ -766,7 +766,8 @@ def create_app() -> FastAPI:
     from src.platform.billing.router import router as billing_router
 
     app.include_router(billing_router, prefix="/api/v1", tags=["billing"])
-    from src.platform.managed_ai.router import router as managed_ai_router, internal_router as managed_ai_internal_router
+    from src.platform.managed_ai.router import internal_router as managed_ai_internal_router
+    from src.platform.managed_ai.router import router as managed_ai_router
 
     app.include_router(managed_ai_router, prefix="/api/v1")
     app.include_router(managed_ai_internal_router)
@@ -776,14 +777,21 @@ def create_app() -> FastAPI:
     from src.platform.landing.router import router as landing_router
 
     app.include_router(landing_router, prefix="/api/v1", tags=["landing"])
-    from src.platform.access.adapters.sandbox_endpoint.router import router as sandbox_endpoint_router
+    from src.platform.access.adapters.sandbox_endpoint.router import (
+        router as sandbox_endpoint_router,
+    )
 
     app.include_router(sandbox_endpoint_router, prefix="/api/v1", tags=["sandbox-endpoints"])
     from src.platform.project.dashboard_router import router as dashboard_router
 
     app.include_router(dashboard_router, prefix="/api/v1", tags=["projects"])
+    from src.platform.access.public_router import project_router as public_project_access_router
+    from src.platform.access.public_router import router as public_access_router
     from src.platform.access.router import router as access_router
 
+    # Canonical static prefix must precede legacy /access/{connection_id}.
+    app.include_router(public_access_router, prefix="/api/v1")
+    app.include_router(public_project_access_router, prefix="/api/v1")
     app.include_router(access_router, prefix="/api/v1", tags=["access"])
     from src.provider.accounts.router import router as gateway_router
 

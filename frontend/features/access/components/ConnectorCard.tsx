@@ -30,7 +30,7 @@ import {
 import { createPortal } from 'react-dom';
 import { StatusIndicator } from '@/components/ui/StatusDot';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { APP_Z_INDEX } from '@/lib/zIndex';
 import {
   getAccessProviderCardTitle,
@@ -71,7 +71,7 @@ export function ConnectorCard({
   onDelete,
   pending,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly onPauseResume: () => void;
   readonly onUpdate: (patch: ConnectorEditPatch) => Promise<void>;
@@ -79,7 +79,7 @@ export function ConnectorCard({
   readonly pending: boolean;
 }) {
   const action = getPrimaryAction(connector.status);
-  const provider = normalizeConnectorProvider(connector.provider);
+  const provider = normalizeConnectorProvider(connector.kind);
   const name = getAccessProviderCardTitle(provider, connector.name);
   const isBuiltin = isBuiltInAccessProvider(provider);
 
@@ -149,7 +149,7 @@ export function ConnectorCard({
             />
             <span style={{ color: T.text4, flexShrink: 0 }}>·</span>
             <span style={{ color: T.text3, flexShrink: 0 }}>
-              {timeAgo(connector.last_run_at)}
+              {timeAgo(connector.last_activity_at)}
             </span>
           </div>
         </div>
@@ -198,22 +198,22 @@ export function ConnectorDetailBody({
   pending,
   variant = 'full',
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly onPauseResume: () => void;
   readonly onUpdate: (patch: ConnectorEditPatch) => Promise<void>;
   readonly pending: boolean;
   readonly variant?: 'full' | 'inline';
 }) {
-  const isBuiltin = isBuiltInAccessProvider(connector.provider);
+  const isBuiltin = isBuiltInAccessProvider(connector.kind);
   const inline = variant === 'inline';
-  const provider = normalizeConnectorProvider(connector.provider);
+  const provider = normalizeConnectorProvider(connector.kind);
 
   return (
     <div style={{ padding: inline ? '12px 16px 14px' : '16px' }}>
       {!inline && connector.status === 'paused' && (
         <PausedBanner
-          provider={connector.provider}
+          provider={connector.kind}
           onResume={onPauseResume}
           pending={pending}
         />
@@ -458,7 +458,7 @@ function ConnectorActionMenu({
   onRename,
   onDelete,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly isBuiltin: boolean;
   readonly onRename: () => void;
   readonly onDelete: () => Promise<void>;
@@ -858,7 +858,7 @@ function CliCommandPermissionsRow({
   variant = 'default',
   isFirst,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly onUpdate: (patch: ConnectorEditPatch) => Promise<void>;
   readonly pending: boolean;
@@ -1013,7 +1013,7 @@ function McpToolPermissionsRow({
   variant = 'default',
   isFirst,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly onUpdate: (patch: ConnectorEditPatch) => Promise<void>;
   readonly pending: boolean;
@@ -1554,7 +1554,7 @@ function buildMcpToolsConfig(raw: unknown, allowedTools: ReadonlySet<string>) {
   };
 }
 
-function getMcpWritable(connector: Connector, scope: RepositoryView | undefined): boolean {
+function getMcpWritable(connector: AccessSurface, scope: RepositoryView | undefined): boolean {
   if (!scope || scope.max_mode !== 'rw') return false;
   const accesses = Array.isArray(connector.config?.accesses)
     ? connector.config.accesses as Array<{ readonly?: boolean }>
@@ -1640,7 +1640,7 @@ function ConnectorConfigPanel({
   showLabel = true,
   variant = 'default',
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope?: RepositoryView;
   readonly isBuiltin?: boolean;
   readonly onUpdate?: (patch: ConnectorEditPatch) => Promise<void>;
@@ -1649,8 +1649,8 @@ function ConnectorConfigPanel({
   readonly variant?: ConfigPanelVariant;
 }) {
   const inline = variant === 'inline';
-  const showCliCommands = isCliProvider(connector.provider) && !!onUpdate;
-  const showMcpTools = isMcpProvider(connector.provider) && !!onUpdate;
+  const showCliCommands = isCliProvider(connector.kind) && !!onUpdate;
+  const showMcpTools = isMcpProvider(connector.kind) && !!onUpdate;
   const showError = !!connector.error_message;
 
   if (!showCliCommands && !showMcpTools && !showError) {

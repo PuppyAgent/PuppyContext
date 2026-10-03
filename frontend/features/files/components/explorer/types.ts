@@ -1,10 +1,10 @@
 import type { ContentType } from '@/features/files/components/views/GridView';
-import type { SyncEndpointInfo as DataSyncEndpointInfo } from '@/features/files/DataLayoutContext';
+import type { EntrypointBadge as DataEntrypointBadge } from '@/features/files/DataLayoutContext';
 import type { FileImportTarget } from '@/features/files/hooks/useFileImport';
 import type { IntegrityStatus } from '@/lib/contentTreeApi';
 import type { CSSProperties, MouseEvent } from 'react';
 
-export type SyncEndpointInfo = DataSyncEndpointInfo;
+export type EntrypointBadge = DataEntrypointBadge;
 export type ExplorerCreateMenuAction = 'create' | 'access';
 
 export interface MillerColumnItem {
@@ -38,8 +38,8 @@ export interface ExplorerSidebarProps {
   // configured folders also expose an inline Access status/action.
   // The row body itself remains a disclosure-only click target.
   onCreateSync?: (event: MouseEvent<Element>, folderPath: string) => void;
-  onOpenAccess?: (endpoints: readonly SyncEndpointInfo[], nodeId: string) => void;
-  endpointByNodeId?: ReadonlyMap<string, readonly SyncEndpointInfo[]>;
+  onOpenAccess?: (endpoints: readonly EntrypointBadge[], nodeId: string) => void;
+  endpointByNodeId?: ReadonlyMap<string, readonly EntrypointBadge[]>;
   activeSyncNodeId?: string | null;
   highlightNodeId?: string | null;
   highlightVariant?: 'default' | 'access-point';

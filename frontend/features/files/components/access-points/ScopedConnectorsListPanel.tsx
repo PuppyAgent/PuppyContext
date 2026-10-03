@@ -53,7 +53,7 @@ import {
   isGitRemoteProvider,
 } from '@/lib/accessProviderRegistry';
 import { GithubIcon, GmailIcon, NotionIcon } from '@/lib/nodeTypeConfig';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 interface Props {
@@ -69,11 +69,11 @@ interface Props {
   readonly projectId: string;
   /** Connectors for the *current* scope (filtered up at the page
    *  level). Drives the detail-view ConnectMethodsBlock + Workflows. */
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   /** Project-wide connectors keyed by scope_id — used in the Overview
    *  state so each AccessPointRow can render its own connect / integration
    *  chip rows without per-row API requests. */
-  readonly connectorsByTarget: ReadonlyMap<string, Connector[]>;
+  readonly connectorsByTarget: ReadonlyMap<string, AccessSurface[]>;
   readonly providerIcons: ProviderIconLookup;
   readonly onClose: () => void;
   readonly onAddRequested: () => void;
@@ -83,7 +83,7 @@ interface Props {
    * ConnectMethodsBlock. Page-level wiring opens the sync_config detail
    * panel for the clicked connector.
    */
-  readonly onConnectorClick: (c: Connector) => void;
+  readonly onConnectorClick: (c: AccessSurface) => void;
   /**
    * Hover feedback up into the explorer sidebar: while a row is hovered we
    * pass the scope's path so the matching folder gets the access-point
@@ -140,15 +140,15 @@ export function ScopedConnectorsListPanel({
   onNavigationGuardChange,
 }: Props) {
   const cliConnector = useMemo(
-    () => connectors.find((c) => isCliProvider(c.provider)),
+    () => connectors.find((c) => isCliProvider(c.kind)),
     [connectors],
   );
   const gitRemoteConnector = useMemo(
-    () => connectors.find((c) => isGitRemoteProvider(c.provider)),
+    () => connectors.find((c) => isGitRemoteProvider(c.kind)),
     [connectors],
   );
   const agentConnector = useMemo(
-    () => connectors.find((c) => isAgentProvider(c.provider)),
+    () => connectors.find((c) => isAgentProvider(c.kind)),
     [connectors],
   );
   // Workflows = third-party connectors. Built-ins
@@ -158,7 +158,7 @@ export function ScopedConnectorsListPanel({
   const integrations = useMemo(
     () =>
       connectors.filter(
-        (c) => !isBuiltInAccessProvider(c.provider),
+        (c) => !isBuiltInAccessProvider(c.kind),
       ),
     [connectors],
   );

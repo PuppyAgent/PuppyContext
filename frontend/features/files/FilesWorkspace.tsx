@@ -302,10 +302,10 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
   });
 
   const handleSyncCreated = useCallback(
-    async (nodeId: string) => {
+    async (nodeId: string, synchronizeBindingId?: string) => {
       await mutateSyncStatus();
       refreshCurrentNodes();
-      openPanel({ type: 'sync_config', nodeId });
+      openPanel({ type: 'sync_config', nodeId, synchronizeBindingId });
     },
     [mutateSyncStatus, refreshCurrentNodes, openPanel]
   );

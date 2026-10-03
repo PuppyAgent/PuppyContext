@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { repositoryViewKey, type Connector, type RepositoryView } from '@/lib/repoApi';
+import { repositoryViewKey, type AccessSurface, type RepositoryView } from '@/lib/repoApi';
 import { CountBadge } from '@/components/ui/CountBadge';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { SIDEBAR_ROW_TYPOGRAPHY } from '@/lib/uiTypography';
@@ -16,7 +16,7 @@ export function ScopeSidebar({
   onSelect,
 }: {
   readonly scopes: readonly RepositoryView[];
-  readonly connectorsByTarget: ReadonlyMap<string, readonly Connector[]>;
+  readonly connectorsByTarget: ReadonlyMap<string, readonly AccessSurface[]>;
   readonly selectedTargetKey: string | undefined;
   readonly onSelect: (id: string) => void;
 }) {
@@ -204,7 +204,7 @@ function ScopeSidebarRow({
   onClick,
 }: {
   readonly scope: RepositoryView;
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly isSelected: boolean;
   readonly onClick: () => void;
 }) {
@@ -315,7 +315,7 @@ function ScopeSidebarRow({
   );
 }
 
-function isConnectorActive(connector: Connector): boolean {
+function isConnectorActive(connector: AccessSurface): boolean {
   return connector.status === 'active' || connector.status === 'syncing';
 }
 

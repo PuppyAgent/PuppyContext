@@ -108,7 +108,7 @@ interface SyncConfigPanelProps {
   projectId: string;
   onClose: () => void;
   onBack?: () => void;
-  onSyncCreated?: (nodeId: string) => void;
+  onSyncCreated?: (nodeId: string, synchronizeBindingId?: string) => void;
   /** When opened from a scope context, restricts drag-drop targets to
    *  paths inside this scope (see isWithinScope). Forwarded to all
    *  inner config components (ChatAgentConfig /
@@ -159,7 +159,7 @@ function CreateView({
   projectId: string;
   onClose: () => void;
   onBack?: () => void;
-  onSyncCreated?: (nodeId: string) => void;
+  onSyncCreated?: (nodeId: string, synchronizeBindingId?: string) => void;
   scopeBoundary?: string;
   scopeBoundaryLabel?: string;
   presetAgentType?: AgentTypeId;
@@ -373,6 +373,7 @@ function CreateView({
 
       const config: Record<string, unknown> = { ...syncConfigValues };
       let createdNodeId: string | null = null;
+      let createdBindingId: string | undefined;
 
       if (creationMode === 'bootstrap') {
         await deploySyncEndpoint({
@@ -400,16 +401,17 @@ function CreateView({
             : { type: 'manual' },
         });
         createdNodeId = result.binding.path;
-        if (!createdNodeId) {
-          throw new Error('Access was created without a destination node.');
+        createdBindingId = result.binding.id;
+        if (createdNodeId == null) {
+          throw new Error('Synchronize binding was created without a destination path.');
         }
         if (result.binding.status === 'error' && result.binding.error_message) {
           throw new Error(result.binding.error_message);
         }
       }
 
-      if (createdNodeId && onSyncCreated) {
-        await onSyncCreated(createdNodeId);
+      if (createdNodeId !== null && onSyncCreated) {
+        await onSyncCreated(createdNodeId, createdBindingId);
       } else {
         onClose();
       }
