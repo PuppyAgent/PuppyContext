@@ -5,28 +5,33 @@ substituted. This does not certify Supabase migration or deployment readiness.
 """
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import uvicorn
 from fastapi import FastAPI
 
+from src.platform.access import project_router as project_access
+from src.platform.access import public_router as public_access
+from src.platform.access import router as access
+from src.platform.access.model_repository import AccessModelRepository
+from src.platform.access.service import AccessService
+from src.platform.access.surface_repository import _row_to_surface
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.imports import router as imports
 from src.platform.imports.repository import ImportJob
 from src.platform.imports.service import ImportJobService
-from src.platform.synchronize import router as synchronize
 from src.platform.synchronize import public_router as public_synchronize
+from src.platform.synchronize import router as synchronize
 from src.platform.synchronize.models import SynchronizeBinding
 from src.platform.synchronize.run_repository import SyncRun
 from src.platform.synchronize.service import SynchronizeService
-from src.platform.access import router as access
 from tests.authorization_fakes import authorization_for, install_authorization
 from tests.platform.test_entrypoint_admission import Adapter, catalog
 
@@ -123,22 +128,58 @@ class Queue:
 
 
 class SurfaceStore:
+    """Raw storage/issuance boundary; real domain mapping/service remain in use."""
     def __init__(self):
         self.rows = {}
+        self.issued = []
+        self.sequence = 0
 
-    def list_by_project(self, project, **_):
-        return [row for row in self.rows.values() if row["project_id"] == project]
+    def get(self, key):
+        return self.rows.get(key)
+
+    def get_surface(self, key):
+        row = self.get(key)
+        return _row_to_surface(row) if row else None
+
+    def list_by_project(self, project, kind=None):
+        return self.list_by_projects([project], kind=kind)
+
+    def list_by_projects(self, projects, kind=None, status=None):
+        return [row for row in self.rows.values() if row["project_id"] in projects
+                and (kind is None or row["kind"] == kind)
+                and (status is None or row["status"] == status)]
 
     def scope_rows_for(self, rows):
-        return {}
+        return {"scope-1": {"id": "scope-1", "project_id": "project-1", "path": "notes"}}
 
     def count_user_surfaces_by_project(self, project):
         return len(self.list_by_project(project))
 
-    def create(self, **values):
-        row = {"id": f"surface-{len(self.rows) + 1}", "status": "active", **values}
+    def create(self, project_id, name, path=None, kind="sandbox", **config):
+        self.sequence += 1
+        row = {"id": f"surface-{self.sequence}", "status": "active", "kind": kind,
+               "project_id": project_id, "org_id": "org-1", "name": name,
+               "scope_id": "scope-1" if path else None, "config": config,
+               "created_at": "2026-10-03T00:00:00+00:00", "updated_at": "2026-10-03T00:00:00+00:00"}
         self.rows[row["id"]] = row
         return row
+
+    def update(self, key, patch):
+        self.rows[key].update(patch)
+        return self.rows[key]
+
+    def delete(self, key):
+        return self.rows.pop(key, None) is not None
+
+    def issue(self, key):
+        self.issued.append(key)
+        return f"test-issued-once-{len(self.issued)}"
+
+    def regenerate_access_key(self, key):
+        return {"access_key": self.issue(key)}
+
+    def regenerate_api_key(self, key):
+        return {"api_key": self.issue(key)}
 
 
 @pytest.fixture
@@ -155,9 +196,23 @@ def server(monkeypatch, tmp_path):
     sync_service.register_provider(registry.get("url"))
     app = FastAPI()
     app.include_router(imports.router, prefix="/api/v1")
-    # Deliberately do not mount /integrations: a legacy CLI fallback must fail.
+    # No legacy /integrations or /access routes: a fallback cannot pass this gate.
     app.include_router(public_synchronize.router, prefix="/api/v1")
-    app.include_router(access.router, prefix="/api/v1")
+    app.include_router(public_access.router, prefix="/api/v1")
+    state.requests = []
+
+    @app.middleware("http")
+    async def record_request(request, call_next):
+        state.requests.append((request.method, request.url.path,
+                               request.headers.get("X-PuppyOne-Repository-Contract")))
+        return await call_next(request)
+
+    def authorize(role):
+        authorization = authorization_for("project-1", role=role)
+        state.import_service.authorization = authorization
+        install_authorization(app, authorization)
+
+    state.authorize = authorize
     install_authorization(app, authorization)
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(user_id="user-1", role="authenticated")
     app.dependency_overrides[imports.get_import_job_service] = lambda: state.import_service
@@ -170,11 +225,30 @@ def server(monkeypatch, tmp_path):
         require_capacity=lambda *a, **kw: None,
     )
     monkeypatch.setattr(synchronize, "_get_run_repo", lambda: state.runs)
-    monkeypatch.setattr(access, "AccessSurfaceRepository", lambda: state.surfaces)
+    monkeypatch.setattr(access, "AccessSurfaceRepository", lambda *a: state.surfaces)
+    monkeypatch.setattr("src.platform.access.model_repository.AccessSurfaceRepository", lambda *a: state.surfaces)
+    access_service = AccessService(repository=AccessModelRepository(), surface_repository=state.surfaces,
+                                   scope_repository=SimpleNamespace())
+    app.dependency_overrides[project_access.get_access_service] = lambda: access_service
+    monkeypatch.setattr(access, "_get_client", object)
+    monkeypatch.setattr(access, "resolve_org_ids", lambda *a, **kw: ["org-1"])
+    monkeypatch.setattr(access, "_get_user_project_ids", lambda sb, org, auth, user:
+                        auth.accessible_project_ids(["project-1", "project-2"], user))
+    monkeypatch.setattr("src.repo.access_credentials.AccessCredentialRepository", lambda *a: SimpleNamespace(
+        list_active_by_surface=lambda ids: {key: {"key_last4": "TEST"} for key in ids if key in state.surfaces.issued},
+    ))
+
+    def create_mcp(**values):
+        values.pop("api_key", None)
+        row = state.surfaces.create(kind="mcp", **values)
+        return {**row, "api_key": state.surfaces.issue(row["id"])}
+
+    monkeypatch.setattr("src.platform.access.adapters.mcp_endpoint.repository.McpEndpointRepository",
+                        lambda *a: SimpleNamespace(create=create_mcp, regenerate_api_key=state.surfaces.regenerate_api_key))
     monkeypatch.setattr("src.platform.project.repository.ProjectRepositorySupabase",
                         lambda: SimpleNamespace(get_by_id=lambda _: SimpleNamespace(org_id="org-1")))
     monkeypatch.setattr("src.platform.access.adapters.sandbox_endpoint.repository.SandboxEndpointRepository",
-                        lambda: state.surfaces)
+                        lambda *a: state.surfaces)
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
@@ -198,6 +272,7 @@ def server(monkeypatch, tmp_path):
             return payload
 
         state.cli = cli
+        state.app = app
         yield state
     finally:
         http.should_exit = True
@@ -235,6 +310,8 @@ def test_actual_cli_dispatch_keeps_snapshot_binding_and_surface_ownership(server
     # Real Access router and Sandbox service; only their repositories are substituted.
     surface = server.cli("access", "add", "sandbox", "My sandbox")
     assert surface["access"]["id"].startswith("surface-")
+    assert surface["access"]["kind"] == "sandbox"
+    assert "provider" not in surface["access"]
     server.cli("synchronize", "refresh", surface["access"]["id"], ok=False)
     assert len(server.queue.ids) == 2, "an Access surface ID cannot enqueue a source run"
     assert len(server.surfaces.rows) == len(server.bindings.rows) == len(server.imports.rows) == 1
@@ -260,3 +337,73 @@ def test_actual_cli_denied_and_queue_failure_do_not_cross_lifecycles(server):
     assert recorded["job"]["status"] == "failed"
     assert len(server.imports.rows) == 1
     assert not server.bindings.rows and not server.surfaces.rows
+
+
+def test_actual_cli_access_lifecycle_uses_canonical_identity_and_one_time_credentials(server):
+    assert server.cli("access", "providers")["kinds"] == ["agent", "mcp", "sandbox"]
+    assert server.cli("access", "schema", "mcp")["surface_type"]["kind"] == "mcp"
+    created = server.cli("access", "add", "mcp", "Notes", "--scope", "/notes")
+    surface_id = created["access"]["id"]
+    first_key = created["access"]["mcp_api_key"]
+    assert first_key.startswith("test-issued-once-")
+    detail = server.cli("access", "info", surface_id)["access"]
+    assert detail["target"] == {"kind": "scope", "project_id": "project-1", "scope_id": "scope-1"}
+    assert detail["kind"] == "mcp" and "provider" not in detail
+    assert first_key not in json.dumps(detail) and "mcp_api_key" not in detail
+    assert server.cli("access", "ls", "--kind", "mcp")["access"][0]["id"] == surface_id
+    assert server.cli("access", "ls", "--provider", "sandbox")["access"] == []
+    assert server.cli("access", "pause", surface_id)["access"]["status"] == "paused"
+    assert server.cli("access", "resume", surface_id)["access"]["status"] == "active"
+    server.cli("access", "update", surface_id, "--set", "description=changed")
+    assert server.surfaces.rows[surface_id]["config"]["description"] == "changed"
+    assert "accesses" in server.surfaces.rows[surface_id]["config"], "partial metadata patch preserves existing fields"
+    request_count = len(server.requests)
+    server.cli("access", "key", surface_id, ok=False)
+    assert len(server.requests) == request_count and len(server.surfaces.issued) == 1
+    issued = server.cli("access", "key", surface_id, "--regenerate")["credential"]
+    assert issued["access_surface_id"] == surface_id
+    assert issued["credential"] != first_key
+    assert "access_key" not in issued
+    assert issued["credential"] not in json.dumps(server.cli("access", "info", surface_id))
+    server.cli("access", "rm", surface_id)
+    assert surface_id not in server.surfaces.rows
+    missing = server.cli("access", "info", surface_id, ok=False)
+    assert missing["error"]["code"] != "SERVER_UPGRADE_REQUIRED"
+    assert not server.bindings.rows and not server.runs.rows and not server.imports.rows
+    assert all(path.startswith("/api/v1/access/surfaces") and version == "2"
+               for _, path, version in server.requests)
+
+
+def test_actual_cli_access_permissions_and_invalid_metadata_prevent_writes(server):
+    created = server.cli("access", "add", "sandbox", "Sandbox")["access"]
+    surface_id = created["id"]
+    other = server.surfaces.create(project_id="project-2", name="Other tenant")
+    before = json.dumps(server.surfaces.rows, sort_keys=True)
+    server.authorize("viewer")
+    assert server.cli("access", "info", surface_id)["access"]["id"] == surface_id
+    assert len(server.cli("access", "ls")["access"]) == 1
+    for args in [("add", "mcp", "denied"), ("pause", surface_id), ("rm", surface_id),
+                 ("key", surface_id, "--regenerate"), ("update", surface_id, "--set", "description=denied"),
+                 ("info", other["id"])]:
+        server.cli("access", *args, ok=False)
+    server.authorize("admin")
+    for args in [("pause", other["id"]), ("rm", other["id"]), ("key", other["id"], "--regenerate"),
+                 ("update", surface_id, "--set", "credentials.token=forbidden")]:
+        server.cli("access", *args, ok=False)
+    assert json.dumps(server.surfaces.rows, sort_keys=True) == before
+    assert not server.surfaces.issued and not server.queue.ids
+
+
+def test_actual_cli_old_access_server_reports_upgrade_without_mutation_fallback(server):
+    # Exercise real legacy route shadowing: /access/{id} sees "surfaces" as an
+    # ID on GET and rejects POST with 405, rather than a generic missing URL 404.
+    server.app.router.routes = [route for route in server.app.router.routes
+                                if not route.path.startswith("/api/v1/access/surfaces")]
+    server.app.include_router(access.router, prefix="/api/v1")
+    for args in [("add", "sandbox", "must-not-create"), ("ls",), ("providers",)]:
+        before = len(server.requests)
+        result = server.cli("access", *args, ok=False)
+        assert result["error"]["code"] == "SERVER_UPGRADE_REQUIRED"
+        assert len(server.requests) == before + 1
+    assert not server.surfaces.rows and not server.surfaces.issued
+    assert all(path.startswith("/api/v1/access/surfaces") for _, path, _ in server.requests)

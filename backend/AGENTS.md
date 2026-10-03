@@ -209,7 +209,8 @@ audit/transaction/outbox。
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 工具绑定 |
 | `/api/v1/synchronize` | platform/synchronize/public_router | SynchronizeBinding / SynchronizeRun canonical API |
 | `/api/v1/integrations` | platform/synchronize/router | 058 S2/S3 有限兼容；新客户端不得 fallback |
-| `/api/v1/access` | platform/access | 统一 Access 管理 |
+| `/api/v1/access/surfaces` | platform/access/public_router | AccessSurface canonical API；kind / Repository Contract v2 |
+| `/api/v1/access` | platform/access/router | 058 有限兼容；新客户端不得 fallback |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |
 | `/internal` | internal | 内部 API |

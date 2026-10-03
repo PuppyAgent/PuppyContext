@@ -3,9 +3,9 @@
 Status: local ISSUE-060/061 implementation; not an npm release or deployment receipt.
 The package version remains `0.2.1`; an already installed `0.2.1` must **not** be
 assumed to contain these changes. Use the CLI and backend from the same task
-branch for verification. Generic Synchronize now uses the committed ISSUE-058
-contract (`7c663506`); Access/GitHub/database final-path cutovers remain coordinated
-by that issue.
+branch for verification. Generic Synchronize and Access use the committed
+ISSUE-058 contracts (`7c663506` and `2780dd76`). GitHub/database-source final-path
+cutovers and server compatibility retirement remain coordinated by that issue.
 
 ## Commands
 
@@ -30,6 +30,14 @@ puppyone synchronize trigger <binding-id> manual
 puppyone access add agent 'My agent'
 puppyone access add mcp 'Context API'
 puppyone access add sandbox 'My sandbox'
+puppyone access providers
+puppyone access ls --kind mcp
+puppyone access info <surface-id>
+puppyone access pause <surface-id>
+puppyone access resume <surface-id>
+puppyone access update <surface-id> --set description='Updated description'
+puppyone access key <surface-id> --regenerate
+puppyone access rm <surface-id>
 ```
 
 Import configuration is a JSON object (`--config`) or `--set key=value`.
@@ -45,16 +53,20 @@ surface. Provider admission and credentials are ultimately checked by the server
 | --- | --- | --- |
 | `import` | `/api/v1/imports`, including additive `/providers` | one-shot ImportJob |
 | `synchronize` | `/api/v1/synchronize/bindings`, `/providers`, `/runs/{run_id}` | durable binding/run |
-| `access` | `/api/v1/access` | Agent/MCP/Sandbox surface |
+| `access` | `/api/v1/access/surfaces`, including `/types` | Access surface; creates Agent/MCP/Sandbox |
 
-Generic Synchronize requires the canonical API from ISSUE-058 and is verified
-by a loopback server with **no `/integrations` routes mounted**. A server missing
-that API returns `SERVER_UPGRADE_REQUIRED`; the CLI never retries against legacy
-URLs. Create output contains `binding` and `execution_result`; run references use
+Synchronize and Access require the canonical APIs from ISSUE-058 and are verified
+by a loopback server with **no legacy `/integrations` or `/access` routes mounted**.
+A missing canonical route returns `SERVER_UPGRADE_REQUIRED`; resource-not-found
+errors remain distinct. The CLI never retries against legacy URLs. Create output contains `binding` and `execution_result`; run references use
 `synchronize_binding_id`/`synchronize_run_id`, never Access IDs.
 
-Access `/access` is still **temporary**, pending `/access/surfaces` artifacts.
-Import discovery requires the additive `/imports/providers` route from this task.
+Access sends `kind`, never the retired `provider` wire selector, and includes
+`X-PuppyOne-Repository-Contract: 2`. Ordinary metadata has no plaintext credentials;
+explicit rotation returns `access_surface_id` and `credential`. Metadata updates
+send only the requested patch; the owning service merges it without replaying a
+stale/redacted inventory snapshot. Import discovery requires the additive
+`/imports/providers` route from this task.
 Do not remove server compatibility routes until 058 has consumer/exit evidence.
 An older server without Import discovery returns an explicit API error. No
 supported released-client/server matrix is asserted yet: the tested combination
@@ -72,7 +84,9 @@ is this source CLI plus the matching task-branch backend, not published npm 0.2.
   workflow; the GitHub snapshot adapter is Import-only.
 - `access refresh/run/logs/trigger <surface-id>` fails before a request. Discover a
   real binding with `synchronize ls`; never reuse a surface ID as a binding ID.
-- HTTP failures exit nonzero. Mutations are not automatically replayed. An Import
+- HTTP failures exit nonzero. Business/transport failures do not trigger mutation
+  replay or legacy fallback; the existing authentication layer may retry once
+  after refreshing an expired session on 401. An Import
   idempotency key returns the recorded job, including a recorded failure; inspect
   that job before deciding to submit a new attempt. Cancellation does not promise
   to undo a version write already committed.
@@ -80,6 +94,12 @@ is this source CLI plus the matching task-branch backend, not published npm 0.2.
   the generic Access create fields cannot safely express those grants. Configure
   them through the owning Access/Agent workflow, rather than accepting an ignored
   flag and accidentally creating a broader surface.
+- `access ls --provider <kind>` is a deprecated CLI alias for `--kind`; both send
+  only `kind`. Supplying both flags or a source-provider filter is rejected.
+- `--model`/`--system-prompt` and Agent create config `model`/`llm_model`/
+  `system_prompt` are explicitly rejected: the current creation service does not
+  consume them. `--type` is Agent-only; Sandbox runtime uses `--set runtime=...`.
+  Source-only options and ambiguous `--scope` plus `--folder` are not ignored.
 - Plaintext credentials are not recovered by `access key`. Explicit
   `--regenerate` rotates and reveals the newly issued credential once.
 

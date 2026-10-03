@@ -62,7 +62,7 @@ It aggregates information scattered across various sources into a unified Contex
 
 - **Agent management** — Create agents, bind tools, control access scope, SSE streaming chat
 - **Full CLI coverage** — Every operation available via command line, enabling AI coding tools like Claude Code to drive the platform directly
-- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through a single `/api/v1/access` entry point. `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external source relationships live in `connections`.
+- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through `/api/v1/access/surfaces` (the old `/api/v1/access` is bounded compatibility). `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external source relationships live in `connections`.
 
 ## Active Development Directories
 
@@ -204,8 +204,9 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 tool binding & proxy |
 | `/api/v1/mcp-endpoints` | platform/access/adapters/mcp_endpoint | MCP endpoint CRUD & API key |
 | `/api/v1/sandbox-endpoints` | platform/access/adapters/sandbox_endpoint | Sandbox endpoint CRUD & exec |
-| `/api/v1/access` | platform/access | Unified access management (all types) |
-| `/api/v1/integrations` | platform/synchronize | Data source sync |
+| `/api/v1/access/surfaces` | platform/access/public_router | Access surface management (`kind`, contract v2) |
+| `/api/v1/synchronize` | platform/synchronize/public_router | Synchronize bindings and runs; never Access IDs |
+| `/api/v1/access`, `/api/v1/integrations` | legacy transport adapters | Bounded server compatibility; new CLI must not fall back |
 | `/api/v1/filesystem` | connectors/filesystem | Filesystem access lifecycle |
 | `/api/v1/ingest` | upload | File/URL ingestion ETL |
 | `/api/v1/ap-fs` | version_engine/routers/access_point_fs | Puppyone CLI scoped filesystem API |
@@ -407,7 +408,7 @@ puppyone synchronize add gmail <url> --folder /mail --mode manual  # Durable bin
 puppyone synchronize providers        # Server-admitted persistent sources
 puppyone access add agent "Bot"        # Create an AI agent
 puppyone access add mcp "Data API"      # Create MCP endpoint
-puppyone access ls                     # List Access surfaces
+puppyone access ls --kind mcp          # List Access surfaces (kind, not source provider)
 puppyone status                        # Project dashboard
 puppyone chat                          # Chat with an agent
 puppyone fs semantics                  # Unix compatibility notes + resource limits for agents

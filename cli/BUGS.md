@@ -23,11 +23,14 @@ not fixed in the filesystem concurrency patch.
 ISSUE-060 removes gateway autodetection from external-source creation. Import
 and Synchronize query their own server-admitted Provider views; Access lists
 Agent/MCP/Sandbox kinds. The CLI HTTP regression executes all three owning
-services. Final public-path cutover and publication remain pending; see
+services. Generic Synchronize and Access use canonical paths without fallback;
+GitHub/database-source cutovers and publication remain pending; see
 [unreleased compatibility notes](../docs/cli/ENTRYPOINTS-UNRELEASED.md).
 
-## Agent create config
+## Agent create config — ignored options now rejected
 
-- `access add agent --model/--system-prompt` writes `config.model` and
-  `config.system_prompt`; the backend create path expects `llm_model` and
-  does not currently consume the CLI `model` value.
+`access add agent --model/--system-prompt` and model/prompt create config now
+fail before requests. The current Access Agent create path consumes neither
+`model`, `llm_model` nor `system_prompt`; changing the spelling would not fix it.
+No model/prompt configuration feature is claimed. Use supported Agent workflows;
+these CLI flags must not silently create a default-configured Agent.
