@@ -4,8 +4,10 @@ Status: local ISSUE-060/061 implementation; not an npm release or deployment rec
 The package version remains `0.2.1`; an already installed `0.2.1` must **not** be
 assumed to contain these changes. Use the CLI and backend from the same task
 branch for verification. Generic Synchronize and Access use the committed
-ISSUE-058 contracts (`7c663506` and `2780dd76`). GitHub/database-source final-path
-cutovers and server compatibility retirement remain coordinated by that issue.
+ISSUE-058 contracts (`7c663506` and `2780dd76`). The later `6926aea3` integration
+also supplies GitHub/database-source and typed Dashboard APIs. This CLI's `status`
+now consumes that Dashboard contract; server compatibility retirement and actual
+installed-client cutover remain coordinated by ISSUE-058.
 
 ## Commands
 
@@ -54,6 +56,7 @@ surface. Provider admission and credentials are ultimately checked by the server
 | `import` | `/api/v1/imports`, including additive `/providers` | one-shot ImportJob |
 | `synchronize` | `/api/v1/synchronize/bindings`, `/providers`, `/runs/{run_id}` | durable binding/run |
 | `access` | `/api/v1/access/surfaces`, including `/types` | Access surface; creates Agent/MCP/Sandbox |
+| `status` | `/api/v1/projects/{project_id}/dashboard/resources` | typed read-only resource inventory |
 
 Synchronize and Access require the canonical APIs from ISSUE-058 and are verified
 by a loopback server with **no legacy `/integrations` or `/access` routes mounted**.
@@ -71,6 +74,16 @@ Do not remove server compatibility routes until 058 has consumer/exit evidence.
 An older server without Import discovery returns an explicit API error. No
 supported released-client/server matrix is asserted yet: the tested combination
 is this source CLI plus the matching task-branch backend, not published npm 0.2.1.
+
+`status` preserves the `(resource_kind, resource_id)` identity, so an Access
+surface and Synchronize binding with the same ID remain separate. Human output
+shows domain-qualified IDs, provider versus Access kind, explicit target and last
+activity. JSON preserves the canonical `resources` envelope; it does not interpret
+`access_points` or `connections`. Foreign/duplicate identities, missing targets
+and credential-bearing resource metadata fail rather than becoming an empty
+successful inventory. Classification conflicts and storage failures are surfaced;
+a missing canonical endpoint requires a server upgrade, with no old Dashboard
+request. Empty-state guidance separates Import, Synchronize and Access.
 
 ## Legacy and error behavior
 
@@ -108,7 +121,7 @@ is this source CLI plus the matching task-branch backend, not published npm 0.2.
 ```bash
 cd cli && npm ci --ignore-scripts && npm run test:unit
 cd ../backend
-uv run --frozen --offline pytest -q tests/platform/test_entrypoint_cli_http.py
+uv run --frozen --offline pytest -q tests/platform/test_entrypoint_cli_http.py tests/platform/test_dashboard_cli_http.py
 uv run --frozen --offline pytest -q tests/platform/test_entrypoint_queue_cutover.py
 ```
 
