@@ -78,7 +78,9 @@ def test_access_domain_kind_and_target_are_serialized_without_legacy_provider():
     assert payload["data"][0]["kind"] == "cli"
     assert payload["data"][0]["target"] == {"kind": "project_root", "project_id": "project-1"}
     assert "provider" not in payload["data"][0]
-    service.list.assert_called_once_with("project-1", kind="cli", direction=None, access_surface_only=True)
+    # Read the domain inventory, then reject unexpected historical source rows;
+    # silently filtering them would turn required repair into empty success.
+    service.list.assert_called_once_with("project-1", kind="cli", direction=None, access_surface_only=False)
     assert payload["message"] == "Access surfaces listed"
 
 

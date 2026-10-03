@@ -144,7 +144,6 @@ def _conn_row():
         "id": "conn-1",
         "project_id": ALLOWED,
         "kind": "agent",
-        "provider": "agent",
         "name": "My Agent",
         "status": "active",
         "direction": "outbound",

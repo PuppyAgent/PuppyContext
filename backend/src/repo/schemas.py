@@ -11,11 +11,10 @@ Routers translate Domain models (models.py) ↔ these DTOs.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from src.platform.repository_target.schemas import RepositoryTargetSchema
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -23,7 +22,6 @@ from src.platform.repository_target.schemas import RepositoryTargetSchema
 # ──────────────────────────────────────────────────────────────────────────
 
 ModeLiteral = Literal["r", "rw"]
-DirectionLiteral = Literal["bidirectional", "inbound", "outbound"]
 RoleLiteral = Literal["admin", "editor", "reader", "denied"]
 
 
@@ -84,72 +82,6 @@ class RepoIdentityOut(BaseModel):
 
 class RepoIdentityPatch(BaseModel):
     prompt_template: Optional[str] = None
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# Connectors
-# ──────────────────────────────────────────────────────────────────────────
-
-
-class TriggerSpec(BaseModel):
-    type: Literal["manual", "scheduled", "on_change"] = "manual"
-    config: Optional[dict[str, Any]] = None
-
-
-class ConnectorIn(BaseModel):
-    target: RepositoryTargetSchema
-    provider: str = Field(..., min_length=1, max_length=64)        # service rejects 'cli' and 'agent' (auto-only)
-    direction: DirectionLiteral
-    name: Optional[str] = None
-    config: dict[str, Any] = Field(default_factory=dict)
-    policy: dict[str, Any] = Field(default_factory=dict)
-    oauth_connection_id: Optional[int] = None
-    trigger: TriggerSpec = Field(default_factory=TriggerSpec)
-
-
-class TargetAccessEnableIn(BaseModel):
-    """Explicitly enable the standard machine entry points for one target."""
-
-    target: RepositoryTargetSchema
-
-
-class ConnectorPatch(BaseModel):
-    name: Optional[str] = None
-    direction: Optional[DirectionLiteral] = None
-    config: Optional[dict[str, Any]] = None
-    policy: Optional[dict[str, Any]] = None
-    oauth_connection_id: Optional[int] = None
-    trigger: Optional[TriggerSpec] = None
-    status: Optional[Literal["active", "paused"]] = None        # explicit pause/resume goes through dedicated endpoints
-
-
-class ConnectorOut(BaseModel):
-    id: str
-    target: RepositoryTargetSchema
-    provider: str
-    name: str
-    direction: DirectionLiteral
-    config: dict[str, Any]
-    policy: dict[str, Any]
-    oauth_connection_id: Optional[int]
-    trigger: dict[str, Any]
-    status: str
-    last_run_at: Optional[datetime]
-    last_run_id: Optional[str]
-    error_message: Optional[str]
-    created_by: Optional[str]
-    created_at: datetime
-    updated_at: datetime
-
-
-class ConnectorRunOut(BaseModel):
-    id: str
-    connector_id: str
-    status: str                          # 'running' | 'success' | 'failed'
-    started_at: datetime
-    finished_at: Optional[datetime]
-    duration_ms: Optional[int]
-    error: Optional[str]
 
 
 # ──────────────────────────────────────────────────────────────────────────

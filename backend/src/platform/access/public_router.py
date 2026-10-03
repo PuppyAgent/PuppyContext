@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from src.common_schemas import ApiResponse
 from src.platform.access import project_router as project_ops
 from src.platform.access import router as global_ops
-from src.platform.access.models import ACCESS_KINDS
 from src.platform.access.public_schemas import (
     AccessCredentialIssued,
     AccessDirection,
@@ -80,33 +79,17 @@ def _fields(value) -> dict:
     return value.model_dump() if isinstance(value, BaseModel) else dict(value)
 
 
-def _is_access(fields: dict) -> bool:
-    return (
-        fields.get("provider") in ACCESS_KINDS
-        and (fields.get("trigger") or {}).get("type") != "import_once"
-    )
-
-
 def _require_access(fields: dict) -> None:
-    if not _is_access(fields):
-        raise HTTPException(
-            409,
-            "Legacy source records are not ongoing Access surfaces. Review their migration before management; use Import or Synchronize for source operations.",
-        )
+    global_ops._require_access_identity(fields.get("kind"), fields.get("trigger"))
 
 
 def _surface(value) -> AccessSurface:
     fields = _fields(value)
     _require_access(fields)
     target = fields["target"]
-    project_id = fields.get("project_id", target["project_id"])
+    project_id = fields["project_id"]
     if project_id != target["project_id"]:
         raise ValueError("Access surface and target Project identities disagree")
-    # Explicit envelope projection, not a recursive resource-name replacement.
-    fields["project_id"] = project_id
-    fields["kind"] = fields.pop("provider")
-    fields["last_activity_at"] = fields.pop("last_synced_at", fields.pop("last_run_at", None))
-    fields.pop("last_run_id", None)
     fields["config"] = global_ops._redact_config(fields.get("config") or {})
     fields["policy"] = global_ops._redact_config(fields.get("policy") or {})
     fields["trigger"] = global_ops._redact_config(fields.get("trigger"))
@@ -135,7 +118,7 @@ def _project_surface(surface_id: str, authorized: AuthorizedProject, service: Ac
     surface = service.get(surface_id)
     if surface is None or surface.project_id != str(authorized.project.id):
         raise HTTPException(404, "Access surface not found")
-    _require_access({"provider": surface.kind, "trigger": surface.trigger})
+    _require_access({"kind": surface.kind, "trigger": surface.trigger})
     return surface
 
 
@@ -150,7 +133,7 @@ def _global_surface(
     if surface is None:
         raise HTTPException(404, "Access surface not found")
     authorization.authorize(surface.project_id, current_user.user_id, action)
-    _require_access({"provider": surface.kind, "trigger": surface.trigger})
+    _require_access({"kind": surface.kind, "trigger": surface.trigger})
     return surface
 
 
@@ -176,7 +159,7 @@ def list_access_surfaces(
             current_user=current_user,
             authorization=authorization,
         ),
-        lambda rows: [_surface(row) for row in rows if _is_access(_fields(row))],
+        lambda rows: [_surface(row) for row in rows],
         "Access surfaces listed",
     )
 
@@ -188,12 +171,7 @@ def list_access_surfaces(
 def list_access_surface_types():
     return _reply(
         global_ops.list_connection_types(),
-        lambda rows: [
-            AccessSurfaceKind(
-                kind=row["provider"], **{k: v for k, v in row.items() if k != "provider"}
-            )
-            for row in rows
-        ],
+        lambda rows: rows,
     )
 
 
@@ -211,18 +189,15 @@ async def configure_access_surface(
 ):
     authorization.authorize(body.project_id, current_user.user_id, ProjectAction.ACCESS_MANAGE)
     _safe_metadata(body.config, body.accesses, body.tools_config)
-    fields = body.model_dump(exclude={"kind"})
     result = await global_ops.create_connection(
-        payload=global_ops.UnifiedConnectionCreate(provider=body.kind, **fields),
+        payload=body,
         current_user=current_user,
         entitlement_service=entitlements,
         authorization=authorization,
     )
     return _reply(
         result,
-        lambda data: AccessSurfaceCreated(
-            kind=data.provider, **data.model_dump(exclude={"provider"})
-        ),
+        lambda data: data,
         "Access surface created",
     )
 
@@ -315,15 +290,9 @@ def regenerate_access_surface_key(
     result = global_ops.regenerate_key(
         connection_id=access_surface_id, current_user=current_user, authorization=authorization
     )
-    return _reply(
-        result,
-        lambda data: AccessCredentialIssued(
-            access_surface_id=access_surface_id,
-            credential=data.get("credential") or data["access_key"],
-            target=data.get("target"),
-            credential_hint=data.get("access_key_hint"),
-        ),
-    )
+    if result.data.access_surface_id != access_surface_id:
+        raise HTTPException(409, "Access credential issuer returned another surface")
+    return _reply(result, lambda data: data)
 
 
 @project_router.get(
@@ -341,7 +310,6 @@ def list_project_access_surfaces(
         project_ops.list_connectors(
             provider=kind,
             direction=direction,
-            include_non_access=False,
             authorized=authorized,
             service=service,
         ),
@@ -359,9 +327,7 @@ def create_project_access_surface(
     _safe_metadata(body.config, body.policy, body.trigger.model_dump())
     return _reply(
         project_ops.create_connector(
-            payload=project_ops.ConnectorIn(
-                provider=body.kind, **body.model_dump(exclude={"kind"})
-            ),
+            payload=body,
             authorized=authorized,
             current_user=current_user,
             service=service,
@@ -381,7 +347,7 @@ def enable_target_access_surfaces(
 ):
     return _reply(
         project_ops.enable_target_access(
-            payload=project_ops.TargetAccessEnableIn(**body.model_dump()),
+            payload=body,
             authorized=authorized,
             current_user=current_user,
             service=service,
@@ -403,7 +369,7 @@ def update_project_access_surface(
     return _reply(
         project_ops.update_connector(
             connector_id=access_surface_id,
-            payload=project_ops.ConnectorPatch(**body.model_dump(exclude_unset=True)),
+            payload=body,
             authorized=authorized,
             service=service,
         ),

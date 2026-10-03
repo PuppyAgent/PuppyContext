@@ -2,7 +2,7 @@
 - [x] 1.1 Confirm ownership, immutable history, final mapping and 061 delivery; retain existing worktrees.
 - [x] 1.2 Add Expand schema, redacted decision inventory/import, freeze, immutable data artifact and negative tests.
 - [x] 1.3 Verify old/new writes, exact encrypted data/history, drift refusal, receipt and retry on real PostgreSQL.
-- [ ] 1.4 After Release A rehearsal, deliver separately gated D01–D06 Contract, final repositories/direct SQL/view consumers and no runtime storage aliases.
+- [x] 1.4 After Release A rehearsal, deliver separately gated D01–D06 Contract, final repositories/direct SQL/view consumers and no runtime storage aliases.
 - [x] 1.5 Verify empty installation, populated upgrade, full installation and post-contract recovery; preserve 053 ACL/RLS.
 
 ## 2. Final resource cutover
@@ -45,7 +45,10 @@
 - Follow-up backend: **2766 passed, 27 skipped, 76 deselected** (`/tmp/issue058-source-retirement-backend-final.log`). Joint CLI/SDK/queue/real-window gate: **31 passed** (`/tmp/issue058-source-retirement-joint-final.log`). Exact OpenAPI retirement remains unchanged. Nine source-retirement regressions prevent router/alias resurrection. Scoped F/E9 and full checks on rewritten files pass; this is not a claim of repository-wide Ruff cleanliness.
 - Source-retirement increment `acfdf12f` was integrated into local Cloud `qubits`. A further GitHub increment removes all legacy GitHub request/result DTOs and import/export trigger aliases. Operations, service, importer and exporter now use canonical DTOs directly; every outcome carries its actual execution binding ID. The service rejects a foreign result identity rather than rewriting it with a later lookup. Both mismatch cases and alias/module absence have regressions.
 - Latest follow-up backend: **2770 passed, 27 skipped, 76 deselected** (`/tmp/issue058-github-dto-backend.log`); joint gate **31 passed** (`/tmp/issue058-github-dto-joint.log`). Exact mounted contracts remain unchanged. These do not replace the committed full-stack receipts above.
-- Still open locally: remaining Access private DTO adapters, final task/document/audit and redacted durable evidence refresh, final source integration/reverification. Hosted authorization and acceptance remain separate and outstanding.
+- Access follow-up removes Connection/Connector/UnifiedConnection request/result DTOs, the unused update/run transports and provider/old-timestamp/credential-field translation. Project/global operations emit canonical Access DTOs; adapter creation uses canonical kinds, and explicit credential issuance returns its actual surface ID (a mismatch fails without leaking the token). Typed Git/CLI configuration cannot accidentally restore server-generated human Git credentials.
+- Access inventory validates unexpected historical source rows with 409 rather than hiding them as an empty success. Opaque user metadata, credential redaction and repository-target invariants remain intact. Metadata never issues a credential.
+- Latest Access follow-up backend: **2772 passed, 27 skipped, 76 deselected** (`/tmp/issue058-access-dto-backend-final.log`); joint gate **31 passed** (`/tmp/issue058-access-dto-joint.log`). Immutable contract fingerprints and both pending/promoted Contract pairs still match; portable lint validates 10 artifacts.
+- Still open locally: final task/document/audit and redacted durable evidence refresh, final source integration/reverification. Hosted authorization and acceptance remain separate and outstanding.
 
 Reproduce populated local acceptance with installed dependencies and no `.env` inputs:
 

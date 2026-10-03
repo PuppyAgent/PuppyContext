@@ -40,6 +40,18 @@ def test_binding_repository_does_not_reexport_legacy_identity_aliases():
     assert not hasattr(service, "create_sync")
 
 
+def test_access_operations_do_not_reexport_connector_dto_aliases():
+    from src.platform.access import project_router, router
+    from src.repo import schemas
+
+    for name in ("ConnectionOut", "ConnectionUpdate", "UnifiedConnectionCreate", "UnifiedConnectionOut"):
+        assert not hasattr(router, name)
+    for name in ("ConnectorIn", "ConnectorPatch", "ConnectorOut", "ConnectorRunOut", "TargetAccessEnableIn"):
+        assert not hasattr(schemas, name)
+        assert not hasattr(project_router, name)
+    assert not hasattr(project_router, "run_connector")
+
+
 def test_github_service_does_not_export_old_trigger_aliases():
     from src.platform.synchronize.github.service import GithubSyncService
 
