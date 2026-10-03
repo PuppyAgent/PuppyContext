@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { StatusIndicator } from '@/components/ui/StatusDot';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { getAccessProviderMethodMeta, isCliProvider, isMcpProvider, normalizeConnectorProvider } from '@/lib/accessProviderRegistry';
 import { T } from '@/features/access/lib/tokens';
 import { STATUS_COLORS, STATUS_LABEL } from '@/features/access/lib/constants';
@@ -30,7 +30,7 @@ export function ConnectorListRow({
   canManage = false,
 }: {
   readonly scope: RepositoryView | undefined;
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly selected: boolean;
   readonly showPromptPreview?: boolean;
   readonly onSelect: () => void;
@@ -46,15 +46,15 @@ export function ConnectorListRow({
   const [hovered, setHovered] = useState(false);
   const meta = getConnectorMethodMeta(connector);
   const paused = connector.status === 'paused';
-  const tile = getProviderTileStyle(connector.provider, selected);
-  const tileSize = getProviderTileSize(connector.provider);
-  const iconSize = getProviderIconSize(connector.provider);
-  const provider = normalizeConnectorProvider(connector.provider);
+  const tile = getProviderTileStyle(connector.kind, selected);
+  const tileSize = getProviderTileSize(connector.kind);
+  const iconSize = getProviderIconSize(connector.kind);
+  const provider = normalizeConnectorProvider(connector.kind);
   const canConfigure = isCliProvider(provider) || connector.status === 'error' || !!connector.error_message;
   const canOpen = true;
   const scopeLabel = showScopeLabel && scope ? getScopeChipLabel(scope) : null;
   const scopeTitle = scope ? formatScopePath(scope) : undefined;
-  const compactDescription = getCompactConnectorDescription(meta.description, connector.provider);
+  const compactDescription = getCompactConnectorDescription(meta.description, connector.kind);
   const previewOpen = selected || showPromptPreview;
 
   if (paused && showPromptPreview) {
@@ -121,7 +121,7 @@ export function ConnectorListRow({
           style={{
             height: tileSize,
             width: tileSize,
-            borderRadius: isGitBuiltinProvider(connector.provider) ? 7 : 6,
+            borderRadius: isGitBuiltinProvider(connector.kind) ? 7 : 6,
             background: tile.background,
             border: `1px solid ${tile.border}`,
             color: tile.color,
@@ -130,10 +130,10 @@ export function ConnectorListRow({
             justifyContent: 'center',
             flexShrink: 0,
             boxShadow: tile.shadow,
-            overflow: isGitBuiltinProvider(connector.provider) ? 'hidden' : undefined,
+            overflow: isGitBuiltinProvider(connector.kind) ? 'hidden' : undefined,
           }}
         >
-          <ProviderIcon provider={connector.provider} size={iconSize} />
+          <ProviderIcon provider={connector.kind} size={iconSize} />
         </div>
         <div
           style={{
@@ -256,7 +256,7 @@ function PausedConnectorPreview({
   onTurnOn,
   canManage,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly meta: {
     readonly title: string;
     readonly description: string;
@@ -298,7 +298,7 @@ function PausedConnectorPreview({
           style={{
             height: tileSize,
             width: tileSize,
-            borderRadius: isGitBuiltinProvider(connector.provider) ? 7 : 6,
+            borderRadius: isGitBuiltinProvider(connector.kind) ? 7 : 6,
             background: tile.background,
             border: `1px solid ${tile.border}`,
             color: tile.color,
@@ -307,10 +307,10 @@ function PausedConnectorPreview({
             justifyContent: 'center',
             flexShrink: 0,
             boxShadow: tile.shadow,
-            overflow: isGitBuiltinProvider(connector.provider) ? 'hidden' : undefined,
+            overflow: isGitBuiltinProvider(connector.kind) ? 'hidden' : undefined,
           }}
         >
-          <ProviderIcon provider={connector.provider} size={iconSize} />
+          <ProviderIcon provider={connector.kind} size={iconSize} />
         </div>
         <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
           <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -426,7 +426,7 @@ function ConnectorCollapsedActions({
   onOpen,
   onConnect,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly status: string;
   readonly showSettings: boolean;
@@ -435,7 +435,7 @@ function ConnectorCollapsedActions({
   readonly onOpen: () => void;
   readonly onConnect: () => void;
 }) {
-  const isMcp = isMcpProvider(connector.provider);
+  const isMcp = isMcpProvider(connector.kind);
   return (
     <div
       onClick={(event) => event.stopPropagation()}
@@ -564,11 +564,11 @@ const ConnectionGlyph = ({ size = 12 }: { readonly size?: number }) => (
   </svg>
 );
 
-export function getConnectorMethodMeta(connector: Connector): {
+export function getConnectorMethodMeta(connector: AccessSurface): {
   readonly title: string;
   readonly description: string;
 } {
-  return getAccessProviderMethodMeta(connector.provider, connector.name);
+  return getAccessProviderMethodMeta(connector.kind, connector.name);
 }
 
 function getCompactConnectorDescription(description: string, providerName: string): string {
@@ -588,7 +588,7 @@ function ConnectorPreviewActions({
   selected,
   canManage,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly status: string;
   readonly pending: boolean;
   readonly onPauseResume: () => Promise<void> | void;
@@ -598,9 +598,9 @@ function ConnectorPreviewActions({
   readonly selected: boolean;
   readonly canManage: boolean;
 }) {
-  const isGitRemote = isGitBuiltinProvider(connector.provider);
-  const isCli = isCliProvider(normalizeConnectorProvider(connector.provider));
-  const isMcp = isMcpProvider(connector.provider);
+  const isGitRemote = isGitBuiltinProvider(connector.kind);
+  const isCli = isCliProvider(normalizeConnectorProvider(connector.kind));
+  const isMcp = isMcpProvider(connector.kind);
   const action = status === 'error'
     ? null
     : status === 'paused'
@@ -812,13 +812,13 @@ export function ConnectorExpandedDetail({
   onPauseResume,
   onUpdate,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly pending: boolean;
   readonly onPauseResume: () => Promise<void> | void;
   readonly onUpdate: (patch: ConnectorEditPatch) => Promise<void>;
 }) {
-  const provider = normalizeConnectorProvider(connector.provider);
+  const provider = normalizeConnectorProvider(connector.kind);
   const showError = connector.status === 'error' || !!connector.error_message;
   const showInlineDetail = isCliProvider(provider) || isMcpProvider(provider);
   if (!showError && !showInlineDetail) return null;
@@ -884,7 +884,7 @@ function ConnectorManagementStrip({
   onPauseResume,
   withDivider,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly pending: boolean;
   readonly onPauseResume: () => Promise<void> | void;
   readonly withDivider?: boolean;

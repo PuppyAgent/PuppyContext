@@ -2,7 +2,11 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
-import { get, post, patch, del } from '@/lib/apiClient';
+import {
+  getSynchronizeStatus, refreshSynchronizeBinding, pauseSynchronizeBinding,
+  resumeSynchronizeBinding, deleteSynchronizeBinding, updateSynchronizeTrigger,
+  type SynchronizeStatus, type SynchronizeStatusItem,
+} from '@/lib/synchronizeApi';
 import { SYNC_MODE_META, getProviderDisplayLabel, getSyncTriggerPolicy } from '@/lib/syncTriggerPolicy';
 import type { SyncModeType } from '@/lib/syncTriggerPolicy';
 import { useConnectorSpecs } from '@/lib/hooks/useData';
@@ -11,19 +15,7 @@ import { Dots } from '@/components/loading';
 import { ActivityIconButton } from '@/components/ActivityIconButton';
 import { StatusIndicator } from '@/components/ui/StatusDot';
 
-interface SyncDetail {
-  id: string;
-  path: string;
-  node_name: string | null;
-  node_type: string | null;
-  provider: string;
-  direction: string;
-  status: string;
-  access_key: string | null;
-  trigger: { type?: string; schedule?: string; timezone?: string } | null;
-  last_synced_at: string | null;
-  error_message: string | null;
-}
+type SyncDetail = SynchronizeStatusItem;
 
 // Mini DocShell — matches the product's document icon with folded corner
 function MiniDocShell({ type }: { type: 'json' | 'markdown' | 'file' }) {
@@ -137,7 +129,7 @@ const DIRECTION_LABELS: Record<string, string> = {
   bidirectional: 'Bidirectional sync',
 };
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -158,13 +150,13 @@ export function SyncDetailView({ syncId, projectId, onClose, onBack }: SyncDetai
   const [refreshing, setRefreshing] = useState(false);
   const { specs } = useConnectorSpecs();
 
-  const { data: syncData, mutate } = useSWR<{ syncs: SyncDetail[] }>(
-    projectId ? ['sync-status', projectId] : null,
-    () => get<{ syncs: SyncDetail[] }>(`/api/v1/integrations/status?project_id=${projectId}`),
+  const { data: syncData, mutate } = useSWR<SynchronizeStatus>(
+    projectId ? ['synchronize-status', String(projectId)] : null,
+    () => getSynchronizeStatus(String(projectId)),
     { revalidateOnFocus: true },
   );
 
-  const sync = syncData?.syncs?.find(s => s.id === syncId);
+  const sync = syncData?.bindings?.find(s => s.id === syncId);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -176,7 +168,7 @@ export function SyncDetailView({ syncId, projectId, onClose, onBack }: SyncDetai
     if (!syncId) return;
     setRefreshing(true);
     try {
-      await post(`/api/v1/integrations/connections/${syncId}/refresh`);
+      await refreshSynchronizeBinding(syncId);
       await mutate();
     } catch (err) {
       console.error('Sync refresh failed:', err);
@@ -188,7 +180,7 @@ export function SyncDetailView({ syncId, projectId, onClose, onBack }: SyncDetai
   const handlePause = useCallback(async () => {
     if (!syncId) return;
     try {
-      await post(`/api/v1/integrations/connections/${syncId}/pause`);
+      await pauseSynchronizeBinding(syncId);
       await mutate();
     } catch (err) {
       console.error('Pause failed:', err);
@@ -198,7 +190,7 @@ export function SyncDetailView({ syncId, projectId, onClose, onBack }: SyncDetai
   const handleResume = useCallback(async () => {
     if (!syncId) return;
     try {
-      await post(`/api/v1/integrations/connections/${syncId}/resume`);
+      await resumeSynchronizeBinding(syncId);
       await mutate();
     } catch (err) {
       console.error('Resume failed:', err);
@@ -210,7 +202,7 @@ export function SyncDetailView({ syncId, projectId, onClose, onBack }: SyncDetai
     if (!syncId || disconnecting) return;
     setDisconnecting(true);
     try {
-      await del(`/api/v1/integrations/connections/${syncId}`);
+      await deleteSynchronizeBinding(syncId);
       await mutate();
       onClose?.();
     } catch (err) {
@@ -463,12 +455,12 @@ function TriggerModeSelector({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const trigger: Record<string, string> = { type: pendingMode };
+      const trigger: { type: string; schedule?: string; timezone?: string } = { type: pendingMode };
       if (pendingMode === 'scheduled' && scheduleConfig?.schedule) {
         trigger.schedule = scheduleConfig.schedule;
         trigger.timezone = scheduleConfig.timezone || 'Asia/Shanghai';
       }
-      await patch(`/api/v1/integrations/connections/${syncId}/trigger`, {
+      await updateSynchronizeTrigger(syncId, {
         sync_mode: pendingMode,
         trigger,
       });

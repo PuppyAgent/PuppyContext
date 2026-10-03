@@ -124,13 +124,13 @@ from src.platform.profile.router import router as profile_router
 profile_router_duration = time.time() - profile_router_start
 
 imports_router_start = time.time()
-from src.platform.activity.router import router as activity_router
+from src.platform.activity.public_router import router as activity_public_router
 from src.platform.imports.router import router as imports_router
 
 imports_router_duration = time.time() - imports_router_start
 
 database_import_router_start = time.time()
-from src.platform.imports.database.router import router as database_import_router
+from src.platform.imports.database.public_router import router as import_database_sources_router
 
 database_import_router_duration = time.time() - database_import_router_start
 
@@ -248,7 +248,7 @@ async def _init_file_ingest() -> None:
         log_info("📄 Initializing File Ingest service...")
         from pathlib import Path
 
-        from src.ingest.file.dependencies import get_etl_service
+        from src.platform.upload.dependencies import get_etl_service
 
         file_ingest_service = await get_etl_service()
         Path(".mineru_cache").mkdir(parents=True, exist_ok=True)
@@ -491,7 +491,7 @@ async def _shutdown_services() -> None:
 
     if settings.etl_enabled:
         try:
-            from src.ingest.file.dependencies import get_etl_service
+            from src.platform.upload.dependencies import get_etl_service
 
             file_ingest_service = await get_etl_service()
             await file_ingest_service.stop()
@@ -731,21 +731,14 @@ def create_app() -> FastAPI:
     from src.platform.workspace.router import router as workspace_router
 
     app.include_router(workspace_router, prefix="/api/v1", tags=["workspace"])
-    from src.platform.synchronize.router import router as synchronize_router
+    from src.platform.synchronize.public_router import router as synchronize_public_router
+    app.include_router(synchronize_public_router, prefix="/api/v1")
+    # Final resource release: only canonical binding/pull/push/webhook contracts.
+    from src.platform.synchronize.github.public_router import router as synchronize_github_router
+    from src.platform.synchronize.github.public_router import webhook_router as synchronize_github_webhook_router
 
-    app.include_router(synchronize_router, prefix="/api/v1", tags=["integrations"])
-    # GitHub Synchronize: bind a project to a (repo, branch) pair, run
-    # imports/exports, receive webhooks. Two routers because the webhook
-    # callback isn't per-project.
-    from src.platform.synchronize.github.router import (
-        router as github_sync_router,
-    )
-    from src.platform.synchronize.github.router import (
-        webhook_router as github_webhook_router,
-    )
-
-    app.include_router(github_sync_router, tags=["github-integration"])
-    app.include_router(github_webhook_router, tags=["github-integration"])
+    app.include_router(synchronize_github_router)
+    app.include_router(synchronize_github_webhook_router)
     from src.platform.scope_sandbox.router import router as scope_sandbox_router
 
     app.include_router(scope_sandbox_router, tags=["scope-sandboxes"])
@@ -758,13 +751,14 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router, tags=["analytics"])
     app.include_router(profile_router, tags=["profile"])
     app.include_router(imports_router, prefix="/api/v1", tags=["imports"])
-    app.include_router(activity_router, prefix="/api/v1", tags=["activity"])
-    app.include_router(database_import_router, prefix="/api/v1", tags=["db-connector"])
+    app.include_router(activity_public_router, prefix="/api/v1", tags=["activity"])
+    app.include_router(import_database_sources_router, prefix="/api/v1")
     app.include_router(organization_router, prefix="/api/v1", tags=["organizations"])
     from src.platform.billing.router import router as billing_router
 
     app.include_router(billing_router, prefix="/api/v1", tags=["billing"])
-    from src.platform.managed_ai.router import router as managed_ai_router, internal_router as managed_ai_internal_router
+    from src.platform.managed_ai.router import internal_router as managed_ai_internal_router
+    from src.platform.managed_ai.router import router as managed_ai_router
 
     app.include_router(managed_ai_router, prefix="/api/v1")
     app.include_router(managed_ai_internal_router)
@@ -774,27 +768,28 @@ def create_app() -> FastAPI:
     from src.platform.landing.router import router as landing_router
 
     app.include_router(landing_router, prefix="/api/v1", tags=["landing"])
-    from src.platform.access.adapters.sandbox_endpoint.router import router as sandbox_endpoint_router
+    from src.platform.access.adapters.sandbox_endpoint.router import (
+        router as sandbox_endpoint_router,
+    )
 
     app.include_router(sandbox_endpoint_router, prefix="/api/v1", tags=["sandbox-endpoints"])
-    from src.platform.project.dashboard_router import router as dashboard_router
+    from src.platform.project.resource_dashboard import router as resource_dashboard_router
 
-    app.include_router(dashboard_router, prefix="/api/v1", tags=["projects"])
-    from src.platform.access.router import router as access_router
-
-    app.include_router(access_router, prefix="/api/v1", tags=["access"])
+    app.include_router(resource_dashboard_router, prefix="/api/v1", tags=["projects"])
+    from src.platform.access.public_router import project_router as public_project_access_router
+    from src.platform.access.public_router import router as public_access_router
+    app.include_router(public_access_router, prefix="/api/v1")
+    app.include_router(public_project_access_router, prefix="/api/v1")
     from src.provider.accounts.router import router as gateway_router
 
     app.include_router(gateway_router, prefix="/api/v1", tags=["gateways"])
 
-    # Repository data-plane surface: scope CRUD, repo identity, connectors.
-    from src.platform.access.project_router import router as project_access_router
+    # Repository identity is separate from Access resource inventory.
     from src.repo.identity_router import router as repo_identity_router
     from src.repo.scope_router import router as repo_scope_router
 
     app.include_router(repo_scope_router, prefix="/api/v1", tags=["repo-scopes"])
     app.include_router(repo_identity_router, prefix="/api/v1", tags=["repo-identity"])
-    app.include_router(project_access_router, prefix="/api/v1", tags=["connectors"])
     router_register_duration = time.time() - router_register_start
 
     # Register exception handlers

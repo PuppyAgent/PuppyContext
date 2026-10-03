@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 from src.platform.repository_target.models import RepositoryTarget, repository_target_scope_id
-IMPORT_ONLY_KINDS = frozenset({"github"})
-DEPRECATED_ACCESS_KINDS = frozenset({"filesystem"})
+# Explicit protocol kinds, not the shared external-source Provider catalog.
+ACCESS_KINDS = frozenset({"git_remote", "cli", "agent", "mcp", "mcp_endpoint", "sandbox", "sandbox_endpoint"})
 
 @dataclass
 class AccessSurface:
@@ -13,7 +13,7 @@ class AccessSurface:
 
     id: str
     target: RepositoryTarget
-    kind: str                   # 'cli', 'agent', 'notion', 'gmail', ...
+    kind: str                   # Access protocol kind; legacy source rows are inventory only
     name: str
     direction: str                  # 'bidirectional' | 'inbound' | 'outbound'
     config: dict[str, Any]          # provider-specific
@@ -57,8 +57,4 @@ class AccessSurface:
         "ways into" a scope and should not be returned by Access endpoints by
         default.
         """
-        if self.kind in IMPORT_ONLY_KINDS:
-            return False
-        if self.kind in DEPRECATED_ACCESS_KINDS:
-            return False
-        return (self.trigger or {}).get("type") != "import_once"
+        return self.kind in ACCESS_KINDS and (self.trigger or {}).get("type") != "import_once"

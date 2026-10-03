@@ -16,7 +16,7 @@ import { canonicalProjectGitUrl } from '@/lib/gitRemote';
 import {
   matchRepositoryViewForPath,
   repositoryViewKey,
-  type Connector,
+  type AccessSurface,
   type RepositoryView,
 } from '@/lib/repoApi';
 
@@ -25,7 +25,8 @@ function normalizeAccessPath(path: string | null | undefined): string {
 }
 
 type SyncEndpointLike = {
-  syncId: string;
+  resourceKind: 'synchronize';
+  id: string;
 };
 
 export function useDataPanelController({
@@ -46,7 +47,7 @@ export function useDataPanelController({
   effectiveNodeId: string;
   syncEndpoints: ReadonlyMap<string, SyncEndpointLike>;
   scopes: RepositoryView[];
-  connectorsByTarget: Map<string, Connector[]>;
+  connectorsByTarget: Map<string, AccessSurface[]>;
   mutateRepo: () => Promise<unknown>;
   refreshAgents: () => Promise<unknown> | unknown;
   setEditorTarget: Dispatch<SetStateAction<EditorTarget | null>>;
@@ -66,8 +67,9 @@ export function useDataPanelController({
   const [syncCreateInitialPath, setSyncCreateInitialPath] = useState<string | null>(null);
 
   const activeSyncNodeId = panelState.type === 'sync_config' ? panelState.nodeId ?? null : null;
-  const activeSyncId = activeSyncNodeId !== null
-    ? (syncEndpoints.get(activeSyncNodeId)?.syncId ?? null)
+  const selectedBinding = activeSyncNodeId !== null ? syncEndpoints.get(activeSyncNodeId) : undefined;
+  const activeSyncId = panelState.type === 'sync_config'
+    ? panelState.synchronizeBindingId ?? (selectedBinding?.resourceKind === 'synchronize' ? selectedBinding.id : null)
     : null;
 
   const rootScope = useMemo(() => matchRepositoryViewForPath('', scopes), [scopes]);

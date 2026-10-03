@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from src.config import settings
 from src.infra.supabase.client import SupabaseClient
-from src.ingest.file.config import etl_config
+from src.platform.imports.config import import_config
 from src.platform.imports.repository import ImportJobRepository
 from src.utils.logger import log_error
 
@@ -20,7 +20,7 @@ async def process_import_job_reaper() -> dict:
     try:
         stale = max(
             settings.IMPORT_JOB_STALE_SECONDS,
-            etl_config.import_task_timeout + 600,
+            import_config.import_task_timeout + 600,
         )
         repo = ImportJobRepository(SupabaseClient())
         recovered = repo.recover_stale_active_jobs(

@@ -1,15 +1,15 @@
 """Database Import Service - Core business logic"""
 
 import logging
-from typing import Any, List
+from typing import Any
 
-from src.platform.imports.database.models import DBConnection
-from src.provider.database import get_provider
-from src.provider.database.base import QueryResult, TableInfo
-from src.platform.imports.database.repository import DBConnectionRepository
 from src.exceptions import ErrorCode, NotFoundException
 from src.platform.authorization.models import ProjectAction
 from src.platform.authorization.service import AuthorizationService
+from src.platform.imports.database.models import DBConnection
+from src.platform.imports.database.repository import DBConnectionRepository
+from src.provider.database import get_provider
+from src.provider.database.base import QueryResult, TableInfo
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class DatabaseImportService:
     ) -> dict[str, Any]:
         """Create a connection and test it immediately."""
         self.authorization.authorize(
-            project_id, user_id, ProjectAction.SYNCHRONIZE_MANAGE
+            project_id, user_id, ProjectAction.IMPORT_SOURCE_MANAGE
         )
         db_provider = get_provider(provider)
         test_result = await db_provider.test_connection(config)
@@ -58,7 +58,7 @@ class DatabaseImportService:
         )
 
         return {
-            "connection": connection,
+            "source": connection,
             "database_info": test_result,
         }
 
@@ -74,13 +74,13 @@ class DatabaseImportService:
         self.authorization.authorize(conn.project_id, user_id, action)
         return conn
 
-    def list_connections(self, project_id: str, user_id: str) -> List[DBConnection]:
+    def list_connections(self, project_id: str, user_id: str) -> list[DBConnection]:
         self.authorization.authorize(project_id, user_id, ProjectAction.ACCESS_READ)
         return self.repo.list_by_project(project_id)
 
     def delete_connection(self, connection_id: str, user_id: str) -> bool:
         conn = self.get_connection(
-            connection_id, user_id, ProjectAction.SYNCHRONIZE_MANAGE
+            connection_id, user_id, ProjectAction.IMPORT_SOURCE_MANAGE
         )
         return self.repo.delete(conn.id)
 

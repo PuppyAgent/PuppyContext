@@ -32,7 +32,7 @@ class _FakeArq:
 
 def _integration(**over):
     base = {"id": "int-1", "webhook_secret": "s3cr3t", "default_branch": "main",
-            "auto_import": True, "last_imported_sha": "old"}
+            "auto_pull": True, "last_pulled_sha": "old"}
     base.update(over)
     return base
 
@@ -66,10 +66,10 @@ async def test_dispatch_skips_without_enqueue(monkeypatch):
     hdr = {"x-hub-signature-256": _sig("s3cr3t", body)}
     r = await wh._maybe_dispatch(_integration(), "feature", "sha", body, hdr)
     assert r["status"] == "skipped" and "branch_mismatch" in r["reason"]
-    r = await wh._maybe_dispatch(_integration(auto_import=False), "main", "sha", body, hdr)
-    assert r["status"] == "skipped" and r["reason"] == "auto_import_disabled"
-    r = await wh._maybe_dispatch(_integration(last_imported_sha="sha"), "main", "sha", body, hdr)
-    assert r["status"] == "skipped" and r["reason"] == "already_imported"
+    r = await wh._maybe_dispatch(_integration(auto_pull=False), "main", "sha", body, hdr)
+    assert r["status"] == "skipped" and r["reason"] == "auto_pull_disabled"
+    r = await wh._maybe_dispatch(_integration(last_pulled_sha="sha"), "main", "sha", body, hdr)
+    assert r["status"] == "skipped" and r["reason"] == "already_pulled"
     r = await wh._maybe_dispatch(_integration(webhook_secret=None), "main", "sha", body, hdr)
     assert r["status"] == "skipped" and r["reason"] == "no_webhook_secret"
     assert fake.calls == []  # none of these reach the worker
@@ -97,9 +97,9 @@ async def test_execute_github_import_runs_branch(monkeypatch):
 
     monkeypatch.setattr(gh_jobs, "GithubSyncRepository", lambda: _Repo())
     monkeypatch.setattr(gh_jobs, "import_branch", _imp)
-    out = await gh_jobs.execute_github_import({}, "int-9", branch="main",
+    out = await gh_jobs.execute_synchronize_github_pull({}, "int-9", branch="main",
                                               force=False, triggered_by="webhook")
-    assert out["status"] == "success" and out["integration_id"] == "int-9"
+    assert out["status"] == "success" and out["synchronize_github_binding_id"] == "int-9"
     assert seen["fetched"] == "int-9" and seen["import"]["branch"] == "main"
 
 
@@ -108,5 +108,5 @@ async def test_execute_github_import_missing_integration(monkeypatch):
         async def get_by_id(self, iid):
             return None
     monkeypatch.setattr(gh_jobs, "GithubSyncRepository", lambda: _Repo())
-    out = await gh_jobs.execute_github_import({}, "missing")
-    assert out["status"] == "skipped" and out["reason"] == "integration_not_found"
+    out = await gh_jobs.execute_synchronize_github_pull({}, "missing")
+    assert out["status"] == "skipped" and out["reason"] == "binding_not_found"

@@ -18,18 +18,19 @@ not fixed in the filesystem concurrency patch.
 - `auth whoami` human output labels the account as `User:` rather than
   exposing an `email` field, while `cli/tests/run.sh` expects "email".
 
-## Datasource gateway autodetect
+## Datasource routing — source-tree fix, not released
 
-- `access add <datasource>` passes `{ params: { provider } }` to
-  `client.get()`, which serializes as `params=[object Object]` instead of
-  `provider=...`.
-- `access providers` currently prints only MUT-native/platform providers
-  (`direct`, `agent`, `mcp`, etc.). The integration test expects datasource
-  providers such as Gmail/Notion/GitHub, so provider discovery needs a
-  deliberate split or unified output contract.
+ISSUE-060 removes gateway autodetection from external-source creation. Import
+and Synchronize query their own server-admitted Provider views; Access lists
+Agent/MCP/Sandbox kinds. The CLI HTTP regression executes all three owning
+services. Generic Synchronize and Access use canonical paths without fallback;
+GitHub/database-source cutovers and publication remain pending; see
+[unreleased compatibility notes](../docs/cli/ENTRYPOINTS-UNRELEASED.md).
 
-## Agent create config
+## Agent create config — ignored options now rejected
 
-- `access add agent --model/--system-prompt` writes `config.model` and
-  `config.system_prompt`; the backend create path expects `llm_model` and
-  does not currently consume the CLI `model` value.
+`access add agent --model/--system-prompt` and model/prompt create config now
+fail before requests. The current Access Agent create path consumes neither
+`model`, `llm_model` nor `system_prompt`; changing the spelling would not fix it.
+No model/prompt configuration feature is claimed. Use supported Agent workflows;
+these CLI flags must not silently create a default-configured Agent.

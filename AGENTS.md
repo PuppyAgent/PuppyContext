@@ -62,7 +62,7 @@ It aggregates information scattered across various sources into a unified Contex
 
 - **Agent management** — Create agents, bind tools, control access scope, SSE streaming chat
 - **Full CLI coverage** — Every operation available via command line, enabling AI coding tools like Claude Code to drive the platform directly
-- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through a single `/api/v1/access` entry point. `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external source relationships live in `connections`.
+- **Unified access management** — Access surfaces use `/api/v1/access/surfaces`; old resource HTTP routes are not mounted in the final-source build. `access_surfaces` targets Project root with `scope_id = NULL` or a real `repository_scopes` row. Durable sources use `synchronize_bindings`; reusable Database Import configuration uses `import_database_sources`. This source state does not establish hosted deployment.
 
 ## Active Development Directories
 
@@ -155,7 +155,7 @@ backend/
 
 ### Database Tables
 
-All tables use plural snake_case names. The "unified access" architecture serves agents, MCP endpoints, sandbox endpoints, and Git-remote/CLI credentials through `access_surfaces`, differentiated by `kind` and targeted by `(project_id, nullable scope_id)`. NULL means the Project-owned root; a non-NULL value references a true non-empty-path row in `repository_scopes`. Every machine secret lives hash-only in `access_surface_credentials` and is revealed only on issuance. Provider config must never contain credentials. External source relationships live in `connections`, and executions in `sync_runs`.
+All tables use plural snake_case names. The "unified access" architecture serves agents, MCP endpoints, sandbox endpoints, and Git-remote/CLI credentials through `access_surfaces`, differentiated by `kind` and targeted by `(project_id, nullable scope_id)`. NULL means the Project-owned root; a non-NULL value references a true non-empty-path row in `repository_scopes`. Every machine secret lives hash-only in `access_surface_credentials` and is revealed only on issuance. Provider config must never contain credentials. External source relationships live in `synchronize_bindings`, and executions in `synchronize_runs`. Database Import configurations live independently in `import_database_sources`. Populated upgrades require the reviewed Expand/data release before the gated Contract/application release.
 
 | Table | Repository | Description |
 |-------|-----------|-------------|
@@ -167,7 +167,9 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `profiles` | `profile/repository.py` | User profiles |
 | `access_surfaces` | `platform/access/router.py`, `platform/access/surface_repository.py` | Unified access surfaces keyed by `kind`, targeting Project root or one Scope through nullable `scope_id` |
 | `repository_scopes` | `repo/scope_repository.py`, `repo/scope_service.py` | Non-root subtree geometry (`path`, `exclude`, `max_mode`); never a repository or credential owner |
-| `connections` / `sync_runs` | `platform/synchronize/repository.py`, `platform/synchronize/run_repository.py` | External source relationships and their executions |
+| `synchronize_bindings` / `synchronize_runs` | `platform/synchronize/repository.py`, `platform/synchronize/run_repository.py` | Durable bindings and executions; run parent is `synchronize_binding_id` |
+| `import_database_sources` | `platform/imports/database/repository.py` | Encrypted reusable one-time Import configuration; never inferred from provider or equal IDs |
+| `synchronize_github_bindings` / `synchronize_github_logs` | `platform/synchronize/github/repository.py` | Dedicated GitHub bindings/history, canonical parent, watermarks and inbound/outbound direction |
 | `access_permissions` | `platform/access/adapters/agent/config/repository.py` | Access surface ↔ content node permissions |
 | `access_tools` | `platform/access/adapters/agent/config/repository.py`, `tool/service.py` | Access surface ↔ tool bindings |
 | `content_nodes` | _(dropped — replaced by Version Engine Git trees in object storage)_ | Legacy content tree |
@@ -204,15 +206,19 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 tool binding & proxy |
 | `/api/v1/mcp-endpoints` | platform/access/adapters/mcp_endpoint | MCP endpoint CRUD & API key |
 | `/api/v1/sandbox-endpoints` | platform/access/adapters/sandbox_endpoint | Sandbox endpoint CRUD & exec |
-| `/api/v1/access` | platform/access | Unified access management (all types) |
-| `/api/v1/integrations` | platform/synchronize | Data source sync |
+| `/api/v1/access/surfaces` | platform/access/public_router | Access surface management (`kind`, contract v2) |
+| `/api/v1/synchronize` | platform/synchronize/public_router | Synchronize bindings and runs; never Access IDs |
+| `/api/v1/access`, `/api/v1/integrations` | retired resource routes | Not mounted in the final-source build; no client fallback |
 | `/api/v1/filesystem` | connectors/filesystem | Filesystem access lifecycle |
 | `/api/v1/ingest` | upload | File/URL ingestion ETL |
 | `/api/v1/ap-fs` | version_engine/routers/access_point_fs | Puppyone CLI scoped filesystem API |
 | `/git/{project_id}.git`, `/git/{project_id}/scopes/{scope_id}.git` | version_engine/entrypoints/git/router | Canonical Git smart-HTTP clone/fetch/push; credential is HTTP auth, not URL data |
 | `/git/ap/{access_key}.git` | version_engine/entrypoints/git/router | Bounded, instrumented legacy compatibility only; never construct for new clients |
 | `/api/v1/workspace` | workspace | Workspace management |
-| `/api/v1/db-connector` | db_connector | External database access |
+| `/api/v1/imports/database/sources` | platform/imports/database/public_router | One-time database sources; never Synchronize or Access identities |
+| `/api/v1/projects/{project_id}/synchronize/github` | platform/synchronize/github/public_router | GitHub binding, pull/push and logs; webhook at `/api/v1/synchronize/github/webhook` |
+| `/api/v1/projects/{project_id}/dashboard/resources`, `/api/v1/activity/items` | project/resource_dashboard, activity/public_router | Domain-qualified read-only aggregates; no legacy DTO fallback |
+| `/api/v1/db-connector`, old GitHub/dashboard/activity URLs | retired resource routes | Not mounted; target-environment release/configuration evidence remains separate |
 | `/api/v1/publishes` | context_publish | Public JSON short links |
 | `/api/v1/oauth` | provider/oauth | OAuth authorization (9+ platforms) |
 | `/api/v1/auth` | auth | Authentication (login/refresh) |
@@ -236,8 +242,10 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 9090 --reload --log-level info
 uv run pytest
 uv run pytest -m "not e2e"      # Exclude e2e tests
 
-# Start file worker (ETL / OCR)
-uv run arq src.upload.file.jobs.worker.WorkerSettings
+# Start domain workers (coordinate queue drain before changing deployments)
+uv run arq src.platform.upload.worker.WorkerSettings
+uv run arq src.platform.imports.worker.WorkerSettings
+uv run arq src.platform.synchronize.worker.WorkerSettings
 ```
 
 ### Deployment
@@ -245,7 +253,9 @@ uv run arq src.upload.file.jobs.worker.WorkerSettings
 Railway multi-service deployment (shared codebase, differentiated by `SERVICE_ROLE`):
 
 - **api** (default): Main API service
-- **file_worker**: File ETL Worker (ARQ)
+- **upload_worker**: Upload completion / file processing (ARQ)
+- **import_worker**: One-time ImportJob execution (ARQ)
+- **synchronize_worker**: Synchronize runs and dedicated GitHub pulls (ARQ)
 - **mcp_server**: MCP protocol service (FastMCP)
 
 ---
@@ -317,7 +327,7 @@ frontend/
 │   ├── organizationsApi.ts       # Organizations API
 │   ├── oauthApi.ts               # OAuth API
 │   ├── ingestApi.ts              # Ingestion API
-│   ├── dbConnectorApi.ts         # Database connector API
+│   ├── importDatabaseApi.ts      # Canonical one-time Database Import sources
 │   └── profileApi.ts             # User profile API
 ├── contexts/                     # React Context
 │   ├── AgentContext.tsx           # Agent state management
@@ -390,14 +400,20 @@ cli/
 
 ### Key Commands
 
+Source-tree commands below require the matching backend; they are not a claim
+that npm `0.2.1` has been republished. See `docs/cli/ENTRYPOINTS-UNRELEASED.md`.
+Never send an external source to Access creation, or substitute an Access ID for
+a Synchronize binding ID. Do not silently turn snapshots into persistent jobs.
+
 ```bash
 puppyone auth login                    # Sign in
 puppyone project use "My Project"      # Set active project
-puppyone access add notion <url>       # Connect a SaaS data source
+puppyone import create <url> --provider notion --folder /notes  # One-time snapshot
+puppyone synchronize add gmail <url> --folder /mail --mode manual  # Durable binding
+puppyone synchronize providers        # Server-admitted persistent sources
 puppyone access add agent "Bot"        # Create an AI agent
-puppyone access add mcp "Data API"     # Create MCP endpoint
-puppyone access add filesystem /docs   # Mount local folder sync
-puppyone access ls                     # List all access points
+puppyone access add mcp "Data API"      # Create MCP endpoint
+puppyone access ls --kind mcp          # List Access surfaces (kind, not source provider)
 puppyone status                        # Project dashboard
 puppyone chat                          # Chat with an agent
 puppyone fs semantics                  # Unix compatibility notes + resource limits for agents

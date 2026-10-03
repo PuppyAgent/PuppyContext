@@ -6,7 +6,7 @@ import synchronously — GitHub gives webhook receivers a 5-second
 budget, and a real branch import involves N+1 GitHub API round-trips
 plus an S3 upload pass; missing the budget makes GitHub mark the
 delivery as failed and start retrying, which we then dedupe via
-``github_sync_log``. Cleaner: 200 fast, run async.
+``synchronize_github_logs``. Cleaner: 200 fast, run async.
 
 References
 ----------
@@ -67,7 +67,7 @@ async def handle_webhook(
         4. If the push was for the wrong branch, ack-and-skip.
         5. Idempotency on ``git_sha``: if already imported, ack.
         6. Enqueue the import onto the durable ``imports`` worker queue
-           (``execute_github_import``) and ack — the import runs out of
+           (``execute_synchronize_github_pull``) and ack — the import runs out of
            process, surviving API deploys/crashes.
     """
     event_type = headers.get("x-github-event", "").lower()
@@ -100,7 +100,7 @@ async def handle_webhook(
             f"[GithubWebhook] no integration bound to {owner}/{repo_name}; "
             f"acking delivery"
         )
-        return {"status": "no_integration", "delivery_id": delivery_id}
+        return {"status": "no_binding", "delivery_id": delivery_id}
 
     # One repo can be bound to multiple PuppyOne projects (different
     # users / orgs). Handle each independently.
@@ -126,7 +126,7 @@ async def _maybe_dispatch(
             f"[GithubWebhook] integration={binding_id} has no webhook_secret; "
             f"refusing delivery"
         )
-        return {"integration_id": binding_id, "status": "skipped",
+        return {"synchronize_github_binding_id": binding_id, "status": "skipped",
                 "reason": "no_webhook_secret"}
 
     sig_header = headers.get("x-hub-signature-256", "")
@@ -135,22 +135,22 @@ async def _maybe_dispatch(
         raise WebhookRejection(401, "signature mismatch")
 
     if binding.get("default_branch") and pushed_branch != binding["default_branch"]:
-        return {"integration_id": binding_id, "status": "skipped",
+        return {"synchronize_github_binding_id": binding_id, "status": "skipped",
                 "reason": f"branch_mismatch ({pushed_branch} vs {binding['default_branch']})"}
 
-    if not binding.get("auto_import"):
-        return {"integration_id": binding_id, "status": "skipped",
-                "reason": "auto_import_disabled"}
+    if not binding["auto_pull"]:
+        return {"synchronize_github_binding_id": binding_id, "status": "skipped",
+                "reason": "auto_pull_disabled"}
 
-    if pushed_sha and binding.get("last_imported_sha") == pushed_sha:
-        return {"integration_id": binding_id, "status": "skipped",
-                "reason": "already_imported"}
+    if pushed_sha and binding.get("last_pulled_sha") == pushed_sha:
+        return {"synchronize_github_binding_id": binding_id, "status": "skipped",
+                "reason": "already_pulled"}
 
-    # Enqueue the import onto the durable imports worker queue (out of the API
+    # Enqueue the pull onto the durable Synchronize worker queue (out of the API
     # process). The webhook only validates + enqueues + acks, staying well
     # inside GitHub's 5s budget; the worker survives API deploys/crashes. The
     # ARQ _job_id dedups a redelivered webhook for the same push, and
-    # import_branch's own has_successful_sha check is a second guard.
+    # import_branch's own find_successful_sha check is a second guard.
     from src.platform.synchronize.github.arq_client import get_github_sync_arq_client
 
     dedup_key = f"gh-import:{binding_id}:{pushed_sha}" if pushed_sha else None
@@ -167,12 +167,12 @@ async def _maybe_dispatch(
         log_error(
             f"[GithubWebhook] failed to enqueue import integration={binding_id}: {exc!r}"
         )
-        return {"integration_id": binding_id, "status": "error",
+        return {"synchronize_github_binding_id": binding_id, "status": "error",
                 "reason": "enqueue_failed"}
 
     if worker_job_id is None:
         # ARQ deduped against an in-flight job for the same push.
-        return {"integration_id": binding_id, "status": "queued",
+        return {"synchronize_github_binding_id": binding_id, "status": "queued",
                 "reason": "already_queued"}
-    return {"integration_id": binding_id, "status": "queued",
+    return {"synchronize_github_binding_id": binding_id, "status": "queued",
             "worker_job_id": worker_job_id}

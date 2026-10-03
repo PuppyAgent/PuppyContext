@@ -3,20 +3,17 @@
 import { useAgent } from '@/contexts/AgentContext';
 import {
   DataLayoutContext,
-  type SyncEndpointInfo,
+  type EntrypointBadge,
 } from '@/features/files/DataLayoutContext';
 import { useFileWorkspaceQueries } from '@/features/files/useFileWorkspaceQueries';
+import { entrypointBadgeKey, selectSynchronizeBadges } from './entrypointBadges';
 import {
-  isMcpProvider,
-  isSandboxProvider,
-} from '@/lib/accessProviderRegistry';
-import {
-  isAccessSurfaceConnector,
-  normalizeAccessSurfaceConnectors,
+  isAccessSurface,
+  filterAccessSurfaces,
   projectRootRepositoryView,
   repositoryScopeView,
   repositoryTargetKey,
-  type Connector,
+  type AccessSurface,
 } from '@/lib/repoApi';
 import { useCallback, useMemo } from 'react';
 
@@ -45,8 +42,8 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
 
   const accessConnectorsForDataView = useMemo(
     () =>
-      normalizeAccessSurfaceConnectors(connectorsList || [])
-        .filter((connector) => isAccessSurfaceConnector(connector)),
+      filterAccessSurfaces(connectorsList || [])
+        .filter((connector) => isAccessSurface(connector)),
     [connectorsList],
   );
 
@@ -59,7 +56,7 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
   );
 
   const connectorsByTarget = useMemo(() => {
-    const m = new Map<string, Connector[]>();
+    const m = new Map<string, AccessSurface[]>();
     for (const c of accessConnectorsForDataView) {
       const key = repositoryTargetKey(c.target);
       const list = m.get(key) || [];
@@ -74,24 +71,24 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
   }, [mutateScopes, mutateConnectors, mutateIdentity]);
 
   const nodeEndpointMap = useMemo(() => {
-    const map = new Map<string, SyncEndpointInfo[]>();
-    const append = (rawNodeId: string | null | undefined, endpoint: SyncEndpointInfo) => {
+    const map = new Map<string, EntrypointBadge[]>();
+    const append = (rawNodeId: string | null | undefined, endpoint: EntrypointBadge) => {
       const nodeId = normalizeEndpointPath(rawNodeId);
       const list = map.get(nodeId) || [];
-      if (list.some((item) => item.syncId === endpoint.syncId && item.provider === endpoint.provider)) return;
+      if (list.some((item) => entrypointBadgeKey(item) === entrypointBadgeKey(endpoint))) return;
       list.push(endpoint);
       map.set(nodeId, list);
     };
 
-    if (syncStatusData?.syncs) {
-      for (const s of syncStatusData.syncs) {
+    if (syncStatusData?.bindings) {
+      for (const s of syncStatusData.bindings) {
         append(s.path, {
-          syncId: s.id,
+          resourceKind: 'synchronize',
+          id: s.id,
           provider: s.provider,
           direction: s.direction,
           status: s.status,
-          name: s.name,
-          accessKey: s.access_key,
+          name: s.name ?? undefined,
         });
       }
     }
@@ -105,43 +102,50 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
       repositoryViews.map((view) => [repositoryTargetKey(view.target), view]),
     );
     for (const c of accessConnectorsForDataView) {
-      if (c.provider === 'agent') continue;
+      if (c.kind === 'agent') continue;
       const view = viewByTarget.get(repositoryTargetKey(c.target));
       if (!view) continue;
       append(view.path, {
-        syncId: c.id,
-        provider: c.provider,
-        direction: c.direction,
+        resourceKind: 'access',
+        id: c.id,
+        provider: c.kind,
+        direction: c.direction ?? '',
         status: c.status,
         name: c.name || view.name,
-        accessKey: null,
         repositoryTarget: view.target,
       });
     }
 
+    // Adapter rows are projections of access_surfaces (the same primary ID).
+    // Enrich display paths only after matching that persisted resource, never
+    // infer an Access identity or target from a Provider name or path.
+    const surfaceById = new Map(accessConnectorsForDataView.map(surface => [surface.id, surface]));
     for (const agent of savedAgents) {
-      if (agent.type === 'chat' && agent.resources) {
+      const surface = surfaceById.get(agent.id);
+      if (surface?.kind === 'agent' && agent.type === 'chat' && agent.resources) {
         for (const r of agent.resources) {
           append(r.path, {
-            syncId: agent.id,
+            resourceKind: 'access',
+            id: agent.id,
             provider: `agent:${agent.type}`,
             direction: 'bidirectional',
-            status: 'active',
+            status: surface.status,
             name: agent.name,
-            accessKey: agent.mcp_api_key,
           });
         }
       }
     }
 
     for (const endpoint of mcpEndpoints || []) {
-      const info: SyncEndpointInfo = {
-        syncId: endpoint.id,
+      const surface = surfaceById.get(endpoint.id);
+      if (!surface || !['mcp', 'mcp_endpoint'].includes(surface.kind)) continue;
+      const info: EntrypointBadge = {
+        resourceKind: 'access',
+        id: endpoint.id,
         provider: 'mcp',
         direction: 'bidirectional',
-        status: endpoint.status,
+        status: surface.status,
         name: endpoint.name,
-        accessKey: endpoint.api_key,
       };
       append(endpoint.path, info);
       for (const access of endpoint.accesses || []) {
@@ -150,13 +154,15 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
     }
 
     for (const endpoint of sandboxEndpoints || []) {
-      const info: SyncEndpointInfo = {
-        syncId: endpoint.id,
+      const surface = surfaceById.get(endpoint.id);
+      if (!surface || !['sandbox', 'sandbox_endpoint'].includes(surface.kind)) continue;
+      const info: EntrypointBadge = {
+        resourceKind: 'access',
+        id: endpoint.id,
         provider: 'sandbox',
         direction: 'bidirectional',
-        status: endpoint.status,
+        status: surface.status,
         name: endpoint.name,
-        accessKey: endpoint.access_key,
       };
       append(endpoint.path, info);
       for (const mount of endpoint.mounts || []) {
@@ -167,23 +173,7 @@ export function FileWorkspaceQueriesProvider({ children, projectId }: DataLayout
     return map;
   }, [syncStatusData, savedAgents, mcpEndpoints, sandboxEndpoints, repositoryViews, accessConnectorsForDataView]);
 
-  const syncEndpoints = useMemo(() => {
-    const pickPriority = (provider: string): number => {
-      if (provider.startsWith('agent:')) return 1;
-      if (isMcpProvider(provider)) return 2;
-      if (isSandboxProvider(provider)) return 3;
-      return 4;
-    };
-
-    const map = new Map<string, SyncEndpointInfo>();
-    for (const [nodeId, endpoints] of nodeEndpointMap.entries()) {
-      const selected = [...endpoints].sort(
-        (a, b) => pickPriority(a.provider) - pickPriority(b.provider),
-      )[0];
-      if (selected) map.set(nodeId, selected);
-    }
-    return map;
-  }, [nodeEndpointMap]);
+  const syncEndpoints = useMemo(() => selectSynchronizeBadges(nodeEndpointMap), [nodeEndpointMap]);
 
   const contextValue = useMemo(
     () => ({

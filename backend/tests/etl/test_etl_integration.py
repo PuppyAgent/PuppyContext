@@ -72,11 +72,11 @@ SKIP_INTEGRATION_TEST = not MINERU_API_KEY
 if SKIP_INTEGRATION_TEST:
     pytest.skip("Skip ETL integration test (MINERU_API_KEY not set)", allow_module_level=True)
 
-from src.ingest.file.dependencies import get_etl_service  # noqa: E402
-from src.ingest.file.mineru.client import MineRUClient  # noqa: E402
-from src.ingest.file.rules.schemas import RuleCreateRequest  # noqa: E402
-from src.ingest.file.service import ETLService  # noqa: E402
-from src.ingest.file.tasks.models import ETLTaskStatus  # noqa: E402
+from src.platform.upload.dependencies import get_etl_service  # noqa: E402
+from src.infra.file_processing.mineru.client import MineRUClient  # noqa: E402
+from src.infra.file_processing.rules.schemas import RuleCreateRequest  # noqa: E402
+from src.platform.upload.service import ETLService  # noqa: E402
+from src.platform.upload.tasks.models import ETLTaskStatus  # noqa: E402
 from src.infra.llm.service import LLMService  # noqa: E402
 from src.infra.s3.service import S3Service  # noqa: E402
 
@@ -632,7 +632,7 @@ async def test_etl_with_nonexistent_rule(etl_service, s3_service):
     """测试使用不存在的规则提交任务"""
     print("\n测试不存在的规则...")
     
-    from src.ingest.file.exceptions import RuleNotFoundError
+    from src.infra.file_processing.exceptions import RuleNotFoundError
     
     # 尝试使用不存在的规则ID
     with pytest.raises(RuleNotFoundError):

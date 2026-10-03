@@ -4,9 +4,9 @@ import { CountBadge } from '@/components/ui/CountBadge';
 import { AccessPointRow } from '@/features/files/components/access-points/AccessPointRow';
 import { ACCESS_PANEL_TYPOGRAPHY, COLOR_FG, COLOR_FG_DIM } from '@/features/files/components/access-points/tokens';
 import type { ProviderIconLookup } from '@/features/files/components/access-points/types';
-import { repositoryViewKey, type Connector, type RepositoryView } from '@/lib/repoApi';
+import { repositoryViewKey, type AccessSurface, type RepositoryView } from '@/lib/repoApi';
 
-const EMPTY_CONNECTORS: readonly Connector[] = Object.freeze([]);
+const EMPTY_CONNECTORS: readonly AccessSurface[] = Object.freeze([]);
 
 /**
  * AllAccessPointsList — project-wide list of access points.
@@ -25,7 +25,7 @@ export function AllAccessPointsList({
   readonly scopes: readonly RepositoryView[];
   /** project-wide connectors keyed by scope_id; built once in
    *  DataLayout and passed straight through. */
-  readonly connectorsByTarget: ReadonlyMap<string, Connector[]>;
+  readonly connectorsByTarget: ReadonlyMap<string, AccessSurface[]>;
   readonly providerIcons: ProviderIconLookup;
   readonly currentScopePath?: string | null;
   readonly onSelectScope: (targetKey: string) => void;

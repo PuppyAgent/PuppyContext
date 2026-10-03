@@ -50,9 +50,9 @@ export interface DataPageDialogsProps {
   // Supabase
   supabaseConnectOpen: boolean;
   onCloseSupabaseConnect: () => void;
-  onSupabaseConnected: (connectionId: string) => void;
+  onSupabaseConnected: (importDatabaseSourceId: string) => void;
   supabaseSQLEditorOpen: boolean;
-  supabaseConnectionId: string | null;
+  importDatabaseSourceId: string | null;
   onCloseSupabaseSQLEditor: () => void;
   onSupabaseSaved: () => void;
 
@@ -77,7 +77,7 @@ export function DataPageDialogs(props: DataPageDialogsProps) {
     createTableOpen, onCloseCreateTable, defaultStartOption,
     createFolderOpen, onCloseFolderDialog, onFolderSuccess,
     supabaseConnectOpen, onCloseSupabaseConnect, onSupabaseConnected,
-    supabaseSQLEditorOpen, supabaseConnectionId, onCloseSupabaseSQLEditor, onSupabaseSaved,
+    supabaseSQLEditorOpen, importDatabaseSourceId, onCloseSupabaseSQLEditor, onSupabaseSaved,
     fileImportDialogOpen, onCloseFileImport, onFileImportConfirm, droppedFiles, fileImportTargetLabel,
     filePickerInputRef, folderPickerInputRef, onFilePickerChange, onFolderPickerChange,
   } = props;
@@ -160,6 +160,7 @@ export function DataPageDialogs(props: DataPageDialogsProps) {
       {/* Supabase Connect */}
       {supabaseConnectOpen && (
         <SupabaseConnectDialog
+          key={projectId}
           projectId={projectId}
           onClose={onCloseSupabaseConnect}
           onConnected={onSupabaseConnected}
@@ -167,10 +168,11 @@ export function DataPageDialogs(props: DataPageDialogsProps) {
       )}
 
       {/* Supabase SQL Editor */}
-      {supabaseSQLEditorOpen && supabaseConnectionId && (
+      {supabaseSQLEditorOpen && importDatabaseSourceId && (
         <SupabaseSQLEditorDialog
           projectId={projectId}
-          connectionId={supabaseConnectionId}
+          key={`${projectId}:${importDatabaseSourceId}`}
+          importDatabaseSourceId={importDatabaseSourceId}
           onClose={onCloseSupabaseSQLEditor}
           onSaved={onSupabaseSaved}
         />

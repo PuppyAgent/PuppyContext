@@ -14,7 +14,7 @@ import {
 } from '@/lib/contentTreeApi';
 import { useContentNodes } from '@/lib/hooks/useData';
 import { FileGlyphIcon } from '@/lib/fileIcons';
-import { updateWorkflowConnection } from '@/lib/workflowApi';
+import { updateSynchronizeBinding as updateWorkflowConnection } from '@/lib/synchronizeApi';
 import {
   configDraftFrom,
   configPatchFrom,

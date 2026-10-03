@@ -1,7 +1,7 @@
 'use client';
 
 import { ItemContextMenu } from '@/features/files/components/explorer/ExplorerRowMenus';
-import type { ExplorerCreateMenuAction, ExplorerSidebarProps, SyncEndpointInfo } from '@/features/files/components/explorer/types';
+import type { ExplorerCreateMenuAction, ExplorerSidebarProps, EntrypointBadge } from '@/features/files/components/explorer/types';
 import type { MouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
 
@@ -131,7 +131,7 @@ export function ExplorerRowActions({
   createParentId: string | null;
   accessPath: string;
   isFolder: boolean;
-  endpoints: readonly SyncEndpointInfo[];
+  endpoints: readonly EntrypointBadge[];
   openMenuAction?: ExplorerCreateMenuAction | null;
   alwaysVisible?: boolean;
   isSynced?: boolean;

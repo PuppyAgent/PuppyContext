@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from src.ingest.upload_jobs import UploadJobRepository, _parse_dt
+from src.platform.upload.repository import UploadJobRepository, _parse_dt
 
 UTC = timezone.utc
 

@@ -10,7 +10,7 @@ import platform
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from src.provider.schemas import SyncResult  # L2.5
+from src.platform.workspace.sync_models import SyncResult  # L2.5
 from src.platform.workspace.paths import validate_storage_segment
 
 

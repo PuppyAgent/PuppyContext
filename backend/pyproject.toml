@@ -77,7 +77,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "D", "BLE001"]
-"src/ingest/file/jobs/worker.py" = ["E402"]
+"src/platform/upload/worker.py" = ["E402"]
 "src/ingest/router.py" = ["E402"]
 
 [tool.ruff.format]

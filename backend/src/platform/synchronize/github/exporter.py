@@ -15,7 +15,7 @@ One commit per export. The flow:
    branch HEAD as parent, and the configured author identity.
 6. ``PATCH /repos/.../git/refs/heads/<branch>`` to fast-forward the
    branch ref. ``force=False`` so we surface non-FF as a clear error.
-7. Persist a ``github_sync_log`` row + bump ``last_exported_*``.
+7. Persist a ``synchronize_github_logs`` row + bump ``last_pushed_*``.
 
 PR-mode (when the branch is protected and direct push is forbidden)
 is a documented gap — we surface the GitHub 422 error and let the
@@ -38,7 +38,7 @@ from src.platform.synchronize.github.repository import (
     GithubSyncRepository,
     GithubSyncLogRepository,
 )
-from src.platform.synchronize.github.schemas import GithubSyncRunResult
+from src.platform.synchronize.github.public_schemas import SynchronizeGithubResult
 from src.utils.logger import log_error, log_info
 from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
 
@@ -49,7 +49,7 @@ async def export_to_branch(
     message: str | None = None,
     triggered_by: str = "manual",
     write_lease_factory: ProjectWriteLeaseFactory = ProjectWriteLease,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     project_id = binding["project_id"]
     owner = binding["github_repo_owner"]
@@ -83,7 +83,7 @@ async def _export_with_write_lease(
     owner: str,
     repo_name: str,
     write_lease_factory: ProjectWriteLeaseFactory,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     # Admission is the first side-effecting step. Even an export that later
     # fails OAuth validation must be rejected once Project deletion closes.
     async with write_lease_factory(project_id, "github.export"):
@@ -105,7 +105,7 @@ async def _export_after_admission(
     project_id: str,
     owner: str,
     repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     oauth_id = binding.get("oauth_connection_id")
     sync_log = GithubSyncLogRepository()
@@ -153,7 +153,7 @@ async def _do_export_with_failure_recording(
     project_id: str,
     owner: str,
     repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     try:
         return await _do_export(
@@ -207,7 +207,7 @@ async def _do_export(
     commit_message: str | None, sync_log: GithubSyncLogRepository,
     binding_repo: GithubSyncRepository,
     project_id: str, owner: str, repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
 
     # 1. List the version scope's current contents.
@@ -215,11 +215,12 @@ async def _do_export(
     if not files:
         msg = "version scope is empty — nothing to export"
         await sync_log.record(
-            binding_id, direction="export", status="failed",
+            binding_id, direction="outbound", status="failed",
             error_message=msg,
         )
-        return GithubSyncRunResult(
-            status="failed", direction="export",
+        return SynchronizeGithubResult(
+            synchronize_github_binding_id=binding_id,
+            status="failed", direction="outbound",
             git_sha=None, version_commit_id=None, files_changed=0,
             error_message=msg,
         )
@@ -260,22 +261,23 @@ async def _do_export(
 
     files_changed = len(tree_entries)
     await sync_log.record(
-        binding_id, direction="export", status="success",
+        binding_id, direction="outbound", status="success",
         git_sha=new_git_sha, version_commit_id=head,
         files_changed=files_changed,
     )
     await binding_repo.update_watermark(
         binding_id,
-        last_exported_sha=new_git_sha,
-        last_exported_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        last_pushed_sha=new_git_sha,
+        last_pushed_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
 
     log_info(
         f"[GithubExport] done integration={binding_id} "
         f"git_sha={new_git_sha[:12]} files={files_changed}"
     )
-    return GithubSyncRunResult(
-        status="success", direction="export",
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
+        status="success", direction="outbound",
         git_sha=new_git_sha, version_commit_id=head,
         files_changed=files_changed,
     )
@@ -317,13 +319,14 @@ def _local_head_commit_id(project_id: str) -> str:
 async def _record_failure(
     sync_log: GithubSyncLogRepository,
     binding_id: str, error: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     await sync_log.record(
-        binding_id, direction="export", status="failed",
+        binding_id, direction="outbound", status="failed",
         error_message=error,
     )
-    return GithubSyncRunResult(
-        status="failed", direction="export",
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
+        status="failed", direction="outbound",
         git_sha=None, version_commit_id=None,
         files_changed=None, error_message=error,
     )

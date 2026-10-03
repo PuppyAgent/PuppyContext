@@ -12,7 +12,7 @@ import { useProjectSession } from '@/features/workspace/session';
 import { useConnectorSpecs } from '@/lib/hooks/useData';
 import type { SaasType } from '@/lib/oauthApi';
 import { resolveProviderIconUrl } from '@/lib/providerIcons';
-import { createSyncConnection } from '@/lib/syncApi';
+import { createSynchronizeBinding } from '@/lib/synchronizeApi';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 /* ================================================================
@@ -108,7 +108,7 @@ interface SyncConfigPanelProps {
   projectId: string;
   onClose: () => void;
   onBack?: () => void;
-  onSyncCreated?: (nodeId: string) => void;
+  onSyncCreated?: (nodeId: string, synchronizeBindingId?: string) => void;
   /** When opened from a scope context, restricts drag-drop targets to
    *  paths inside this scope (see isWithinScope). Forwarded to all
    *  inner config components (ChatAgentConfig /
@@ -159,7 +159,7 @@ function CreateView({
   projectId: string;
   onClose: () => void;
   onBack?: () => void;
-  onSyncCreated?: (nodeId: string) => void;
+  onSyncCreated?: (nodeId: string, synchronizeBindingId?: string) => void;
   scopeBoundary?: string;
   scopeBoundaryLabel?: string;
   presetAgentType?: AgentTypeId;
@@ -373,6 +373,7 @@ function CreateView({
 
       const config: Record<string, unknown> = { ...syncConfigValues };
       let createdNodeId: string | null = null;
+      let createdBindingId: string | undefined;
 
       if (creationMode === 'bootstrap') {
         await deploySyncEndpoint({
@@ -384,11 +385,11 @@ function CreateView({
         createdNodeId = target.path;
       } else {
         if (!providerDef) return;
-        const result = await createSyncConnection({
+        const result = await createSynchronizeBinding({
           project_id: projectId,
           provider: providerDef.id,
           config,
-          target_folder_path: target.path,
+          target_path: target.path,
           direction: providerDef.direction,
           sync_mode: draftSyncMode as 'manual' | 'scheduled',
           trigger: draftSyncMode === 'scheduled'
@@ -399,17 +400,18 @@ function CreateView({
               }
             : { type: 'manual' },
         });
-        createdNodeId = result.sync.path;
-        if (!createdNodeId) {
-          throw new Error('Access was created without a destination node.');
+        createdNodeId = result.binding.path;
+        createdBindingId = result.binding.id;
+        if (createdNodeId == null) {
+          throw new Error('Synchronize binding was created without a destination path.');
         }
-        if (result.sync.status === 'error' && result.sync.error_message) {
-          throw new Error(result.sync.error_message);
+        if (result.binding.status === 'error' && result.binding.error_message) {
+          throw new Error(result.binding.error_message);
         }
       }
 
-      if (createdNodeId && onSyncCreated) {
-        await onSyncCreated(createdNodeId);
+      if (createdNodeId !== null && onSyncCreated) {
+        await onSyncCreated(createdNodeId, createdBindingId);
       } else {
         onClose();
       }

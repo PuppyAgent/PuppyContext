@@ -1,10 +1,10 @@
-import type { SyncEndpointInfo } from '@/features/files/components/explorer';
+import type { EntrypointBadge } from '@/features/files/components/explorer';
 import {
   getAccessProviderLabel,
   isAgentProvider,
   normalizeConnectorProvider,
 } from '@/lib/accessProviderRegistry';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 
 export function providerLabel(provider: string): string {
   return getAccessProviderLabel(provider);
@@ -35,19 +35,12 @@ export function buildScopeMetaLine(scope: RepositoryView): string {
   return parts.join(' · ');
 }
 
-/** Build the endpoint-shaped value consumed by AccessPointProviderIcon. */
-export function connectorAsEndpointShape(c: Connector): SyncEndpointInfo {
+/** Icons need display metadata, never a fabricated binding identity. */
+export function accessSurfaceIcon(c: AccessSurface): Pick<EntrypointBadge, 'provider'> {
   let iconProvider: string;
-  if (isAgentProvider(c.provider)) iconProvider = 'agent:chat';
-  else iconProvider = normalizeConnectorProvider(c.provider);
-  return {
-    syncId: c.id,
-    provider: iconProvider,
-    direction: c.direction,
-    status: c.status,
-    name: c.name,
-    accessKey: null,
-  };
+  if (isAgentProvider(c.kind)) iconProvider = 'agent:chat';
+  else iconProvider = normalizeConnectorProvider(c.kind);
+  return { provider: iconProvider };
 }
 
 export function getApiBase(): string {

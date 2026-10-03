@@ -38,6 +38,23 @@ class ProviderRegistry:
     def get(self, provider: str) -> Optional[BaseProvider]:
         return self._providers.get(provider)
 
+    def select(self, providers) -> "ProviderRegistry":
+        """A capability view; adapters, OAuth clients and materializers stay shared.
+
+        The caller owns admission policy. Discovery in the global catalog never
+        implicitly opts a provider into a product lifecycle.
+        """
+        selected = ProviderRegistry()
+        selected._providers = {
+            name: self._providers[name] for name in providers if name in self._providers
+        }
+        selected._oauth_services = self._oauth_services
+        selected._materializers = {
+            name: self._materializers[name]
+            for name in selected._providers if name in self._materializers
+        }
+        return selected
+
     def list_specs(self) -> list[ProviderSpec]:
         return [c.spec() for c in self._providers.values()]
 
@@ -197,8 +214,6 @@ class ProviderRegistry:
                 "oauth_type": s.oauth_type,
                 "oauth_ui_type": s.oauth_ui_type,
                 "default_node_type": s.default_node_type,
-                "supported_sync_modes": list(s.supported_sync_modes),
-                "default_sync_mode": s.default_sync_mode,
                 "creation_mode": s.creation_mode,
                 "supported_directions": s.supported_directions,
                 "accept_types": list(s.accept_types),

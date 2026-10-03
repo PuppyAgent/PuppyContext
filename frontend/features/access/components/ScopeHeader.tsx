@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { StatusDot, StatusIndicator } from '@/components/ui/StatusDot';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { T } from '@/features/access/lib/tokens';
 import { STATUS_LABEL } from '@/features/access/lib/constants';
 import { SectionLabel } from '@/features/access/components/ui-blocks';
@@ -33,7 +33,7 @@ interface ScopeAggregateStatus {
   readonly label: string;
 }
 
-function computeAggregate(connectors: readonly Connector[]): ScopeAggregateStatus {
+function computeAggregate(connectors: readonly AccessSurface[]): ScopeAggregateStatus {
   if (connectors.length === 0) {
     return { key: 'empty', label: 'No connectors' };
   }
@@ -61,7 +61,7 @@ export function ScopePageHeader({
   canManage,
 }: {
   readonly scope: RepositoryView | undefined;
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly settingsOpen: boolean;
   readonly settingsDirty: boolean;
   readonly onToggleSettings: () => void;

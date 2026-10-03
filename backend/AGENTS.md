@@ -207,11 +207,26 @@ audit/transaction/outbox。
 | `/api/v1/agents` | platform/access/adapters/agent | Agent SSE 聊天 |
 | `/api/v1/agent-config` | platform/access/adapters/agent/config | Agent CRUD |
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 工具绑定 |
-| `/api/v1/integrations` | platform/synchronize | 数据源同步 |
-| `/api/v1/access` | platform/access | 统一 Access 管理 |
+| `/api/v1/synchronize` | platform/synchronize/public_router | SynchronizeBinding / SynchronizeRun canonical API |
+| `/api/v1/integrations` | 已退役资源 URL | 最终源码不挂载；客户端不得 fallback，不能将源码退役冒充目标环境发布 |
+| `/api/v1/access/surfaces` | platform/access/public_router | AccessSurface canonical API；kind / Repository Contract v2 |
+| `/api/v1/access` | 已退役资源 URL | 最终源码只挂载 `/access/surfaces`；Repository Contract v2 仍必需 |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
+| `/api/v1/imports/database/sources` | platform/imports/database/public_router | ImportDatabaseSource；单次保存、不创建持续绑定 |
+| `/api/v1/projects/{project_id}/synchronize/github` | platform/synchronize/github/public_router | GitHub 专属 binding/pull/push/logs；独立于 generic binding ID |
+| `/api/v1/synchronize/github/webhook` | platform/synchronize/github/public_router | 原始 body HMAC 与去重；canonical binding 引用 |
+| `/api/v1/projects/{project_id}/dashboard/resources` | platform/project/resource_dashboard | resource_kind/resource_id 聚合；分域 usage，不按裸 ID 合并 |
+| `/api/v1/activity/items` | platform/activity/public_router | 只读 typed activity；synchronize_run，原历史文字不改写 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |
 | `/internal` | internal | 内部 API |
+
+## 最终入口存储与发布边界
+
+- `synchronize_bindings` / `synchronize_runs.synchronize_binding_id` 是持续绑定/执行事实；GitHub 使用独立的 `synchronize_github_bindings` / `synchronize_github_logs`。
+- Database Import 只读写 `import_database_sources`，不按 provider 从绑定表猜测或过滤来源。迁移需逐行明确分类、密文/历史保留与租户校验。
+- 存量升级分开 Release A（Expand/冻结/portable data runner）与 Release B（受控 Contract/最终应用）。历史 migration/artifact/checksum 不改，缺分类/receipt/退出证明的升级须拒绝。
+- 已复核的历史绑定只读且不可执行；后台状态更新不能覆盖用户并发暂停。恢复同样必须通过最终 ACL/RLS verifier 后才重启消费者。
+- 本地真实环境、源码/安装产物和目标环境发布证据分开记录；没有远程授权不得查询、DDL、push 或部署。
 
 ## 常用命令
 
@@ -230,7 +245,7 @@ uv run pytest           # 运行测试
 
 ### Railway 控制台必须设置的项
 
-每个共享本仓库的 service（`api` / `file_worker` / `mcp_server`）都必须把
+每个共享本仓库的 service（`api` / `upload_worker` / `import_worker` / `synchronize_worker` / `mcp_server`）都必须把
 `Settings -> Service -> Source -> Root Directory` 设成 `backend`（写 `/backend` 也等价）。
 
 否则：
@@ -294,12 +309,12 @@ Nixpacks 也会触发 Python 检测并尝试默认安装流程，把上面的 bu
 | `SERVICE_ROLE` | 进程 |
 |----------------|------|
 | 未设置 / `api` | `uvicorn src.main:app` (FastAPI) |
-| `file_worker` | `arq src.ingest.file.jobs.worker.WorkerSettings` |
+| `upload_worker` | `arq src.platform.upload.worker.WorkerSettings` |
 | `import_worker` | `arq src.platform.imports.worker.WorkerSettings` |
-| `sync_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
+| `synchronize_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
 | `mcp_server` | `uvicorn mcp_service.server:app` |
 
-每个 Railway service 在 Variables 里设 `SERVICE_ROLE` 即可，不需要复制代码。
+不需要复制代码。角色/dispatch 切换前必须停止旧 producer 并排空旧队列，包括延迟、重试和在途任务；不能只改 Variables 后滚动升级。Upload 的 `ETL_*` queue/runtime 配置由 `platform/upload/config.py` 拥有，保留已部署的变量和 `etl` 队列；Import/Synchronize 分别拥有自己的 queue/timeout。`infra/queue_config.py` 只共享 Redis 连接，`infra/file_processing` 不持有入口任务状态。
 
 ## 开发约定
 

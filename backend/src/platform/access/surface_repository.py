@@ -2,7 +2,7 @@
 
 Access surfaces are target-bound ways to enter or operate on a workspace:
 Git remote, CLI, agents, MCP endpoints, and sandboxes.
-They are not durable external data sources; those live in ``connections``.
+They are not Synchronize bindings or Database Import sources; those have independent stores.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _row_to_surface(row: dict[str, Any]) -> AccessSurface:
 
 class AccessSurfaceRepository:
     TABLE = "access_surfaces"
-    CONNECTIONS = "connections"
+    CONNECTIONS = "synchronize_bindings"
 
     def __init__(self, supabase_client: Optional[SupabaseClient] = None):
         owner = supabase_client or SupabaseClient()

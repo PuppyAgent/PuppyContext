@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 
 from src.platform.activity.dependencies import get_activity_service
-from src.platform.activity.router import router as activity_router
+from src.platform.activity.public_router import router as activity_router
 from src.platform.auth.dependencies import get_current_user
 from src.version_engine.read.admin import VersionAdminService
 from src.version_engine.entrypoints.http.content_history import get_commit_content
@@ -43,7 +43,7 @@ async def test_slow_activity_read_does_not_starve_other_asgi_requests():
         return {'ok': True}
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
-        pending = asyncio.create_task(client.get('/activity?project_id=p1'))
+        pending = asyncio.create_task(client.get('/activity/items?project_id=p1'))
         try:
             while not entered.is_set():
                 await asyncio.sleep(0.001)

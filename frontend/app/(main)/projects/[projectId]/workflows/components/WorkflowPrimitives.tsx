@@ -3,7 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { SelectField, TextField } from '@/components/ui/Field';
 import { resolveProviderIconUrl } from '@/lib/providerIcons';
-import type { WorkflowConfigField, WorkflowProviderSpec } from '@/lib/workflowApi';
+import type { SynchronizeConfigField as WorkflowConfigField, SynchronizeProviderSpec as WorkflowProviderSpec } from '@/lib/synchronizeApi';
 import { labelize } from './workflowHelpers';
 import styles from './WorkflowPage.module.css';
 
