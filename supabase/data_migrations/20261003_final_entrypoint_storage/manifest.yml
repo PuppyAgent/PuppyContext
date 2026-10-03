@@ -1,0 +1,11 @@
+api_version: 1
+id: 20261003_final_entrypoint_storage
+description: Copy explicitly classified Database Import sources and verify the final entrypoint cutover
+kind: sql
+entrypoint: run.sql
+verify: verify.sql
+requires_schema:
+  - "20261003220000"
+required_env: []
+timeout_seconds: 300
+legacy: false
