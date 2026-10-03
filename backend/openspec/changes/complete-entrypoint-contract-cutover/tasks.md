@@ -31,8 +31,10 @@ The following checks cover the aggregate/identity/context increment:
   changed-file ESLint and build passed. No release package was available.
 - OpenAPI deltas retain the historical baseline; SynchronizeBinding now
   requires an explicit string path, and an absent path returns repair guidance.
-- New Dashboard/Activity consumers have no legacy response fallback; the
-  owner of 060 must separately migrate CLI `dashboardAction` from `/dashboard`.
+- New Dashboard/Activity consumers have no legacy response fallback. Follow-up
+  by the 060/061 owner migrates CLI `dashboardAction` to `/dashboard/resources`,
+  with real CLI HTTP tests for collisions, Project policy, failed reads and
+  old-server upgrade behavior. This closes the CLI handoff, not tasks 2.x.
 
 Tasks 1.4 and 2.x remain open: the isolated matrix is not complete product
 cross-resource orchestration/window acceptance, physical migration/classification,

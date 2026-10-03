@@ -4,12 +4,10 @@
  * Top-level shortcuts are registered by registerGlobalCommands().
  */
 
+import { ApiError, createClient } from "../api.js";
+import { requireProject } from "../helpers.js";
 import { createOutput } from "../output.js";
-
-function shortenPath(p) {
-  const home = process.env.HOME || process.env.USERPROFILE || "";
-  return home && p.startsWith(home) ? "~" + p.slice(home.length) : p;
-}
+import { getResourceDashboard } from "../resource-dashboard.js";
 
 function timeAgo(isoString) {
   if (!isoString) return "never";
@@ -39,23 +37,12 @@ function statusLabel(s) {
 export async function dashboardAction(path, opts, cmd) {
   const out = createOutput(cmd);
 
-  let client;
-  let projectId;
   try {
-    const { createClient } = await import("../api.js");
-    client = createClient(cmd);
-    const { requireProject } = await import("../helpers.js");
-    projectId = requireProject(cmd);
-  } catch (e) {
-    out.error("NOT_AUTHENTICATED", "Login and select a project first.",
-      "Run: puppyone auth login && puppyone project use <name>");
-    return;
-  }
-
-  try {
-    const d = await client.get(`/projects/${projectId}/dashboard`);
-
-    out.success?.({ dashboard: d });
+    const d = await getResourceDashboard(createClient(cmd), requireProject(cmd));
+    if (out.json) {
+      out.success({ dashboard: d });
+      return;
+    }
 
     out.info("");
     out.info(`  PuppyOne \u2014 ${d.project.name} (${d.project.id.slice(0, 12)}...)`);
@@ -67,36 +54,40 @@ export async function dashboardAction(path, opts, cmd) {
     out.info(`    ${d.nodes.total} nodes (${d.nodes.folders} folders, ${d.nodes.files} files)`);
     out.info("");
 
-    // Access Points
-    const aps = d.access_points || d.connections || [];
-    if (aps.length > 0) {
-      out.info(`  Access Points (${aps.length})`);
-
-      const connCols = [
-        { key: "provider", label: "PROVIDER" },
+    // Distinct resource kinds preserve equal IDs/names/paths across domains.
+    const resources = d.resources;
+    if (resources.length > 0) {
+      out.info(`  Resources (${resources.length})`);
+      const columns = [
+        { key: "identity", label: "RESOURCE (KIND:ID)" },
+        { key: "type", label: "PROVIDER / KIND" },
         { key: "name", label: "NAME" },
+        { key: "target", label: "TARGET" },
         { key: "status", label: "STATUS" },
-        { key: "lastSync", label: "LAST SYNC" },
+        { key: "activity", label: "LAST ACTIVITY" },
       ];
-      const connRows = aps.map(c => ({
-        provider: c.provider,
-        name: (c.name || "").slice(0, 30),
-        status: statusLabel(c.status),
-        lastSync: c.last_synced_at ? timeAgo(c.last_synced_at) : "\u2014",
-      }));
-      out.table(connRows, connCols);
-
-      const errConns = aps.filter(c => c.status === "error");
-      if (errConns.length > 0) {
+      out.table(resources.map(row => ({
+        identity: `${row.resource_kind}:${row.resource_id}`,
+        type: row.resource_kind === "synchronize" ? row.provider : row.kind,
+        name: (row.name || "").slice(0, 30),
+        target: row.resource_kind === "synchronize" ? `path:${row.path || "/"}`
+          : row.target.kind === "scope" ? `scope:${row.target.scope_id}` : "project_root",
+        status: statusLabel(row.status),
+        activity: row.last_activity_at ? timeAgo(row.last_activity_at) : "\u2014",
+      })), columns);
+      const errors = resources.filter(row => row.status === "error");
+      if (errors.length > 0) {
         out.info("");
-        out.warn(`  ${errConns.length} access point(s) in error:`);
-        for (const c of errConns) {
-          out.info(`    - ${c.provider}/${c.name}: ${c.error_message || "unknown"}`);
+        out.warn(`  ${errors.length} resource(s) in error:`);
+        for (const row of errors) {
+          out.info(`    - ${row.resource_kind}:${row.resource_id}: ${row.error_message || "unknown"}`);
         }
       }
     } else {
-      out.info("  Access Points: (none)");
-      out.info("    Run `puppyone access add <provider> ...` to add a data source.");
+      out.info("  Resources: (none)");
+      out.info("    One-time snapshot: puppyone import create <url>");
+      out.info("    Persistent source: puppyone synchronize add <provider> <url> --folder <path>");
+      out.info("    Access surface: puppyone access add agent|mcp|sandbox <name>");
     }
     out.info("");
 
@@ -142,7 +133,6 @@ export async function dashboardAction(path, opts, cmd) {
       out.info("");
     }
   } catch (e) {
-    const { ApiError } = await import("../api.js");
     if (e instanceof ApiError) {
       out.error(e.code, e.message, e.hint);
     } else {
@@ -158,6 +148,6 @@ export async function dashboardAction(path, opts, cmd) {
 export function registerGlobalCommands(program) {
   program
     .command("status")
-    .description("Project dashboard")
+    .description("Project resource dashboard (Synchronize bindings and Access surfaces)")
     .action((opts, cmd) => dashboardAction(null, opts, cmd));
 }
