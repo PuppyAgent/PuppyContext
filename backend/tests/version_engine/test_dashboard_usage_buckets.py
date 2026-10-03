@@ -1,58 +1,41 @@
-"""Dashboard usage buckets must aggregate every entry-point run log.
-
-Connect rows record runs in ``sync_runs``; scheduled agents record in
-``agent_execution_logs``. The dashboard unions both, keyed by entry-point id.
-"""
-from __future__ import annotations
-
+"""Canonical Dashboard usage is domain-qualified; failed reads are not empty success."""
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from src.platform.project.dashboard_router import _fetch_connections, _fetch_usage_buckets
+import pytest
+
+from src.platform.project.dashboard_router import _fetch_uploads
+from src.platform.project.resource_dashboard import _usage, fetch_dashboard_resources
 
 
 class FakeTable:
     def __init__(self, rows):
-        self._rows = rows
-        self._eq_filters = []
-        self._in_filters = []
-        self._gte_filters = []
-        self._order_col = None
+        self.rows = rows
+        self.filters = []
 
-    def select(self, _cols):
+    def select(self, _columns):
         return self
 
-    def eq(self, col, value):
-        self._eq_filters.append((col, value))
+    def eq(self, column, value):
+        self.filters.append(lambda row: row.get(column) == value)
         return self
 
-    def in_(self, col, ids):
-        self._in_filters.append((col, set(ids)))
+    def in_(self, column, values):
+        self.filters.append(lambda row: row.get(column) in values)
         return self
 
-    def is_(self, col, value):
-        self._eq_filters.append((col, None if value == "null" else value))
+    def is_(self, column, value):
+        return self.eq(column, None if value == "null" else value)
+
+    def gte(self, column, value):
+        self.filters.append(lambda row: str(row.get(column, "")) >= value)
         return self
 
-    def gte(self, _col, val):
-        self._gte_filters.append((_col, val))
-        return self
-
-    def order(self, col, **_kwargs):
-        self._order_col = col
+    def order(self, *_args, **_kwargs):
         return self
 
     def execute(self):
-        out = list(self._rows)
-        for col, value in self._eq_filters:
-            out = [r for r in out if r.get(col) == value]
-        for col, values in self._in_filters:
-            out = [r for r in out if r.get(col) in values]
-        for col, value in self._gte_filters:
-            out = [r for r in out if str(r.get(col, "")) >= value]
-        if self._order_col:
-            out.sort(key=lambda r: r.get(self._order_col) or "")
-        return SimpleNamespace(data=out)
+        return SimpleNamespace(data=[row for row in self.rows if all(f(row) for f in self.filters)])
 
 
 class FakeSB:
@@ -63,100 +46,64 @@ class FakeSB:
         return FakeTable(self.tables.get(name, []))
 
 
-def _today_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def test_usage_buckets_union_connector_and_agent_runs():
-    today = _today_iso()
+def test_equal_ids_in_different_domains_do_not_merge_usage():
+    today = datetime.now(UTC).isoformat()
     sb = FakeSB({
-        "sync_runs": [
-            {"connection_id": "conn1", "started_at": today},
-            {"connection_id": "conn1", "started_at": today},
-        ],
-        "agent_execution_logs": [
-            {"agent_id": "agent1", "started_at": today},
-            {"agent_id": "agent1", "started_at": today},
-            {"agent_id": "agent1", "started_at": today},
-        ],
-    })
-
-    buckets = _fetch_usage_buckets(sb, ["conn1", "agent1", "mcp1"])
-
-    # last bucket = today
-    assert buckets["conn1"][-1] == 2
-    assert buckets["agent1"][-1] == 3
-    # mcp has no run-log source → stays zero
-    assert sum(buckets["mcp1"]) == 0
-
-
-def test_fetch_connections_never_rehydrates_scope_plaintext_key():
-    today = _today_iso()
-    sb = FakeSB({
-        "connections": [{
-            "id": "sync1",
-            "project_id": "project-1",
-            "provider": "gmail",
-            "name": "Gmail",
-            "direction": "inbound",
-            "status": "active",
-            "trigger_type": "scheduled",
-            "trigger_config": {"schedule": "0 9 * * *"},
-            "config": {},
-            "scope_id": "scope-root",
-            "last_synced_at": today,
-            "created_at": today,
+        "synchronize_bindings": [{
+            "id": "equal", "project_id": "p1", "provider": "gmail",
+            "target_path": "", "direction": "inbound", "status": "active", "config": {},
         }],
+        "access_surfaces": [
+            {"id": "equal", "project_id": "p1", "kind": "agent", "config": {}},
+            {"id": "mcp", "project_id": "p1", "kind": "mcp", "config": {}},
+        ],
+        "synchronize_runs": [
+            {"synchronize_binding_id": "equal", "project_id": "p1", "started_at": today},
+            {"synchronize_binding_id": "equal", "project_id": "p1", "started_at": today},
+            {"synchronize_binding_id": "equal", "project_id": "other", "started_at": today},
+        ],
+        "agent_execution_logs": [{"agent_id": "equal", "started_at": today}] * 3,
+    })
+    resources = fetch_dashboard_resources(sb, "p1")
+    by_identity = {(row.resource_kind, row.resource_id): row for row in resources}
+    assert by_identity[("synchronize", "equal")].usage_buckets[-1] == 2
+    assert by_identity[("access", "equal")].usage_buckets[-1] == 3
+    assert sum(by_identity[("access", "mcp")].usage_buckets) == 0
+
+
+def test_dashboard_scope_metadata_never_rehydrates_plaintext_key():
+    sb = FakeSB({
         "access_surfaces": [{
-            "id": "cli1",
-            "project_id": "project-1",
-            "kind": "cli",
-            "name": "FS CLI",
-            "status": "active",
-            "config": {},
-            "scope_id": "scope-root",
-            "created_at": today,
+            "id": "cli", "project_id": "p1", "kind": "cli", "status": "active",
+            "scope_id": "scope-docs", "config": {},
         }],
         "repository_scopes": [{
-            "id": "scope-root",
-            "path": "",
-            "max_mode": "r",
+            "id": "scope-docs", "project_id": "p1", "path": "docs", "max_mode": "r",
+            "access_key": "historical-secret-must-not-leak",
         }],
-        "sync_runs": [{"connection_id": "sync1", "started_at": today}],
     })
-
-    rows = _fetch_connections(sb, "project-1")
-
-    assert [row.provider for row in rows] == ["gmail", "cli"]
-    assert rows[0].trigger == {"schedule": "0 9 * * *", "type": "scheduled"}
-    assert rows[0].usage_buckets[-1] == 1
-    assert rows[1].access_key is None
-    assert rows[1].has_credential is False
-    assert rows[1].credential_hint is None
-    assert rows[1].scope_mode == "r"
+    row, = fetch_dashboard_resources(sb, "p1")
+    assert row.scope_mode == "r"
+    assert row.path == "docs"
+    assert row.target.scope_id == "scope-docs"
+    assert "access_key" not in row.model_dump()
+    assert "historical-secret" not in row.model_dump_json()
 
 
-def test_usage_buckets_one_failing_source_does_not_zero_other():
-    today = _today_iso()
+def test_usage_read_failure_does_not_become_partial_success():
+    class Broken:
+        def table(self, _name):
+            raise RuntimeError("unavailable")
 
-    class BoomTable(FakeTable):
-        def execute(self):
-            raise RuntimeError("relation does not exist")
-
-    class PartialSB(FakeSB):
-        def table(self, name):
-            if name == "agent_execution_logs":
-                return BoomTable([])
-            return super().table(name)
-
-    sb = PartialSB({
-        "sync_runs": [{"connection_id": "conn1", "started_at": today}],
-    })
-
-    buckets = _fetch_usage_buckets(sb, ["conn1"])
-    # sync_runs still counted despite agent_execution_logs erroring
-    assert buckets["conn1"][-1] == 1
+    with pytest.raises(RuntimeError, match="unavailable"):
+        _usage(Broken(), "synchronize_runs", "synchronize_binding_id", ["binding"], project_id="p1")
+    with pytest.raises(RuntimeError, match="unavailable"):
+        _fetch_uploads(Broken(), "p1")
 
 
-def test_usage_buckets_empty_ap_ids():
-    assert _fetch_usage_buckets(FakeSB({}), []) == {}
+def test_empty_domain_id_set_does_not_query_another_log_store():
+    class NoQuery:
+        def table(self, _name):
+            raise AssertionError("empty inventory must not query unrelated history")
+
+    assert _usage(NoQuery(), "synchronize_runs", "synchronize_binding_id", [], project_id="p1") == {}

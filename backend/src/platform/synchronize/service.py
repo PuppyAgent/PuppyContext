@@ -19,19 +19,15 @@ from src.platform.synchronize.paths import (
     normalize_path,
     safe_filename,
 )
-from src.platform.synchronize.repository import (
-    SourceConnection,
-    SynchronizeRepository,
-)
-from src.utils.logger import log_error, log_info
+from src.platform.synchronize.models import SynchronizeBinding
+from src.platform.synchronize.repository import SynchronizeRepository
+from src.utils.logger import log_info
 
 
 class SynchronizeService:
     def __init__(self, repository: SynchronizeRepository, registry=None):
         self.repository = repository
         self.registry = registry
-        # Compatibility for old helpers that receive a service-like object.
-        self.sync_repo = repository
         self._providers: dict[str, BaseProvider] = {}
 
     def register_provider(self, adapter: BaseProvider) -> None:
@@ -71,15 +67,11 @@ class SynchronizeService:
         fallback_name: str,
         target_folder_path: Optional[str],
     ) -> str:
-        explicit = (
-            config.get("target_path")
-            or config.get("path")
-            or target_folder_path
-        )
-        if explicit is not None:
-            resolved = normalize_path(str(explicit))
-            if resolved:
-                return resolved
+        for explicit in (target_folder_path, config.get("target_path"), config.get("path")):
+            if explicit is not None:
+                if not isinstance(explicit, str):
+                    raise ValueError("Synchronize destination must be a string")
+                return normalize_path(explicit)
         source = config.get("source") if isinstance(config.get("source"), dict) else {}
         name = source.get("resource_name") or fallback_name or provider
         return safe_filename(str(name), fallback=provider)
@@ -96,7 +88,7 @@ class SynchronizeService:
         sync_mode: str = "manual",
         trigger: Optional[dict] = None,
         user_id: Optional[str] = None,
-    ) -> list[SourceConnection]:
+    ) -> list[SynchronizeBinding]:
         if sync_mode == "import_once":
             raise ValueError("One-time imports must use ImportJob, not Integration")
 
@@ -115,11 +107,12 @@ class SynchronizeService:
             trigger_data["type"] = sync_mode
 
         resources = await adapter.list_resources(await self._source_input(adapter, config, user_id))
-        created: list[SourceConnection] = []
+        created: list[SynchronizeBinding] = []
 
         for resource in resources:
             existing = self.repository.find_by_config_key(
                 canonical, "external_resource_id", resource.external_resource_id,
+                project_id=project_id,
             )
             if existing:
                 continue
@@ -173,33 +166,6 @@ class SynchronizeService:
         name = safe_filename(resource.name, resource.external_resource_id)
         return join_path(base, name) if base else name
 
-    async def create_sync(
-        self,
-        project_id: str,
-        provider: str,
-        config: dict,
-        target_folder_path: Optional[str] = None,
-        *,
-        credentials_ref: Optional[str] = None,
-        direction: str = "inbound",
-        conflict_strategy: str = "three_way_merge",
-        sync_mode: str = "manual",
-        trigger: Optional[dict] = None,
-        user_id: Optional[str] = None,
-    ) -> SourceConnection:
-        return await self.create_connection(
-            project_id=project_id,
-            provider=provider,
-            config=config,
-            target_path=target_folder_path,
-            credentials_ref=credentials_ref,
-            direction=direction,
-            conflict_strategy=conflict_strategy,
-            sync_mode=sync_mode,
-            trigger=trigger,
-            user_id=user_id,
-        )
-
     async def create_connection(
         self,
         project_id: str,
@@ -213,7 +179,7 @@ class SynchronizeService:
         sync_mode: str = "manual",
         trigger: Optional[dict] = None,
         user_id: Optional[str] = None,
-    ) -> SourceConnection:
+    ) -> SynchronizeBinding:
         if sync_mode == "import_once":
             raise ValueError("One-time imports must use ImportJob, not Integration")
 
@@ -296,7 +262,7 @@ class SynchronizeService:
         connection = self.repository.find_owner_by_path(path)
         if not connection:
             return []
-        if commit_id and connection.last_sync_commit_id == commit_id:
+        if commit_id and connection.last_synchronize_commit_id == commit_id:
             return []
         if connection.status != "active" or connection.direction == "inbound":
             return []
@@ -318,7 +284,7 @@ class SynchronizeService:
                 return []
             self.repository.update_sync_point(
                 sync_id=connection.id,
-                last_sync_commit_id=commit_id,
+                last_synchronize_commit_id=commit_id,
                 remote_hash=push_result.remote_hash,
             )
             return [{

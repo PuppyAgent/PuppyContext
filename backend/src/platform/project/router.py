@@ -87,7 +87,7 @@ def _count_user_access_points(project_ids: list[str]) -> dict[str, int]:
         return {}
     sb = get_supabase_client()
     connection_rows = (
-        sb.table("connections").select("project_id").in_("project_id", project_ids).execute()
+        sb.table("synchronize_bindings").select("project_id").in_("project_id", project_ids).execute()
     ).data or []
     from src.platform.access.surface_repository import AccessSurfaceRepository
 

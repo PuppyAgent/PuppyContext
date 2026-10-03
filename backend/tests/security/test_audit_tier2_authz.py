@@ -47,7 +47,7 @@ def _base_app() -> FastAPI:
 # ── Bug 1: trigger_push project access ───────────────────────────────
 
 def _integrations_app(verify_returns):
-    from src.platform.synchronize.router import router as integ_router
+    from src.platform.synchronize.public_router import router as integ_router
 
     app = _base_app()
     app.include_router(integ_router, prefix="/api/v1")
@@ -57,7 +57,7 @@ def _integrations_app(verify_returns):
 def test_trigger_push_foreign_project_forbidden():
     app, _svc = _integrations_app(lambda pid, uid: None)  # never a member
     with TestClient(app) as tc:
-        r = tc.post(f"/api/v1/integrations/push/notes/a.md?project_id={FOREIGN}")
+        r = tc.post(f"/api/v1/synchronize/push?path=notes/a.md&project_id={FOREIGN}")
     assert r.status_code == 404, r.text
 
 
@@ -160,19 +160,20 @@ def _conn_row():
 
 def test_get_connection_detail_masks_credentials(monkeypatch):
     from src.platform.access import router as mgr
+    from src.platform.access.public_router import router
 
     app = _base_app()
-    app.include_router(mgr.router, prefix="/api/v1")
+    app.include_router(router, prefix="/api/v1")
 
     monkeypatch.setattr(mgr, "_get_client", lambda: _FakeConnClient(_conn_row()))
     # Caller IS a member — the point is the payload is masked even so.
     monkeypatch.setattr(mgr, "_require_connection_project_access", lambda *a, **k: None)
 
     with TestClient(app) as tc:
-        r = tc.get("/api/v1/access/conn-1")
+        r = tc.get("/api/v1/access/surfaces/conn-1")
     assert r.status_code == 200, r.text
     conn = r.json()["data"]
-    assert conn["access_key"] is None
+    assert "access_key" not in conn
     assert "mcp_api_key" not in (conn.get("config") or {})
     assert "mcpkey_abcd1234WXYZ" not in r.text
 
@@ -181,7 +182,7 @@ def test_get_connection_detail_masks_credentials(monkeypatch):
 
 def test_get_connection_run_foreign_project_forbidden():
     from src.platform.synchronize import router as integ
-    from src.platform.synchronize.router import router as integ_router
+    from src.platform.synchronize.public_router import router as integ_router
 
     app = _base_app()
     app.include_router(integ_router, prefix="/api/v1")
@@ -193,14 +194,14 @@ def test_get_connection_run_foreign_project_forbidden():
     app.dependency_overrides[get_synchronize_service] = lambda: svc
 
     run = SimpleNamespace(
-        id="run-1", connection_id="conn-1", status="ok", worker_job_id=None,
+        id="run-1", synchronize_binding_id="conn-1", status="ok", worker_job_id=None,
         started_at=None, finished_at=None, duration_ms=None, exit_code=None,
         stdout=None, error=None, trigger_type=None, result_summary=None,
     )
     with patch.object(integ, "_get_run_repo") as run_repo:
         run_repo.return_value.get_by_id.return_value = run
         with TestClient(app) as tc:
-            r = tc.get("/api/v1/integrations/runs/run-1")
+            r = tc.get("/api/v1/synchronize/runs/run-1")
     assert r.status_code == 404, r.text
 
 

@@ -166,6 +166,8 @@ def list_access_surfaces(
     kind: AccessKind | None = None,
     status: str | None = None,
 ):
+    if project_id is not None:
+        authorization.authorize(project_id, current_user.user_id, ProjectAction.ACCESS_READ)
     return _reply(
         global_ops.list_connections(
             project_id=project_id,
@@ -179,7 +181,7 @@ def list_access_surfaces(
     )
 
 
-# Static route must precede the resource-ID route; both precede legacy /access/{id}.
+# Static route must precede the resource-ID route.
 @router.get(
     "/types", response_model=ApiResponse[list[AccessSurfaceKind]], dependencies=[query_contract()]
 )

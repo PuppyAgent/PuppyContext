@@ -30,31 +30,16 @@ def _fields(value):
 
 
 def _binding(value):
-    fields = _fields(value)
-    for old, new in (
-        ("auto_import", "auto_pull"),
-        ("last_imported_sha", "last_pulled_sha"),
-        ("last_imported_at", "last_pulled_at"),
-        ("last_exported_sha", "last_pushed_sha"),
-        ("last_exported_at", "last_pushed_at"),
-    ):
-        fields[new] = fields.pop(old)
-    return SynchronizeGithubBinding(**fields)
-
-
-def _direction(value):
-    return {"import": "inbound", "export": "outbound"}[value]
+    return SynchronizeGithubBinding(**_fields(value))
 
 
 def _logs(value):
     fields = _fields(value)
-    binding_id = fields.pop("integration_id")
+    binding_id = fields["synchronize_github_binding_id"]
     for row in fields["entries"]:
-        if row.pop("integration_id") != binding_id:
+        if row["synchronize_github_binding_id"] != binding_id:
             raise ValueError("GitHub log references another binding")
-        row["synchronize_github_binding_id"] = binding_id
-        row["direction"] = _direction(row["direction"])
-    return SynchronizeGithubLogs(synchronize_github_binding_id=binding_id, **fields)
+    return SynchronizeGithubLogs(**fields)
 
 
 async def _reply(awaitable, project=lambda value: value):
@@ -72,10 +57,6 @@ async def _reply(awaitable, project=lambda value: value):
                     "message": "GitHub Synchronize binding not found",
                 },
             ) from exc
-        if exc.status_code == 400 and isinstance(exc.detail, str):
-            raise HTTPException(
-                400, exc.detail.replace("auto_import requires", "auto_pull requires")
-            ) from exc
         raise
     return ApiResponse(
         code=response.code,
@@ -90,9 +71,7 @@ async def _reply(awaitable, project=lambda value: value):
 async def create_binding(
     project_id: str, body: SynchronizeGithubBindingCreate, user=Depends(operations._manage_user)
 ):
-    payload = legacy.GithubIntegrationCreate(
-        auto_import=body.auto_pull, **body.model_dump(exclude={"auto_pull"})
-    )
+    payload = legacy.GithubIntegrationCreate(**body.model_dump())
     return await _reply(operations.connect(project_id, payload, user), _binding)
 
 
@@ -103,8 +82,6 @@ async def update_binding(
     project_id: str, body: SynchronizeGithubBindingUpdate, user=Depends(operations._manage_user)
 ):
     fields = body.model_dump(exclude_unset=True)
-    if "auto_pull" in fields:
-        fields["auto_import"] = fields.pop("auto_pull")
     return await _reply(
         operations.update(project_id, legacy.GithubIntegrationUpdate(**fields), user), _binding
     )
@@ -168,7 +145,6 @@ async def _execute(project_id, payload, method):
             },
         ) from exc
     fields = _fields(result)
-    fields["direction"] = _direction(fields["direction"])
     return ApiResponse.success(
         data=SynchronizeGithubResult(synchronize_github_binding_id=binding_id, **fields)
     )
@@ -205,19 +181,4 @@ async def list_logs(
 @webhook_router.post("/webhook", dependencies=[strict_query()])
 async def webhook(request: Request):
     # Preserve raw bytes, authentication, replay checks and acknowledgement semantics.
-    result = await operations.github_webhook(request)
-    result = dict(result)
-    if result.get("status") == "no_integration":
-        result["status"] = "no_binding"
-    if "results" in result:
-        rows = []
-        for old in result["results"]:
-            row = dict(old)
-            row["synchronize_github_binding_id"] = row.pop("integration_id")
-            if row.get("reason") == "auto_import_disabled":
-                row["reason"] = "auto_pull_disabled"
-            elif row.get("reason") == "already_imported":
-                row["reason"] = "already_pulled"
-            rows.append(row)
-        result["results"] = rows
-    return result
+    return await operations.github_webhook(request)

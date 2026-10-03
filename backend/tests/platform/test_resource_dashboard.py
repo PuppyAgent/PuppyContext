@@ -19,7 +19,7 @@ from tests.version_engine.test_dashboard_usage_buckets import FakeSB, FakeTable
 def facts():
     now = datetime.now(UTC).isoformat()
     return {
-        "connections": [
+        "synchronize_bindings": [
             {
                 "id": "same",
                 "project_id": "project-1",
@@ -56,9 +56,9 @@ def facts():
         "repository_scopes": [
             {"id": "scope-1", "project_id": "project-1", "path": "destination", "max_mode": "r"}
         ],
-        "sync_runs": [
-            {"connection_id": "same", "project_id": "project-1", "started_at": now},
-            {"connection_id": "same", "project_id": "foreign", "started_at": now},
+        "synchronize_runs": [
+            {"synchronize_binding_id": "same", "project_id": "project-1", "started_at": now},
+            {"synchronize_binding_id": "same", "project_id": "foreign", "started_at": now},
         ],
         "agent_execution_logs": [
             {"agent_id": "same", "started_at": now},
@@ -116,7 +116,7 @@ def test_missing_foreign_or_synthetic_root_scope_is_not_reinterpreted(scope):
 
 def test_ambiguous_mixed_storage_fails_closed_without_disclosing_source_config():
     data = facts()
-    data["connections"][0]["config"] = {"db_config": {"api_key": "private-import-key"}}
+    data["synchronize_bindings"][0]["config"] = {"db_config": {"api_key": "private-import-key"}}
     with pytest.raises(HTTPException) as error:
         dashboard.fetch_dashboard_resources(FakeSB(data), "project-1")
     assert error.value.status_code == 409 and "private-import-key" not in str(error.value)

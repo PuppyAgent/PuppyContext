@@ -126,7 +126,8 @@ def test_business_models_use_canonical_names():
 
     assert "kind" in {field.name for field in fields(AccessSurface)}
     assert "provider" not in {field.name for field in fields(AccessSurface)}
-    assert "connection_id" in {field.name for field in fields(SyncRun)}
+    assert "synchronize_binding_id" in {field.name for field in fields(SyncRun)}
+    assert "connection_id" not in {field.name for field in fields(SyncRun)}
     assert "access_point_id" not in {field.name for field in fields(SyncRun)}
     forbidden = {"Connector", "IntegrationEngine", "IntegrationService", "IntegrationRepository",
                  "IntegrationConnection", "ConnectorRegistry", "BaseConnector"}

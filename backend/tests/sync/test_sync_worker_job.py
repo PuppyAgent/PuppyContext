@@ -10,7 +10,7 @@ from src.platform.synchronize.jobs import execute_synchronize_run as execute_syn
 @dataclass
 class FakeRun:
     id: str = "run-1"
-    connection_id: str = "conn-1"
+    synchronize_binding_id: str = "conn-1"
     status: str = "queued"
     trigger_type: str = "scheduled"
 

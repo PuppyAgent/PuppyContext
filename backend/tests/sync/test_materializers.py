@@ -349,7 +349,7 @@ async def test_integration_engine_uses_pinned_materializer():
     assert result["path"] == "Integrations/Mount/index.json"
     repository.update_sync_point.assert_called_once_with(
         sync_id="sync-1",
-        last_sync_commit_id="commit-2",
+        last_synchronize_commit_id="commit-2",
         remote_hash="hash-3",
     )
 
@@ -407,7 +407,7 @@ async def test_integration_engine_direct_execute_creates_claims_and_completes_ru
     ).execute(connection.id)
 
     assert result is not None
-    assert result["run_id"] == "run-created"
+    assert result["synchronize_run_id"] == "run-created"
     assert run_repo.created == [("sync-1", "manual")]
     assert run_repo.claimed == ["run-created"]
     assert run_repo.completed == [("run-created", "success", "Fetched")]

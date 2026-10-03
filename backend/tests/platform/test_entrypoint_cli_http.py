@@ -94,14 +94,14 @@ class RunStore:
         return self.rows.get(key)
 
     def list_by_sync(self, key, limit=20, offset=0):
-        return [row for row in self.rows.values() if row.connection_id == key][offset:offset + limit]
+        return [row for row in self.rows.values() if row.synchronize_binding_id == key][offset:offset + limit]
 
     def get_blocking_active_by_sync(self, key):
         return next((row for row in self.rows.values()
-                     if row.connection_id == key and row.status == "queued"), None)
+                     if row.synchronize_binding_id == key and row.status == "queued"), None)
 
     def create_queued_single_lane(self, key, **values):
-        row = SyncRun(id=f"run-{len(self.rows) + 1}", connection_id=key, status="queued", **values)
+        row = SyncRun(id=f"run-{len(self.rows) + 1}", synchronize_binding_id=key, status="queued", **values)
         self.rows[row.id] = row
         return row, True
 
@@ -306,7 +306,7 @@ def test_actual_cli_dispatch_keeps_snapshot_binding_and_surface_ownership(server
     assert len(server.bindings.rows) == len(server.runs.rows) == 1
     binding = next(iter(server.bindings.rows.values()))
     assert binding.trigger == {"type": "manual"}
-    assert next(iter(server.runs.rows.values())).connection_id == binding.id
+    assert next(iter(server.runs.rows.values())).synchronize_binding_id == binding.id
     # Real Access router and Sandbox service; only their repositories are substituted.
     surface = server.cli("access", "add", "sandbox", "My sandbox")
     assert surface["access"]["id"].startswith("surface-")
@@ -395,11 +395,13 @@ def test_actual_cli_access_permissions_and_invalid_metadata_prevent_writes(serve
 
 
 def test_actual_cli_old_access_server_reports_upgrade_without_mutation_fallback(server):
-    # Exercise real legacy route shadowing: /access/{id} sees "surfaces" as an
-    # ID on GET and rejects POST with 405, rather than a generic missing URL 404.
+    # This deliberately obsolete fixture (not a shipping compatibility router)
+    # shadows "surfaces" as a GET ID and rejects POST with actual FastAPI 405.
     server.app.router.routes = [route for route in server.app.router.routes
                                 if not route.path.startswith("/api/v1/access/surfaces")]
-    server.app.include_router(access.router, prefix="/api/v1")
+    server.app.add_api_route(
+        "/api/v1/access/{connection_id}", access.get_connection, methods=["GET"]
+    )
     for args in [("add", "sandbox", "must-not-create"), ("ls",), ("providers",)]:
         before = len(server.requests)
         result = server.cli("access", *args, ok=False)

@@ -15,7 +15,7 @@ One commit per export. The flow:
    branch HEAD as parent, and the configured author identity.
 6. ``PATCH /repos/.../git/refs/heads/<branch>`` to fast-forward the
    branch ref. ``force=False`` so we surface non-FF as a clear error.
-7. Persist a ``github_sync_log`` row + bump ``last_exported_*``.
+7. Persist a ``synchronize_github_logs`` row + bump ``last_pushed_*``.
 
 PR-mode (when the branch is protected and direct push is forbidden)
 is a documented gap — we surface the GitHub 422 error and let the
@@ -215,11 +215,11 @@ async def _do_export(
     if not files:
         msg = "version scope is empty — nothing to export"
         await sync_log.record(
-            binding_id, direction="export", status="failed",
+            binding_id, direction="outbound", status="failed",
             error_message=msg,
         )
         return GithubSyncRunResult(
-            status="failed", direction="export",
+            status="failed", direction="outbound",
             git_sha=None, version_commit_id=None, files_changed=0,
             error_message=msg,
         )
@@ -260,14 +260,14 @@ async def _do_export(
 
     files_changed = len(tree_entries)
     await sync_log.record(
-        binding_id, direction="export", status="success",
+        binding_id, direction="outbound", status="success",
         git_sha=new_git_sha, version_commit_id=head,
         files_changed=files_changed,
     )
     await binding_repo.update_watermark(
         binding_id,
-        last_exported_sha=new_git_sha,
-        last_exported_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        last_pushed_sha=new_git_sha,
+        last_pushed_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
 
     log_info(
@@ -275,7 +275,7 @@ async def _do_export(
         f"git_sha={new_git_sha[:12]} files={files_changed}"
     )
     return GithubSyncRunResult(
-        status="success", direction="export",
+        status="success", direction="outbound",
         git_sha=new_git_sha, version_commit_id=head,
         files_changed=files_changed,
     )
@@ -319,11 +319,11 @@ async def _record_failure(
     binding_id: str, error: str,
 ) -> GithubSyncRunResult:
     await sync_log.record(
-        binding_id, direction="export", status="failed",
+        binding_id, direction="outbound", status="failed",
         error_message=error,
     )
     return GithubSyncRunResult(
-        status="failed", direction="export",
+        status="failed", direction="outbound",
         git_sha=None, version_commit_id=None,
         files_changed=None, error_message=error,
     )

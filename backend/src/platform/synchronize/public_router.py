@@ -1,10 +1,7 @@
-"""Canonical HTTP boundary over the single existing Synchronize implementation.
+"""Canonical-only HTTP boundary over the single Synchronize implementation.
 
-ISSUE-058 S2: legacy HTTP remains mounted for unmigrated consumers. This adapter
-owns only request/response contracts, never storage, authorization policy or
-queue orchestration. Its explicit projections disappear into the application
-boundary when 049/061 and all legacy consumers complete cutover; do not add a
-second implementation of the operations below.
+Request, execution and history identities use the final resource contract all
+the way to persistence. There is no legacy HTTP/DTO or storage fallback.
 """
 from collections.abc import Callable
 from typing import Annotated
@@ -83,38 +80,25 @@ def _binding(value) -> SynchronizeBinding:
     fields = _dict(value)
     if not isinstance(fields.get("path"), str):
         raise HTTPException(409, "Synchronize target path requires repair; an absent path is not an explicit Project root.")
-    fields["last_synchronize_commit_id"] = fields.pop("last_sync_commit_id")
     return SynchronizeBinding(**fields)
 
 
 def _execution(value) -> SynchronizeExecutionResult:
-    fields = _dict(value)
-    binding_id = fields.pop("connection_id")
-    if fields.pop("access_point_id", binding_id) != binding_id:
-        raise ValueError("Conflicting Synchronize execution resource references")
-    fields["synchronize_binding_id"] = binding_id
-    fields["synchronize_run_id"] = fields.pop("run_id", None)
-    return SynchronizeExecutionResult(**fields)
+    return SynchronizeExecutionResult(**_dict(value))
 
 
 def _created(value) -> SynchronizeBindingCreated:
     fields = _dict(value)
-    return SynchronizeBindingCreated(binding=_binding(fields["sync"]),
+    return SynchronizeBindingCreated(binding=_binding(fields["binding"]),
         execution_result=_execution(fields["execution_result"]) if fields.get("execution_result") else None)
 
 
 def _run(value) -> SynchronizeRun:
-    fields = _dict(value)
-    fields["synchronize_binding_id"] = fields.pop("access_point_id")
-    return SynchronizeRun(**fields)
+    return SynchronizeRun(**_dict(value))
 
 
 def _failed_run(value) -> SynchronizeFailedRun:
-    fields = _dict(value)
-    fields["synchronize_binding_id"] = fields.pop("access_point_id")
-    fields["synchronize_binding_name"] = fields.pop("access_point_name")
-    fields["target_path"] = fields.pop("access_point_path")
-    return SynchronizeFailedRun(**fields)
+    return SynchronizeFailedRun(**_dict(value))
 
 
 def _pull(value) -> SynchronizePullResult:
@@ -146,7 +130,7 @@ def list_synchronize_bindings(project_id: str, service: Service, authorization: 
 async def create_synchronize_binding(body: SynchronizeBindingCreate, service: Service, registry: Registry,
         sync_arq_client: Queue, authorization: Authorization, current_user: User):
     return _reply(await operations.create_connection(
-        body=operations.CreateIntegrationRequest(**body.model_dump()), service=service, registry=registry,
+        body=body, service=service, registry=registry,
         sync_arq_client=sync_arq_client, authorization=authorization, current_user=current_user), _created)
 
 
@@ -154,7 +138,7 @@ async def create_synchronize_binding(body: SynchronizeBindingCreate, service: Se
 async def update_synchronize_binding(synchronize_binding_id: str, body: SynchronizeBindingUpdate,
         service: Service, registry: Registry, authorization: Authorization, current_user: User):
     return _reply(await operations.update_connection(connection_id=synchronize_binding_id,
-        body=operations.UpdateIntegrationConnectionRequest(**body.model_dump(exclude_unset=True)),
+        body=body,
         service=service, registry=registry, authorization=authorization, current_user=current_user), _binding)
 
 
@@ -169,7 +153,7 @@ async def delete_synchronize_binding(synchronize_binding_id: str, service: Servi
 async def update_synchronize_trigger(synchronize_binding_id: str, body: SynchronizeTriggerUpdate,
         service: Service, authorization: Authorization, current_user: User):
     return await operations.update_connection_trigger(connection_id=synchronize_binding_id,
-        body=operations.UpdateIntegrationTriggerRequest(**body.model_dump()), service=service,
+        body=body, service=service,
         authorization=authorization, current_user=current_user)
 
 
@@ -219,15 +203,15 @@ def list_failed_synchronize_runs(project_id: str, service: Service, authorizatio
 async def get_synchronize_status(project_id: str, service: Service, authorization: Authorization, current_user: User):
     return _reply(await operations.get_project_sync_status(project_id=project_id, service=service,
         authorization=authorization, current_user=current_user),
-        lambda data: SynchronizeStatus(bindings=_dict(data)["syncs"]))
+        lambda data: SynchronizeStatus(**_dict(data)))
 
 
 @router.post("/bootstrap", response_model=ApiResponse[SynchronizeBootstrapResult])
 async def bootstrap_synchronize_bindings(body: SynchronizeBindingCreate, service: Service, registry: Registry,
         sync_arq_client: Queue, authorization: Authorization, current_user: User):
-    return _reply(await operations.bootstrap(body=operations.BootstrapRequest(**body.model_dump()),
+    return _reply(await operations.bootstrap(body=body,
         service=service, registry=registry, sync_arq_client=sync_arq_client, authorization=authorization,
-        current_user=current_user), lambda data: SynchronizeBootstrapResult(bindings_created=_dict(data)["syncs_created"]))
+        current_user=current_user), lambda data: SynchronizeBootstrapResult(**_dict(data)))
 
 
 @router.post("/pull", response_model=ApiResponse[SynchronizePullResult])

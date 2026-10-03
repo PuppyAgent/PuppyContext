@@ -208,9 +208,9 @@ audit/transaction/outbox。
 | `/api/v1/agent-config` | platform/access/adapters/agent/config | Agent CRUD |
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 工具绑定 |
 | `/api/v1/synchronize` | platform/synchronize/public_router | SynchronizeBinding / SynchronizeRun canonical API |
-| `/api/v1/integrations` | platform/synchronize/router | 058 S2/S3 有限兼容；新客户端不得 fallback |
+| `/api/v1/integrations` | 已退役资源 URL | 最终源码不挂载；客户端不得 fallback，不能将源码退役冒充目标环境发布 |
 | `/api/v1/access/surfaces` | platform/access/public_router | AccessSurface canonical API；kind / Repository Contract v2 |
-| `/api/v1/access` | platform/access/router | 058 有限兼容；新客户端不得 fallback |
+| `/api/v1/access` | 已退役资源 URL | 最终源码只挂载 `/access/surfaces`；Repository Contract v2 仍必需 |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
 | `/api/v1/imports/database/sources` | platform/imports/database/public_router | ImportDatabaseSource；单次保存、不创建持续绑定 |
 | `/api/v1/projects/{project_id}/synchronize/github` | platform/synchronize/github/public_router | GitHub 专属 binding/pull/push/logs；独立于 generic binding ID |
@@ -219,6 +219,14 @@ audit/transaction/outbox。
 | `/api/v1/activity/items` | platform/activity/public_router | 只读 typed activity；synchronize_run，原历史文字不改写 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |
 | `/internal` | internal | 内部 API |
+
+## 最终入口存储与发布边界
+
+- `synchronize_bindings` / `synchronize_runs.synchronize_binding_id` 是持续绑定/执行事实；GitHub 使用独立的 `synchronize_github_bindings` / `synchronize_github_logs`。
+- Database Import 只读写 `import_database_sources`，不按 provider 从绑定表猜测或过滤来源。迁移需逐行明确分类、密文/历史保留与租户校验。
+- 存量升级分开 Release A（Expand/冻结/portable data runner）与 Release B（受控 Contract/最终应用）。历史 migration/artifact/checksum 不改，缺分类/receipt/退出证明的升级须拒绝。
+- 已复核的历史绑定只读且不可执行；后台状态更新不能覆盖用户并发暂停。恢复同样必须通过最终 ACL/RLS verifier 后才重启消费者。
+- 本地真实环境、源码/安装产物和目标环境发布证据分开记录；没有远程授权不得查询、DDL、push 或部署。
 
 ## 常用命令
 

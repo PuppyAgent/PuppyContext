@@ -1,14 +1,14 @@
-"""Integration API.
+"""Synchronize application operations over binding-owned resources.
 
-Integration is the top-level durable relationship resource. It writes through
-the project-root Version Engine path, not Access scopes.
+Only public_router is mounted by the application. Writes use the Project-root
+Version Engine path, never Access scopes or Access identities.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.common_schemas import ApiResponse
@@ -18,18 +18,7 @@ from src.platform.synchronize.config_contract import (
     validate_bootstrap_config,
     validate_structured_config,
 )
-from src.platform.synchronize.schemas import (
-    BootstrapResponse,
-    CreateSyncResponse,
-    FailedSyncRunItem,
-    ProjectSyncStatusResponse,
-    PullResponse,
-    PushResponse,
-    SyncResponse,
-    SyncRunResponse,
-    SyncStatusItem,
-    connection_to_response,
-)
+from src.platform.synchronize.schemas import binding_to_response
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.synchronize.dependencies import (
@@ -41,6 +30,20 @@ from src.platform.synchronize.dependencies import (
 from src.platform.synchronize.arq_client import SyncArqClient
 from src.platform.synchronize.engine import SynchronizeEngine
 from src.platform.synchronize.paths import canonical_provider
+from src.platform.synchronize.public_schemas import (
+    SynchronizeBinding,
+    SynchronizeBindingCreate,
+    SynchronizeBindingCreated,
+    SynchronizeBindingUpdate,
+    SynchronizeBootstrapResult,
+    SynchronizeFailedRun,
+    SynchronizePullResult,
+    SynchronizePushResult,
+    SynchronizeRun,
+    SynchronizeStatus,
+    SynchronizeStatusItem,
+    SynchronizeTriggerUpdate,
+)
 from src.platform.synchronize.service import SynchronizeService
 from src.platform.authorization.dependencies import get_authorization_service
 from src.platform.authorization.service import AuthorizationService
@@ -48,49 +51,9 @@ from src.platform.authorization.models import ProjectAction
 from src.utils.logger import log_error
 
 
-router = APIRouter(prefix="/integrations", tags=["integrations"])
-
 _PROJECT_ID_DESC = "Project ID"
 _PULL_DIRECTIONS = {"inbound", "bidirectional"}
 _QUEUEABLE_PULL_STATUSES = {"active", "error"}
-
-
-class BootstrapRequest(BaseModel):
-    project_id: str
-    provider: str
-    config: dict
-    target_folder_path: Optional[str] = None
-    target_path: Optional[str] = None
-    credentials_ref: Optional[str] = None
-    direction: str = "inbound"
-    conflict_strategy: str = "three_way_merge"
-    sync_mode: str = "manual"
-    trigger: Optional[dict] = None
-
-
-class CreateIntegrationRequest(BaseModel):
-    project_id: str
-    provider: str
-    config: dict
-    target_folder_path: Optional[str] = None
-    target_path: Optional[str] = None
-    credentials_ref: Optional[str] = None
-    direction: str = "inbound"
-    conflict_strategy: str = "three_way_merge"
-    sync_mode: str = "manual"
-    trigger: Optional[dict] = None
-
-
-class UpdateIntegrationTriggerRequest(BaseModel):
-    sync_mode: str
-    trigger: Optional[dict] = None
-
-
-class UpdateIntegrationConnectionRequest(BaseModel):
-    config: Optional[dict] = None
-    target_path: Optional[str] = None
-    direction: Optional[str] = None
-    conflict_strategy: Optional[str] = None
 
 
 class ProviderResourceItem(BaseModel):
@@ -129,10 +92,12 @@ def _ensure_project_access(
 
 
 def _ensure_classified_binding(connection) -> None:
-    # During 049's storage cutover, `connections` also contains Database Import
-    # sources. These indicators are NOT a positive classification rule: block
-    # ambiguous records until the migration proves ownership. Never expose
-    # db_config or let binding management delete an Import source by accident.
+    # Final storage ownership is authoritative. Only an explicitly retained,
+    # disabled historical binding may carry a retired provider classification.
+    # Corrupt/unmigrated input still fails closed; no provider-based filtering.
+    reason = getattr(connection, "legacy_read_only_reason", None)
+    if isinstance(reason, str) and reason.strip() and connection.status == "disabled":
+        return
     config = getattr(connection, "config", None) or {}
     if (getattr(connection, "provider", None) == "database" or "db_config" in config
             or (getattr(connection, "trigger", None) or {}).get("type") == "import_once"):
@@ -163,15 +128,26 @@ def _get_connection_with_access(
         authorization, current_user, connection.project_id, action
     )
     _ensure_classified_binding(connection)
+    if action is not None and getattr(connection, "legacy_read_only_reason", None):
+        raise HTTPException(409, detail={
+            "code": "LEGACY_BINDING_READ_ONLY",
+            "message": "This reviewed historical binding is read-only. Its history remains available; create a new admitted binding instead of reactivating it.",
+        })
     return connection
 
 
-def _sync_resp(connection) -> SyncResponse:
-    return SyncResponse(**connection_to_response(connection))
+def _sync_resp(connection) -> SynchronizeBinding:
+    fields = binding_to_response(connection)
+    if not isinstance(fields.get("path"), str):
+        raise HTTPException(
+            409,
+            "Synchronize target path requires repair; an absent path is not an explicit Project root.",
+        )
+    return SynchronizeBinding(**fields)
 
 
-def _target_from_request(body: CreateIntegrationRequest | BootstrapRequest) -> str | None:
-    return body.target_path or body.target_folder_path
+def _target_from_request(body: SynchronizeBindingCreate) -> str | None:
+    return body.target_path  # empty text explicitly selects Project root
 
 
 def _ensure_direction_supported(direction: str, spec) -> None:
@@ -216,9 +192,8 @@ def _get_run_repo():
 
 def _queued_run_result(*, connection, run, created: bool) -> dict:
     return {
-        "connection_id": connection.id,
-        "access_point_id": connection.id,
-        "run_id": run.id,
+        "synchronize_binding_id": connection.id,
+        "synchronize_run_id": run.id,
         "worker_job_id": run.worker_job_id,
         "path": connection.path,
         "provider": connection.provider,
@@ -272,7 +247,6 @@ async def _queue_sync_run(
     return _queued_run_result(connection=connection, run=run, created=True)
 
 
-@router.get("/status", response_model=ApiResponse[ProjectSyncStatusResponse])
 async def get_project_sync_status(
     project_id: str = Query(..., description=_PROJECT_ID_DESC),
     service: SynchronizeService = Depends(get_synchronize_service),
@@ -284,7 +258,7 @@ async def get_project_sync_status(
     for connection in connections:
         _ensure_classified_binding(connection)
     items = [
-        SyncStatusItem(
+        SynchronizeStatusItem(
             id=c.id,
             path=c.path,
             node_name=c.path.rsplit("/", 1)[-1] if c.path else None,
@@ -293,26 +267,23 @@ async def get_project_sync_status(
             direction=c.direction,
             status=c.status,
             name=((c.config or {}).get("source") or {}).get("resource_name"),
-            access_key=None,
-            trigger=c.trigger if c.trigger else None,
+            trigger=binding_to_response(c)["trigger"] or None,
             last_synced_at=c.last_synced_at,
             error_message=c.error_message,
         )
         for c in connections
     ]
     return ApiResponse.success(
-        data=ProjectSyncStatusResponse(syncs=items, uploads=[])
+        data=SynchronizeStatus(bindings=items)
     )
 
 
-@router.get("/connectors", response_model=ApiResponse)
 def list_connectors(
     registry: ProviderRegistry = Depends(get_synchronize_provider_registry),
 ):
     return ApiResponse.success(data=_connectable_specs(registry))
 
 
-@router.get("/providers/{provider}/resources", response_model=ApiResponse[ProviderResourcesResponse])
 async def list_provider_resources(
     provider: str,
     q: str = Query("", description="Optional provider resource search term"),
@@ -369,9 +340,8 @@ async def list_provider_resources(
     )
 
 
-@router.post("/connections", response_model=ApiResponse[CreateSyncResponse])
 async def create_connection(
-    body: CreateIntegrationRequest,
+    body: SynchronizeBindingCreate,
     service: SynchronizeService = Depends(get_synchronize_service),
     registry: ProviderRegistry = Depends(get_synchronize_provider_registry),
     sync_arq_client: SyncArqClient = Depends(get_sync_arq_client),
@@ -459,14 +429,13 @@ async def create_connection(
 
     refreshed = service.repository.get_by_id(connection.id) or connection
     return ApiResponse.success(
-        data=CreateSyncResponse(
-            sync=_sync_resp(refreshed),
+        data=SynchronizeBindingCreated(
+            binding=_sync_resp(refreshed),
             execution_result=execution_result,
         )
     )
 
 
-@router.get("/connections", response_model=ApiResponse[list[SyncResponse]])
 def list_connections(
     project_id: Optional[str] = Query(None),
     provider: Optional[str] = Query(None),
@@ -489,7 +458,6 @@ def list_connections(
     return ApiResponse.success(data=[_sync_resp(c) for c in connections])
 
 
-@router.delete("/connections/{connection_id}", response_model=ApiResponse)
 async def delete_connection(
     connection_id: str,
     service: SynchronizeService = Depends(get_synchronize_service),
@@ -513,10 +481,9 @@ async def delete_connection(
     return ApiResponse.success(message="Integration connection deleted")
 
 
-@router.patch("/connections/{connection_id}", response_model=ApiResponse[SyncResponse])
 async def update_connection(
     connection_id: str,
-    body: UpdateIntegrationConnectionRequest,
+    body: SynchronizeBindingUpdate,
     service: SynchronizeService = Depends(get_synchronize_service),
     registry: ProviderRegistry = Depends(get_synchronize_provider_registry),
     authorization: AuthorizationService = Depends(get_authorization_service),
@@ -580,10 +547,9 @@ async def update_connection(
     return ApiResponse.success(data=_sync_resp(refreshed))
 
 
-@router.patch("/connections/{connection_id}/trigger", response_model=ApiResponse)
 async def update_connection_trigger(
     connection_id: str,
-    body: UpdateIntegrationTriggerRequest,
+    body: SynchronizeTriggerUpdate,
     service: SynchronizeService = Depends(get_synchronize_service),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
@@ -621,7 +587,6 @@ async def update_connection_trigger(
     return ApiResponse.success(message=f"Integration trigger updated to {body.sync_mode}")
 
 
-@router.post("/connections/{connection_id}/pause", response_model=ApiResponse)
 def pause_connection(
     connection_id: str,
     service: SynchronizeService = Depends(get_synchronize_service),
@@ -639,7 +604,6 @@ def pause_connection(
     return ApiResponse.success(message="Integration paused")
 
 
-@router.post("/connections/{connection_id}/refresh", response_model=ApiResponse[PullResponse])
 async def refresh_connection(
     connection_id: str,
     service: SynchronizeService = Depends(get_synchronize_service),
@@ -664,10 +628,9 @@ async def refresh_connection(
         trigger_type="manual",
         sync_arq_client=sync_arq_client,
     )
-    return ApiResponse.success(data=PullResponse(synced=0, results=[result]))
+    return ApiResponse.success(data=SynchronizePullResult(synced=0, results=[result]))
 
 
-@router.post("/connections/{connection_id}/resume", response_model=ApiResponse)
 async def resume_connection(
     connection_id: str,
     service: SynchronizeService = Depends(get_synchronize_service),
@@ -692,7 +655,6 @@ async def resume_connection(
     return ApiResponse.success(message="Integration resumed")
 
 
-@router.get("/failed-runs", response_model=ApiResponse[list[FailedSyncRunItem]])
 def list_failed_runs(
     project_id: str = Query(..., description=_PROJECT_ID_DESC),
     limit: int = Query(50, ge=1, le=200),
@@ -710,13 +672,13 @@ def list_failed_runs(
     runs = _get_run_repo().list_failed_for_connections(list(by_id), limit=limit)
     items = []
     for run in runs:
-        connection = by_id.get(run.connection_id)
+        connection = by_id.get(run.synchronize_binding_id)
         source = (connection.config or {}).get("source") if connection else {}
-        items.append(FailedSyncRunItem(
+        items.append(SynchronizeFailedRun(
             id=run.id,
-            access_point_id=run.connection_id,
-            access_point_name=source.get("resource_name") if isinstance(source, dict) else None,
-            access_point_path=connection.path if connection else None,
+            synchronize_binding_id=run.synchronize_binding_id,
+            synchronize_binding_name=source.get("resource_name") if isinstance(source, dict) else None,
+            target_path=connection.path if connection else None,
             provider=connection.provider if connection else "",
             direction=connection.direction if connection else "",
             started_at=run.started_at,
@@ -729,7 +691,6 @@ def list_failed_runs(
     return ApiResponse.success(data=items)
 
 
-@router.get("/connections/{connection_id}/runs", response_model=ApiResponse[list[SyncRunResponse]])
 def list_connection_runs(
     connection_id: str,
     limit: int = Query(20, ge=1, le=100),
@@ -746,9 +707,9 @@ def list_connection_runs(
     )
     runs = _get_run_repo().list_by_sync(connection_id, limit=limit, offset=offset)
     return ApiResponse.success(data=[
-        SyncRunResponse(
+        SynchronizeRun(
             id=r.id,
-            access_point_id=r.connection_id,
+            synchronize_binding_id=r.synchronize_binding_id,
             status=r.status,
             worker_job_id=r.worker_job_id,
             started_at=r.started_at,
@@ -763,7 +724,6 @@ def list_connection_runs(
     ])
 
 
-@router.get("/runs/{run_id}", response_model=ApiResponse[SyncRunResponse])
 def get_connection_run(
     run_id: str,
     service: SynchronizeService = Depends(get_synchronize_service),
@@ -777,14 +737,14 @@ def get_connection_run(
     # leak another tenant's sync output. Resolve the owning connection and
     # enforce project access (mirrors list_connection_runs).
     _get_connection_with_access(
-        connection_id=run.connection_id,
+        connection_id=run.synchronize_binding_id,
         service=service,
         authorization=authorization,
         current_user=current_user,
     )
-    return ApiResponse.success(data=SyncRunResponse(
+    return ApiResponse.success(data=SynchronizeRun(
         id=run.id,
-        access_point_id=run.connection_id,
+        synchronize_binding_id=run.synchronize_binding_id,
         status=run.status,
         worker_job_id=run.worker_job_id,
         started_at=run.started_at,
@@ -798,9 +758,8 @@ def get_connection_run(
     ))
 
 
-@router.post("/bootstrap", response_model=ApiResponse[BootstrapResponse])
 async def bootstrap(
-    body: BootstrapRequest,
+    body: SynchronizeBindingCreate,
     service: SynchronizeService = Depends(get_synchronize_service),
     registry: ProviderRegistry = Depends(get_synchronize_provider_registry),
     sync_arq_client: SyncArqClient = Depends(get_sync_arq_client),
@@ -877,10 +836,9 @@ async def bootstrap(
         except Exception:
             pass
 
-    return ApiResponse.success(data=BootstrapResponse(syncs_created=len(connections)))
+    return ApiResponse.success(data=SynchronizeBootstrapResult(bindings_created=len(connections)))
 
 
-@router.post("/pull", response_model=ApiResponse[PullResponse])
 async def trigger_pull(
     connection_id: Optional[str] = Query(None, description="Connection ID. Omit to pull all."),
     project_id: Optional[str] = Query(None, description=_PROJECT_ID_DESC),
@@ -941,10 +899,9 @@ async def trigger_pull(
                 }:
                     continue
                 raise
-    return ApiResponse.success(data=PullResponse(synced=len(results), results=results))
+    return ApiResponse.success(data=SynchronizePullResult(synced=len(results), results=results))
 
 
-@router.post("/push/{path:path}", response_model=ApiResponse[PushResponse])
 async def trigger_push(
     path: str,
     project_id: str = Query(..., description=_PROJECT_ID_DESC),
@@ -985,7 +942,7 @@ async def trigger_push(
         content=parsed_content,
         node_type=node_type,
     )
-    return ApiResponse.success(data=PushResponse(
+    return ApiResponse.success(data=SynchronizePushResult(
         pushed=1 if result else 0,
         results=[result] if result else [],
     ))

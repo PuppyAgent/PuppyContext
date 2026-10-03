@@ -32,7 +32,7 @@ class _FakeArq:
 
 def _integration(**over):
     base = {"id": "int-1", "webhook_secret": "s3cr3t", "default_branch": "main",
-            "auto_import": True, "last_imported_sha": "old"}
+            "auto_pull": True, "last_pulled_sha": "old"}
     base.update(over)
     return base
 
@@ -66,10 +66,10 @@ async def test_dispatch_skips_without_enqueue(monkeypatch):
     hdr = {"x-hub-signature-256": _sig("s3cr3t", body)}
     r = await wh._maybe_dispatch(_integration(), "feature", "sha", body, hdr)
     assert r["status"] == "skipped" and "branch_mismatch" in r["reason"]
-    r = await wh._maybe_dispatch(_integration(auto_import=False), "main", "sha", body, hdr)
-    assert r["status"] == "skipped" and r["reason"] == "auto_import_disabled"
-    r = await wh._maybe_dispatch(_integration(last_imported_sha="sha"), "main", "sha", body, hdr)
-    assert r["status"] == "skipped" and r["reason"] == "already_imported"
+    r = await wh._maybe_dispatch(_integration(auto_pull=False), "main", "sha", body, hdr)
+    assert r["status"] == "skipped" and r["reason"] == "auto_pull_disabled"
+    r = await wh._maybe_dispatch(_integration(last_pulled_sha="sha"), "main", "sha", body, hdr)
+    assert r["status"] == "skipped" and r["reason"] == "already_pulled"
     r = await wh._maybe_dispatch(_integration(webhook_secret=None), "main", "sha", body, hdr)
     assert r["status"] == "skipped" and r["reason"] == "no_webhook_secret"
     assert fake.calls == []  # none of these reach the worker

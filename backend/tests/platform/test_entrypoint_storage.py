@@ -22,12 +22,12 @@ def test_canonical_access_identifier_keeps_agent_wire_contract():
     assert 'access_surface_id' not in result
 
 
-def test_github_log_wire_translation_does_not_mutate_persistence_row():
-    row = dict(id='log', binding_id='binding', version_commit_id='commit', status='success')
+def test_github_log_preserves_canonical_parent_without_alias_or_mutation():
+    row = dict(id='log', synchronize_github_binding_id='binding', version_commit_id='commit', status='success')
     result = _to_api_row(row)
-    assert result['integration_id'] == 'binding'
-    assert 'binding_id' not in result
-    assert row['binding_id'] == 'binding'
+    assert result == row and result is not row
+    assert result['synchronize_github_binding_id'] == 'binding'
+    assert 'binding_id' not in result and 'integration_id' not in result
     assert result['version_commit_id'] == 'commit'
 
 

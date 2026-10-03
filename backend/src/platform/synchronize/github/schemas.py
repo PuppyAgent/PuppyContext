@@ -1,8 +1,4 @@
-"""Pydantic schemas for the GitHub Integration API.
-
-Mirrors the ``github_sync_bindings`` and ``github_sync_log`` tables
-created in supabase migrations 20260509000100 / 20260509000200.
-"""
+"""GitHub Synchronize operation data; physical identities use the final schema."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -11,7 +7,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-SyncDirection = Literal["import", "export"]
+SyncDirection = Literal["inbound", "outbound"]
 SyncStatus = Literal["pending", "success", "failed", "conflict"]
 
 
@@ -26,16 +22,16 @@ class GithubIntegrationCreate(BaseModel):
     github_repo_owner: str = Field(..., min_length=1)
     github_repo_name: str = Field(..., min_length=1)
     default_branch: str = Field("main", min_length=1)
-    auto_import: bool = False
+    auto_pull: bool = False
     webhook_secret: Optional[str] = Field(
-        None, description="If auto_import=true this MUST be set",
+        None, description="If auto_pull=true this MUST be set",
     )
 
 
 class GithubIntegrationUpdate(BaseModel):
     """PATCH /api/v1/projects/{project_id}/github body."""
     default_branch: Optional[str] = Field(None, min_length=1)
-    auto_import: Optional[bool] = None
+    auto_pull: Optional[bool] = None
     webhook_secret: Optional[str] = None
 
 
@@ -47,14 +43,14 @@ class GithubIntegrationStatus(BaseModel):
     github_repo_owner: str
     github_repo_name: str
     default_branch: str
-    auto_import: bool
+    auto_pull: bool
     has_webhook_secret: bool = Field(
         ..., description="True iff webhook_secret is set; the value never leaves the backend",
     )
-    last_imported_sha: Optional[str]
-    last_imported_at: Optional[datetime]
-    last_exported_sha: Optional[str]
-    last_exported_at: Optional[datetime]
+    last_pulled_sha: Optional[str]
+    last_pulled_at: Optional[datetime]
+    last_pushed_sha: Optional[str]
+    last_pushed_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
 
@@ -64,7 +60,7 @@ class GithubIntegrationStatus(BaseModel):
 
 class GithubSyncLogEntry(BaseModel):
     id: str
-    integration_id: str
+    synchronize_github_binding_id: str
     direction: SyncDirection
     git_sha: Optional[str]
     version_commit_id: Optional[str]
@@ -75,7 +71,7 @@ class GithubSyncLogEntry(BaseModel):
 
 
 class GithubSyncLogList(BaseModel):
-    integration_id: str
+    synchronize_github_binding_id: str
     entries: list[GithubSyncLogEntry]
     total: int
 

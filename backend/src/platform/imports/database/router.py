@@ -1,54 +1,43 @@
-"""Database Import API Router"""
+"""Database Import operations; only public_router declares HTTP routes."""
 
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import HTTPException
 
-from src.platform.auth.models import CurrentUser
-from src.platform.auth.dependencies import get_current_user
 from src.common_schemas import ApiResponse
 from src.exceptions import AppException
+from src.platform.auth.models import CurrentUser
+from src.platform.imports.database.public_schemas import (
+    ImportDatabasePreview,
+    ImportDatabaseSave,
+    ImportDatabaseSaved,
+    ImportDatabaseSource,
+    ImportDatabaseSourceCreate,
+    ImportDatabaseSourceCreated,
+    ImportDatabaseTable,
+)
 from src.platform.imports.database.service import DatabaseImportService
-from src.platform.imports.database.dependencies import get_database_import_service
-from src.platform.imports.database.schemas import (
-    CreateConnectionRequest,
-    SaveTableRequest,
-    ConnectionResponse,
-    ConnectionCreatedResponse,
-    TableInfoResponse,
-    TablePreviewResponse,
-    SaveResultResponse,
-)
-
-router = APIRouter(
-    prefix="/db-connector",
-    tags=["db-connector"],
-)
 
 
-def _conn_to_response(conn) -> ConnectionResponse:
-    return ConnectionResponse(
-        id=conn.id,
-        name=conn.name,
-        provider=conn.provider,
-        project_id=conn.project_id,
-        is_active=conn.is_active,
-        last_used_at=conn.last_used_at.isoformat() if conn.last_used_at else None,
-        created_at=conn.created_at.isoformat() if hasattr(conn.created_at, 'isoformat') else str(conn.created_at),
+def _source_to_response(source) -> ImportDatabaseSource:
+    return ImportDatabaseSource(
+        id=source.id,
+        name=source.name,
+        provider=source.provider,
+        project_id=source.project_id,
+        is_active=source.is_active,
+        last_used_at=source.last_used_at.isoformat() if source.last_used_at else None,
+        created_at=(
+            source.created_at.isoformat()
+            if hasattr(source.created_at, "isoformat")
+            else str(source.created_at)
+        ),
     )
 
 
-# === Access Management ===
-
-@router.post(
-    "/access",
-    response_model=ApiResponse[ConnectionCreatedResponse],
-    summary="Create database access (auto-test)",
-)
-async def create_connection(
-    req: CreateConnectionRequest,
-    project_id: str = Query(..., description="Project ID"),
-    user: CurrentUser = Depends(get_current_user),
-    service: DatabaseImportService = Depends(get_database_import_service),
+async def create_source(
+    req: ImportDatabaseSourceCreate,
+    project_id: str,
+    user: CurrentUser,
+    service: DatabaseImportService,
 ):
     try:
         result = await service.create_connection(
@@ -56,138 +45,91 @@ async def create_connection(
             project_id=project_id,
             name=req.name,
             provider=req.provider,
-            config=req.to_config(),
+            config={
+                "project_url": req.project_url,
+                "api_key": req.api_key,
+                "key_type": req.key_type,
+            },
         )
-        return ApiResponse.success(
-            data=ConnectionCreatedResponse(
-                connection=_conn_to_response(result["connection"]),
-                database_info=result["database_info"],
-            )
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return ApiResponse.success(data=ImportDatabaseSourceCreated(
+            source=_source_to_response(result["source"]),
+            database_info=result["database_info"],
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AppException:
         raise
-    except Exception:
-        raise HTTPException(status_code=400, detail="Access setup failed")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Database source setup failed") from exc
 
 
-@router.get(
-    "/access",
-    response_model=ApiResponse[List[ConnectionResponse]],
-    summary="List database connectors for a project",
-)
-async def list_connections(
-    project_id: str = Query(..., description="Project ID"),
-    user: CurrentUser = Depends(get_current_user),
-    service: DatabaseImportService = Depends(get_database_import_service),
-):
-    connections = service.list_connections(project_id, user.user_id)
-    return ApiResponse.success(data=[_conn_to_response(c) for c in connections])
+async def list_sources(project_id: str, user: CurrentUser, service: DatabaseImportService):
+    sources = service.list_connections(project_id, user.user_id)
+    return ApiResponse.success(data=[_source_to_response(source) for source in sources])
 
 
-@router.delete(
-    "/access/{connection_id}",
-    response_model=ApiResponse,
-    summary="Delete database access",
-)
-async def delete_connection(
-    connection_id: str = Path(...),
-    user: CurrentUser = Depends(get_current_user),
-    service: DatabaseImportService = Depends(get_database_import_service),
-):
-    service.delete_connection(connection_id, user.user_id)
-    return ApiResponse.success(message="Database connector deleted")
+async def delete_source(source_id: str, user: CurrentUser, service: DatabaseImportService):
+    service.delete_connection(source_id, user.user_id)
+    return ApiResponse.success(message="Database source deleted")
 
 
-# === Table Data ===
-
-@router.get(
-    "/access/{connection_id}/tables",
-    response_model=ApiResponse[List[TableInfoResponse]],
-    summary="List all tables in the database",
-)
-async def list_tables(
-    connection_id: str = Path(...),
-    user: CurrentUser = Depends(get_current_user),
-    service: DatabaseImportService = Depends(get_database_import_service),
-):
-    tables = await service.list_tables(connection_id, user.user_id)
-    return ApiResponse.success(
-        data=[
-            TableInfoResponse(name=t.name, type=t.type, columns=t.columns)
-            for t in tables
-        ]
-    )
+async def list_tables(source_id: str, user: CurrentUser, service: DatabaseImportService):
+    tables = await service.list_tables(source_id, user.user_id)
+    return ApiResponse.success(data=[
+        ImportDatabaseTable(name=table.name, type=table.type, columns=table.columns)
+        for table in tables
+    ])
 
 
-@router.get(
-    "/access/{connection_id}/tables/{table_name}/preview",
-    response_model=ApiResponse[TablePreviewResponse],
-    summary="Preview table data (first 50 rows)",
-)
 async def preview_table(
-    connection_id: str = Path(...),
-    table_name: str = Path(...),
-    limit: int = Query(50, ge=1, le=200),
-    user: CurrentUser = Depends(get_current_user),
-    service: DatabaseImportService = Depends(get_database_import_service),
+    source_id: str,
+    table_name: str,
+    limit: int,
+    user: CurrentUser,
+    service: DatabaseImportService,
 ):
     try:
         result = await service.preview_table(
-            connection_id=connection_id,
-            user_id=user.user_id,
-            table=table_name,
-            limit=limit,
+            connection_id=source_id, user_id=user.user_id, table=table_name, limit=limit,
         )
-        return ApiResponse.success(
-            data=TablePreviewResponse(
-                columns=result.columns,
-                rows=result.rows,
-                row_count=result.row_count,
-                execution_time_ms=result.execution_time_ms,
-            )
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return ApiResponse.success(data=ImportDatabasePreview(
+            columns=result.columns,
+            rows=result.rows,
+            row_count=result.row_count,
+            execution_time_ms=result.execution_time_ms,
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AppException:
         raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Preview failed")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Preview failed") from exc
 
 
-# === Save ===
-
-@router.post(
-    "/access/{connection_id}/save",
-    response_model=ApiResponse[SaveResultResponse],
-    summary="Save entire table as JSON file in version tree",
-)
 async def save_table(
-    req: SaveTableRequest,
-    connection_id: str = Path(...),
-    project_id: str = Query(..., description="Project ID"),
-    user: CurrentUser = Depends(get_current_user),
-    service: DatabaseImportService = Depends(get_database_import_service),
+    req: ImportDatabaseSave,
+    source_id: str,
+    project_id: str,
+    user: CurrentUser,
+    service: DatabaseImportService,
 ):
     try:
         result = await service.save_table(
-            connection_id=connection_id,
+            connection_id=source_id,
             user_id=user.user_id,
             project_id=project_id,
             name=req.name,
             table=req.table,
             limit=req.limit,
         )
-        return ApiResponse.success(
-            data=SaveResultResponse(
-                content_path=result["content_path"],
-                row_count=result["row_count"],
-            )
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return ApiResponse.success(data=ImportDatabaseSaved(
+            import_database_source_id=source_id,
+            content_path=result["content_path"],
+            row_count=result["row_count"],
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AppException:
         raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Save failed")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Save failed") from exc
