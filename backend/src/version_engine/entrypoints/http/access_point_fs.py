@@ -17,10 +17,10 @@ from fastapi.responses import Response
 
 from src.common_schemas import ApiResponse
 from src.exceptions import ErrorCode
-from src.ingest.policy.upload_policy import (
+from src.platform.upload.policy import (
     PER_FILE_MAX_BYTES as POLICY_PER_FILE_MAX_BYTES,
 )
-from src.ingest.policy.upload_policy import (
+from src.platform.upload.policy import (
     path_has_blocked_segment,
 )
 from src.platform.repository_target.auth_context import repository_view_from_auth

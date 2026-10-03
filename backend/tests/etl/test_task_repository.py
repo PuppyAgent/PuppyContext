@@ -12,8 +12,8 @@ import os
 import pytest
 from datetime import datetime
 
-from src.ingest.file.tasks.models import ETLTask, ETLTaskStatus, ETLTaskResult
-from src.ingest.file.tasks.repository import ETLTaskRepositorySupabase
+from src.platform.upload.tasks.models import ETLTask, ETLTaskStatus, ETLTaskResult
+from src.platform.upload.tasks.repository import ETLTaskRepositorySupabase
 
 
 # 需要真实 Supabase 环境变量；未配置时跳过，避免本地/CI 失败

@@ -74,15 +74,15 @@ from pathlib import Path
 import pytest
 from moto import mock_aws
 
-from src.ingest.file.mineru.client import MineRUClient
-from src.ingest.file.mineru.config import mineru_config
-from src.ingest.file.mineru.exceptions import (
+from src.infra.file_processing.mineru.client import MineRUClient
+from src.infra.file_processing.mineru.config import mineru_config
+from src.infra.file_processing.mineru.exceptions import (
     MineRUAPIError,
     MineRUAPIKeyError,
     MineRUTaskFailedError,
     MineRUTimeoutError,
 )
-from src.ingest.file.mineru.schemas import MineRUModelVersion, MineRUTaskState
+from src.infra.file_processing.mineru.schemas import MineRUModelVersion, MineRUTaskState
 from src.infra.s3.service import S3Service
 
 # 测试文件路径
@@ -163,7 +163,7 @@ def test_mineru_client_initialization():
 def test_mineru_client_initialization_without_api_key():
     """测试没有 API Key 时的初始化失败"""
     # 临时修改 config 来模拟没有 API key 的情况
-    from src.ingest.file.mineru.config import mineru_config
+    from src.infra.file_processing.mineru.config import mineru_config
     
     original_key = mineru_config.mineru_api_key
     mineru_config.mineru_api_key = None

@@ -319,7 +319,7 @@ class LandingService:
         """Run the configured OCR provider over the stashed source. Returns ""
         (not an exception) when OCR is unavailable, so callers can fall back."""
         try:
-            from src.ingest.file.ocr.factory import get_ocr_provider
+            from src.infra.file_processing.ocr.factory import get_ocr_provider
 
             presigned = await self._s3.generate_presigned_download_url(
                 src_key, expires_in=SRC_PRESIGN_SECONDS

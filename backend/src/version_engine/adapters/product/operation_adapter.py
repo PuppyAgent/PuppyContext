@@ -686,7 +686,7 @@ class ProductOperationAdapter:
     #     extra latency matters.
     #
     # The upload path (browser multipart, future CLI binary push) uses
-    # ``stage_blob_from_s3`` (in ``ingest/file/jobs/jobs.py`` —
+    # ``stage_blob_from_s3`` (in ``platform/upload/jobs.py`` —
     # different module, S3-aware) to ``CopyObject`` from the upload
     # key into the version object key without touching the bytes, and
     # then calls ``bulk_write_refs`` here.
@@ -707,7 +707,7 @@ class ProductOperationAdapter:
         Use this when you genuinely have bytes in memory (CLI text
         writes, connector outputs, internal templates). For multipart
         uploads where the bytes already live in S3, use
-        ``ingest.file.jobs.jobs.stage_blob_from_s3`` instead — it
+        ``platform.upload.jobs.stage_blob_from_s3`` instead — it
         uses S3 ``CopyObject`` to put the blob at the canonical object key without
         ever loading it into the backend process.
 

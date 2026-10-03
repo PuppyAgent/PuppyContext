@@ -62,7 +62,7 @@ It aggregates information scattered across various sources into a unified Contex
 
 - **Agent management** — Create agents, bind tools, control access scope, SSE streaming chat
 - **Full CLI coverage** — Every operation available via command line, enabling AI coding tools like Claude Code to drive the platform directly
-- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through a single `/api/v1/access` entry point. `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external source relationships live in `connections`.
+- **Unified access management** — All access surface types (Git remote/CLI/agent/MCP/sandbox) are served through `/api/v1/access/surfaces` (the old `/api/v1/access` is bounded compatibility). `access_surfaces` targets Project root with `scope_id = NULL` or one real `repository_scopes` row; external source relationships live in `connections`.
 
 ## Active Development Directories
 
@@ -204,8 +204,9 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 tool binding & proxy |
 | `/api/v1/mcp-endpoints` | platform/access/adapters/mcp_endpoint | MCP endpoint CRUD & API key |
 | `/api/v1/sandbox-endpoints` | platform/access/adapters/sandbox_endpoint | Sandbox endpoint CRUD & exec |
-| `/api/v1/access` | platform/access | Unified access management (all types) |
-| `/api/v1/integrations` | platform/synchronize | Data source sync |
+| `/api/v1/access/surfaces` | platform/access/public_router | Access surface management (`kind`, contract v2) |
+| `/api/v1/synchronize` | platform/synchronize/public_router | Synchronize bindings and runs; never Access IDs |
+| `/api/v1/access`, `/api/v1/integrations` | legacy transport adapters | Bounded server compatibility; new CLI must not fall back |
 | `/api/v1/filesystem` | connectors/filesystem | Filesystem access lifecycle |
 | `/api/v1/ingest` | upload | File/URL ingestion ETL |
 | `/api/v1/ap-fs` | version_engine/routers/access_point_fs | Puppyone CLI scoped filesystem API |
@@ -236,8 +237,10 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 9090 --reload --log-level info
 uv run pytest
 uv run pytest -m "not e2e"      # Exclude e2e tests
 
-# Start file worker (ETL / OCR)
-uv run arq src.upload.file.jobs.worker.WorkerSettings
+# Start domain workers (coordinate queue drain before changing deployments)
+uv run arq src.platform.upload.worker.WorkerSettings
+uv run arq src.platform.imports.worker.WorkerSettings
+uv run arq src.platform.synchronize.worker.WorkerSettings
 ```
 
 ### Deployment
@@ -245,7 +248,9 @@ uv run arq src.upload.file.jobs.worker.WorkerSettings
 Railway multi-service deployment (shared codebase, differentiated by `SERVICE_ROLE`):
 
 - **api** (default): Main API service
-- **file_worker**: File ETL Worker (ARQ)
+- **upload_worker**: Upload completion / file processing (ARQ)
+- **import_worker**: One-time ImportJob execution (ARQ)
+- **synchronize_worker**: Synchronize runs and dedicated GitHub pulls (ARQ)
 - **mcp_server**: MCP protocol service (FastMCP)
 
 ---
@@ -390,14 +395,20 @@ cli/
 
 ### Key Commands
 
+Source-tree commands below require the matching backend; they are not a claim
+that npm `0.2.1` has been republished. See `docs/cli/ENTRYPOINTS-UNRELEASED.md`.
+Never send an external source to Access creation, or substitute an Access ID for
+a Synchronize binding ID. Do not silently turn snapshots into persistent jobs.
+
 ```bash
 puppyone auth login                    # Sign in
 puppyone project use "My Project"      # Set active project
-puppyone access add notion <url>       # Connect a SaaS data source
+puppyone import create <url> --provider notion --folder /notes  # One-time snapshot
+puppyone synchronize add gmail <url> --folder /mail --mode manual  # Durable binding
+puppyone synchronize providers        # Server-admitted persistent sources
 puppyone access add agent "Bot"        # Create an AI agent
-puppyone access add mcp "Data API"     # Create MCP endpoint
-puppyone access add filesystem /docs   # Mount local folder sync
-puppyone access ls                     # List all access points
+puppyone access add mcp "Data API"      # Create MCP endpoint
+puppyone access ls --kind mcp          # List Access surfaces (kind, not source provider)
 puppyone status                        # Project dashboard
 puppyone chat                          # Chat with an agent
 puppyone fs semantics                  # Unix compatibility notes + resource limits for agents

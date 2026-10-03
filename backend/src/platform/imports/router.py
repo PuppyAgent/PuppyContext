@@ -14,6 +14,8 @@ from src.platform.imports.schemas import (
     ImportJobResponse,
 )
 from src.platform.imports.service import ImportJobService
+from src.platform.imports.providers import get_import_provider_registry, import_specs
+from src.provider.registry import ProviderRegistry
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
@@ -52,6 +54,15 @@ async def list_import_jobs(
             total=len(jobs),
         ),
     )
+
+
+@router.get("/providers", response_model=ApiResponse)
+async def list_import_providers(
+    registry: ProviderRegistry = Depends(get_import_provider_registry),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Authenticated capability discovery; no Project data or credentials."""
+    return ApiResponse.success(import_specs(registry))
 
 
 @router.get("/{job_id}", response_model=ApiResponse[ImportJobResponse])

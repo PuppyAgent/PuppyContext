@@ -35,10 +35,8 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
     from src.main import app
 
     expected = json.loads((Path(__file__).with_name("entrypoint_contract_c28e38a3.json")).read_text())
-    # ISSUE-059 adds optional binding metadata needed by the resource client.
-    # Keep the pre-migration fixture immutable and allow only this reviewed
-    # additive delta; every original property, required field and route still
-    # has to match the captured contract.
+    # Keep the original fixture immutable: only reviewed additive deltas from
+    # 059 (binding metadata) and 060 (Import discovery) are allowed.
     import copy
     openapi = copy.deepcopy(app.openapi())
     binding = openapi["components"]["schemas"]["SyncResponse"]
@@ -53,7 +51,9 @@ def test_all_pre_migration_public_routes_and_schema_contracts_are_unchanged():
         for category in ("paths", "schemas"):
             assert not expected["contract"][category].keys() & delta[category].keys()
             expected["contract"][category].update(delta[category])
-    assert contract(openapi) == expected["contract"]
+    actual = contract(openapi)
+    assert actual["paths"].pop("/api/v1/imports/providers")
+    assert actual == expected["contract"]
 
 
 def test_access_domain_kind_is_serialized_as_legacy_provider():

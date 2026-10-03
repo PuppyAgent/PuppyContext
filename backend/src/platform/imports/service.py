@@ -8,6 +8,10 @@ from src.platform.authorization.models import ProjectAction
 from src.platform.authorization.service import AuthorizationService
 from src.platform.imports.arq_client import ImportArqClient
 from src.platform.imports.provider import detect_import_provider, suggest_import_name
+from src.platform.imports.providers import (
+    get_import_provider_registry, import_adapter_name, require_import_provider,
+)
+from src.provider.registry import ProviderRegistry
 from src.platform.imports.repository import ImportJob, ImportJobRepository
 from src.platform.imports.schemas import ImportJobCreateRequest, ImportJobStatus
 
@@ -29,18 +33,23 @@ class ImportJobService:
         repo: ImportJobRepository,
         authorization: AuthorizationService,
         arq_client: ImportArqClient,
+        registry: ProviderRegistry | None = None,
     ):
         self.repo = repo
         self.authorization = authorization
         self.arq_client = arq_client
+        self.registry = registry
 
     async def create(self, request: ImportJobCreateRequest, user_id: str) -> ImportJob:
         grant = self.authorization.authorize(
             request.project_id, user_id, ProjectAction.INGEST_WRITE
         )
-        provider = (request.provider or detect_import_provider(request.source_url)).strip()
-        if not provider:
-            raise HTTPException(status_code=400, detail="Import provider is required")
+        provider = (request.provider or detect_import_provider(request.source_url)).strip().lower()
+        try:
+            import_adapter_name(provider)
+            require_import_provider(self.registry or get_import_provider_registry(), provider)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         config = dict(request.config or {})
         if request.crawl_options:

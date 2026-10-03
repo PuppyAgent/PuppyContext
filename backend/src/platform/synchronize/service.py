@@ -8,9 +8,11 @@ storage-agnostic.
 from __future__ import annotations
 
 from typing import Any, Optional
+from copy import deepcopy
 
-from src.provider._base import BaseProvider
-from src.provider.schemas import ResourceInfo
+from src.provider._base import AuthRequirement, BaseProvider
+from src.provider.schemas import ResourceInfo, SourceInput
+from src.platform.synchronize.providers import get_synchronize_provider_registry, require_synchronize_provider
 from src.platform.synchronize.paths import (
     canonical_provider,
     join_path,
@@ -25,8 +27,9 @@ from src.utils.logger import log_error, log_info
 
 
 class SynchronizeService:
-    def __init__(self, repository: SynchronizeRepository):
+    def __init__(self, repository: SynchronizeRepository, registry=None):
         self.repository = repository
+        self.registry = registry
         # Compatibility for old helpers that receive a service-like object.
         self.sync_repo = repository
         self._providers: dict[str, BaseProvider] = {}
@@ -36,6 +39,19 @@ class SynchronizeService:
 
     def _get_provider(self, provider: str) -> Optional[BaseProvider]:
         return self._providers.get(canonical_provider(provider))
+
+    async def _source_input(self, adapter, config, user_id) -> SourceInput:
+        spec = adapter.spec()
+        registry = self.registry or get_synchronize_provider_registry()
+        credentials = await registry.resolve_credentials(
+            oauth_type=spec.oauth_type, user_id=user_id or "",
+            required=spec.auth not in {AuthRequirement.NONE, AuthRequirement.OPTIONAL_OAUTH},
+        )
+        return SourceInput(
+            config={key: deepcopy(value) for key, value in (config or {}).items()
+                    if key in {"source", "options", "materialization_schema"}},
+            credentials=credentials,
+        )
 
     def remove_sync(self, connection_id: str) -> None:
         self.repository.delete(connection_id)
@@ -88,6 +104,7 @@ class SynchronizeService:
         adapter = self._get_provider(canonical)
         if not adapter:
             raise ValueError(f"No integration connector for provider: {provider}")
+        require_synchronize_provider(adapter, mode=sync_mode, direction=direction, trigger=trigger)
         if adapter.spec().creation_mode != "bootstrap":
             raise ValueError(
                 f"AccessSurface {canonical} must use direct connection creation"
@@ -97,16 +114,7 @@ class SynchronizeService:
         if not trigger_data.get("type"):
             trigger_data["type"] = sync_mode
 
-        temp_connection = SourceConnection(
-            id="",
-            project_id=project_id,
-            path=normalize_path(target_folder_path),
-            direction=direction,
-            provider=canonical,
-            config=config,
-            credentials_ref=credentials_ref,
-        )
-        resources = await adapter.list_resources(temp_connection)
+        resources = await adapter.list_resources(await self._source_input(adapter, config, user_id))
         created: list[SourceConnection] = []
 
         for resource in resources:
@@ -214,6 +222,8 @@ class SynchronizeService:
         if not adapter:
             raise ValueError(f"No integration connector for provider: {provider}")
 
+        require_synchronize_provider(adapter, mode=sync_mode, direction=direction,
+                                     trigger=trigger, config=config)
         spec = adapter.spec()
         if spec.creation_mode != "direct":
             raise ValueError(
@@ -253,6 +263,19 @@ class SynchronizeService:
         )
         return connection
 
+    def update_trigger(self, connection_id: str, *, mode: str, trigger: dict | None = None):
+        connection = self.repository.get_by_id(connection_id)
+        if connection is None:
+            raise ValueError("Synchronize binding not found")
+        trigger_data = dict(trigger or {})
+        if not trigger_data.get("type"):
+            trigger_data["type"] = mode
+        require_synchronize_provider(
+            self._get_provider(connection.provider), mode=mode,
+            direction=connection.direction, trigger=trigger_data, config=connection.config,
+        )
+        return self.repository.update(connection_id, trigger=trigger_data)
+
     async def pull_sync(self, connection_id: str) -> Optional[dict]:
         raise RuntimeError(
             "Integration pull runs must be queued through the sync worker"
@@ -282,7 +305,12 @@ class SynchronizeService:
             return []
 
         try:
-            push_result = await adapter.push(connection, content, node_type)
+            require_synchronize_provider(
+                adapter, mode=(connection.trigger or {}).get("type", "manual"),
+                direction=connection.direction, config=connection.config,
+            )
+            source = await self._source_input(adapter, connection.config, connection.created_by)
+            push_result = await adapter.push(source, content, node_type)
             if not push_result.success:
                 self.repository.update_error(
                     connection.id, push_result.error or "push failed",

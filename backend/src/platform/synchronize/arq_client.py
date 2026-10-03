@@ -6,7 +6,7 @@ import logging
 
 from arq.connections import ArqRedis, RedisSettings, create_pool
 
-from src.ingest.file.config import etl_config
+from src.platform.synchronize.config import synchronize_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,8 @@ class SyncArqClient:
         redis_url: str | None = None,
         queue_name: str | None = None,
     ):
-        self.redis_url = redis_url or etl_config.etl_redis_url
-        self.queue_name = queue_name or etl_config.sync_arq_queue_name
+        self.redis_url = redis_url or synchronize_config.redis_url
+        self.queue_name = queue_name or synchronize_config.synchronize_arq_queue_name
         self._pool: ArqRedis | None = None
 
     async def get_pool(self) -> ArqRedis:
@@ -34,7 +34,7 @@ class SyncArqClient:
     async def enqueue_sync_run(self, run_id: str) -> str:
         redis = await self.get_pool()
         job = await redis.enqueue_job(
-            "execute_sync_run",
+            "execute_synchronize_run",
             run_id,
             _queue_name=self.queue_name,
         )

@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from src.ingest.schemas import IngestType
+from src.infra.task_presentation import IngestType
 
 
 @dataclass(frozen=True)

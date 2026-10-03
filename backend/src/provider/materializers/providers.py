@@ -18,7 +18,7 @@ from src.provider.materializers.base import (
     safe_name,
     source_meta,
 )
-from src.provider.schemas import Sync
+from src.provider.schemas import MaterializationInput
 
 
 class GmailMaterializer(SourceMaterializer):
@@ -35,7 +35,7 @@ class GmailMaterializer(SourceMaterializer):
         ),
     )
 
-    def materialize(self, result: FetchResult, sync: Sync) -> MaterializedOutput:
+    def materialize(self, result: FetchResult, sync: MaterializationInput) -> MaterializedOutput:
         content = ensure_mapping(result.content)
         emails = content.get("emails") if isinstance(content.get("emails"), list) else []
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -138,8 +138,8 @@ class GoogleDocsMaterializer(SourceMaterializer):
         ),
     )
 
-    def materialize(self, result: FetchResult, sync: Sync) -> MaterializedOutput:
-        source = (sync.config or {}).get("source") or {}
+    def materialize(self, result: FetchResult, sync: MaterializationInput) -> MaterializedOutput:
+        source = sync.source
         title = str(result.node_name or source.get("resource_name") or "Google Doc")
         if title.endswith(".md"):
             title = title[:-3]
@@ -191,7 +191,7 @@ class GoogleSheetsMaterializer(SourceMaterializer):
         ),
     )
 
-    def materialize(self, result: FetchResult, sync: Sync) -> MaterializedOutput:
+    def materialize(self, result: FetchResult, sync: MaterializationInput) -> MaterializedOutput:
         content = ensure_mapping(result.content)
         workbook = safe_name(content.get("spreadsheet_title") or result.node_name or "Workbook", "workbook")
         root = relative_path("spreadsheets", workbook)
@@ -271,7 +271,7 @@ class GoogleDriveMaterializer(SourceMaterializer):
         ),
     )
 
-    def materialize(self, result: FetchResult, sync: Sync) -> MaterializedOutput:
+    def materialize(self, result: FetchResult, sync: MaterializationInput) -> MaterializedOutput:
         content = ensure_mapping(result.content)
         files = content.get("files") if isinstance(content.get("files"), list) else []
         manifest = [
@@ -324,7 +324,7 @@ class GoogleCalendarMaterializer(SourceMaterializer):
         ),
     )
 
-    def materialize(self, result: FetchResult, sync: Sync) -> MaterializedOutput:
+    def materialize(self, result: FetchResult, sync: MaterializationInput) -> MaterializedOutput:
         content = ensure_mapping(result.content)
         events = content.get("events") if isinstance(content.get("events"), list) else []
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)

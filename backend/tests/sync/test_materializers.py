@@ -13,8 +13,18 @@ from src.provider.materializers.providers import (
     GoogleSheetsMaterializer,
 )
 from src.provider.registry import ProviderRegistry
-from src.provider.schemas import Sync
+from src.platform.synchronize.models import SynchronizeBinding as Sync
+from src.provider.schemas import MaterializationInput
 from src.platform.synchronize.engine import SynchronizeEngine
+
+
+@pytest.fixture(autouse=True)
+def approved_test_adapters(monkeypatch):
+    from src.platform.synchronize.providers import SYNCHRONIZE_MODES
+
+    # Registration alone is not admission: tests explicitly approve their fakes.
+    for name in ("engine_fake", "counting_fake", "metered_fake"):
+        monkeypatch.setitem(SYNCHRONIZE_MODES, name, ("manual", "scheduled"))
 
 
 def _sync(provider: str = "gmail") -> Sync:
@@ -23,7 +33,7 @@ def _sync(provider: str = "gmail") -> Sync:
         project_id="project-1",
         path="Gmail",
         provider=provider,
-        config={},
+        config={"source": {}, "options": {}},
     )
 
 
@@ -52,7 +62,7 @@ def test_gmail_materializer_writes_threads_and_index():
         summary="Fetched 1 email",
     )
 
-    output = GmailMaterializer().materialize(result, _sync())
+    output = GmailMaterializer().materialize(result, MaterializationInput(provenance={"connection_id": "sync-1"}))
 
     assert "_meta/source.json" in output.files
     assert "index.json" in output.files
@@ -80,7 +90,7 @@ def test_google_sheets_materializer_writes_workbook_csv_and_schema():
         content_hash="hash-2",
     )
 
-    output = GoogleSheetsMaterializer().materialize(result, _sync("google_sheets"))
+    output = GoogleSheetsMaterializer().materialize(result, MaterializationInput(provenance={"connection_id": "sync-1"}))
 
     assert "spreadsheets/Revenue Plan/workbook.json" in output.files
     assert "spreadsheets/Revenue Plan/sheets/Q1.csv" in output.files
@@ -243,7 +253,7 @@ class _MeteredConnector(BaseProvider):
             provider="metered_fake",
             display_name="Metered Fake",
             capabilities=Capability.PULL | Capability.PUSH,
-            supported_directions=["bidirectional"],
+            supported_directions=["inbound", "bidirectional"],
         )
 
     async def fetch(self, config, credentials):
@@ -309,7 +319,8 @@ async def test_integration_engine_uses_pinned_materializer():
     connection.path = "Integrations/Mount"
     connection.config = {
         "target_path": "Integrations/Mount",
-        "external_resource_id": "direct:fake",
+        "source": {"resource_id": "direct:fake"},
+        "options": {},
         "materialization_schema": {"id": "test.schema", "version": 1},
     }
 
@@ -378,6 +389,7 @@ async def test_integration_engine_direct_execute_creates_claims_and_completes_ru
     connection = _sync("engine_fake")
     connection.path = "Integrations/Mount"
     connection.config = {
+        "source": {}, "options": {},
         "target_path": "Integrations/Mount",
         "materialization_schema": {"id": "test.schema", "version": 1},
     }

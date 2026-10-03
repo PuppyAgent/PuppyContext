@@ -248,7 +248,7 @@ async def _init_file_ingest() -> None:
         log_info("📄 Initializing File Ingest service...")
         from pathlib import Path
 
-        from src.ingest.file.dependencies import get_etl_service
+        from src.platform.upload.dependencies import get_etl_service
 
         file_ingest_service = await get_etl_service()
         Path(".mineru_cache").mkdir(parents=True, exist_ok=True)
@@ -491,7 +491,7 @@ async def _shutdown_services() -> None:
 
     if settings.etl_enabled:
         try:
-            from src.ingest.file.dependencies import get_etl_service
+            from src.platform.upload.dependencies import get_etl_service
 
             file_ingest_service = await get_etl_service()
             await file_ingest_service.stop()

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.ingest.file.jobs.jobs import stage_blob_from_s3
+from src.platform.upload.jobs import stage_blob_from_s3
 from src.platform.authorization.models import RuntimeGrant, RuntimeMode, RuntimePrincipal
 from src.platform.repository_target.models import ResolvedRepositoryView, ScopeTarget
 from src.version_engine.adapters.git.object_quarantine import GitObjectQuarantine

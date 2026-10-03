@@ -49,8 +49,8 @@ BILLING_ENFORCEMENT=required
 # 指向单独部署的 MCP Server 服务。生产建议使用 Railway private domain。
 MCP_SERVER_URL=https://your-mcp-service.up.railway.app
 
-# ==================== File Worker 专用 ====================
-# SERVICE_ROLE=file_worker
+# ==================== Upload Worker 专用 ====================
+# SERVICE_ROLE=upload_worker
 
 # OCR Provider 选择 (推荐: deepseek)
 OCR_PROVIDER=deepseek
@@ -74,10 +74,11 @@ DEEPINFRA_API_KEY=your-deepinfra-api-key
 # SERVICE_ROLE=import_worker
 # IMPORT_ARQ_QUEUE_NAME=imports
 
-# ==================== Sync Worker 专用 ====================
-# SERVICE_ROLE=sync_worker
-# SYNC_ARQ_QUEUE_NAME=syncs
-# SYNC_TASK_TIMEOUT=900
+# ==================== Synchronize Worker 专用 ====================
+# 先停旧 producer 并排空旧队列；不能只修改角色名后滚动发布。
+# SERVICE_ROLE=synchronize_worker
+# SYNCHRONIZE_ARQ_QUEUE_NAME=synchronize
+# SYNCHRONIZE_TASK_TIMEOUT=900
 
 # ==================== MCP Server 专用 ====================
 # SERVICE_ROLE=mcp_server

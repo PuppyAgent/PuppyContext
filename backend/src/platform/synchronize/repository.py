@@ -13,7 +13,7 @@ from src.platform.synchronize.run_repository import (
     SyncRun,
     SyncRunRepository,
 )
-from src.provider.schemas import Sync as SourceConnection
+from src.platform.synchronize.models import SynchronizeBinding as SourceConnection
 from src.infra.supabase.client import SupabaseClient
 from src.platform.synchronize.paths import canonical_provider, normalize_path
 

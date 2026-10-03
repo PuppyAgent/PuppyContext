@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from src.config import settings
 from src.infra.supabase.client import SupabaseClient
-from src.ingest.upload_jobs import UploadJobRepository
+from src.platform.upload.repository import UploadJobRepository
 from src.utils.logger import log_error
 
 
