@@ -5,23 +5,23 @@
  * has a GitHub OAuth connection but no project↔repo binding yet.
  *
  * Flow:
- *   1. List the OAuth user's repos via ``listGithubRepos``.
+ *   1. List the OAuth user's repos via canonical Synchronize discovery.
  *   2. User picks one — the picker prefills the binding's
  *      ``default_branch`` from the repo's GitHub default.
- *   3. Optionally toggle ``auto_import`` (requires a webhook secret).
- *   4. Submit → ``connectGithubRepo``; bubble the new status up so
+ *   3. Optionally toggle ``auto_pull`` (requires a webhook secret).
+ *   4. Submit → ``createSynchronizeGithubBinding``; bubble the new status up so
  *      the parent can swap to the bound view.
  */
 
 import { T } from '@/features/files/components/github-integration/tokens';
 import {
-  connectGithubRepo,
-  listGithubBranches,
-  listGithubRepos,
-  type GithubBranchSummary,
-  type GithubIntegrationStatus,
-  type GithubRepoSummary,
-} from '@/lib/githubIntegrationApi';
+  createSynchronizeGithubBinding,
+  listSynchronizeGithubBranches,
+  listSynchronizeGithubRepos,
+  type SynchronizeGithubBranch,
+  type SynchronizeGithubBinding,
+  type SynchronizeGithubRepo,
+} from '@/lib/synchronizeGithubApi';
 import { useTranslations } from 'next-intl';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -29,7 +29,7 @@ interface Props {
   projectId: string;
   oauthConnectionId: number;
   defaultBranch?: string;
-  onConnected: (status: GithubIntegrationStatus) => void;
+  onConnected: (status: SynchronizeGithubBinding) => void;
 }
 
 export function GithubConnectForm({
@@ -40,7 +40,7 @@ export function GithubConnectForm({
 }: Readonly<Props>) {
   const t = useTranslations('integrations.github');
 
-  const [repos, setRepos] = useState<GithubRepoSummary[] | null>(null);
+  const [repos, setRepos] = useState<SynchronizeGithubRepo[] | null>(null);
   const [reposError, setReposError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
@@ -49,7 +49,7 @@ export function GithubConnectForm({
   /** Branches for the currently-selected repo. ``null`` while loading
    *  (or before any repo is selected); empty array means "fetched, repo
    *  has no branches" (rare but possible for fresh empty repos). */
-  const [branches, setBranches] = useState<GithubBranchSummary[] | null>(null);
+  const [branches, setBranches] = useState<SynchronizeGithubBranch[] | null>(null);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [autoImport, setAutoImport] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState('');
@@ -61,7 +61,7 @@ export function GithubConnectForm({
     let cancelled = false;
     setRepos(null);
     setReposError(null);
-    listGithubRepos(projectId, oauthConnectionId)
+    listSynchronizeGithubRepos(projectId, oauthConnectionId)
       .then((res) => {
         if (cancelled) return;
         setRepos(res.repos);
@@ -98,7 +98,7 @@ export function GithubConnectForm({
     let cancelled = false;
     setBranches(null);
     setBranchesError(null);
-    listGithubBranches(
+    listSynchronizeGithubBranches(
       projectId, oauthConnectionId,
       selectedRepo.owner, selectedRepo.name,
     )
@@ -141,12 +141,12 @@ export function GithubConnectForm({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const status = await connectGithubRepo(projectId, {
+      const status = await createSynchronizeGithubBinding(projectId, {
         oauth_connection_id: oauthConnectionId,
         github_repo_owner: selectedRepo.owner,
         github_repo_name: selectedRepo.name,
         default_branch: branch.trim(),
-        auto_import: autoImport,
+        auto_pull: autoImport,
         webhook_secret: autoImport ? webhookSecret.trim() : null,
       });
       onConnected(status);
@@ -251,7 +251,7 @@ export function GithubConnectForm({
 
 interface BranchPickerProps {
   repoSelected: boolean;
-  branches: GithubBranchSummary[] | null;
+  branches: SynchronizeGithubBranch[] | null;
   loadError: string | null;
   value: string;
   onChange: (next: string) => void;
@@ -404,7 +404,7 @@ function BranchPicker({
   if (branches === null && !loadError) return renderDisabled(loadingLabel);
   if (!branches || (branches.length === 0 && !loadError)) return renderDisabled(emptyLabel);
 
-  const labelFor = (b: GithubBranchSummary) =>
+  const labelFor = (b: SynchronizeGithubBranch) =>
     b.name + (b.is_default ? '  (default)' : '') + (b.protected && !b.is_default ? '  🔒' : '');
   const selected = branches?.find((b) => b.name === value);
 
@@ -545,7 +545,7 @@ function FieldRow({ label, children }: Readonly<{ label: string; children: React
 }
 
 interface RepoPickerProps {
-  repos: GithubRepoSummary[];
+  repos: SynchronizeGithubRepo[];
   loading: boolean;
   error: string | null;
   filter: string;

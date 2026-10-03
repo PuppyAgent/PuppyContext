@@ -25,16 +25,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.common_schemas import ApiResponse
 from src.platform.auth.dependencies import get_current_user
+from src.platform.auth.models import CurrentUser
+from src.platform.authorization.dependencies import get_authorization_service
+from src.platform.authorization.models import ProjectAction
+from src.platform.authorization.service import AuthorizationService
 from src.platform.synchronize.github.schemas import (
     GithubBranchList,
-    GithubExportRequest, GithubImportRequest, GithubIntegrationCreate,
-    GithubIntegrationStatus, GithubIntegrationUpdate,
-    GithubRepoList, GithubSyncLogList, GithubSyncRunResult,
+    GithubExportRequest,
+    GithubImportRequest,
+    GithubIntegrationCreate,
+    GithubIntegrationStatus,
+    GithubIntegrationUpdate,
+    GithubRepoList,
+    GithubSyncLogList,
+    GithubSyncRunResult,
 )
 from src.platform.synchronize.github.service import (
-    GithubSyncNotFound, GithubSyncService,
+    GithubSyncNotFound,
+    GithubSyncService,
 )
 from src.platform.synchronize.github.webhook import WebhookRejection, handle_webhook
+from src.provider.oauth.repository import OAuthRepository
 from src.utils.logger import log_error, log_info
 
 # All authenticated endpoints below return ``ApiResponse[T]`` rather than
@@ -69,6 +80,27 @@ def _service() -> GithubSyncService:
     return GithubSyncService()
 
 
+def _project_user(action: ProjectAction):
+    def authorize(
+        project_id: str,
+        user: CurrentUser = Depends(get_current_user),
+        authorization: AuthorizationService = Depends(get_authorization_service),
+    ):
+        authorization.authorize(project_id, user.user_id, action)
+        return user
+    return authorize
+
+
+_read_user = _project_user(ProjectAction.ACCESS_READ)
+_manage_user = _project_user(ProjectAction.SYNCHRONIZE_MANAGE)
+
+
+async def _require_owned_github_oauth(oauth_connection_id: int, user: CurrentUser):
+    oauth = await OAuthRepository().get_by_id(oauth_connection_id)
+    if oauth is None or oauth.user_id != user.user_id or oauth.provider != "github":
+        raise HTTPException(404, detail=_DETAIL_OAUTH_NOT_FOUND)
+
+
 # ── Project-scoped routes ──────────────────────────────
 
 
@@ -76,23 +108,24 @@ def _service() -> GithubSyncService:
 async def connect(
     project_id: str,
     payload: GithubIntegrationCreate,
-    user=Depends(get_current_user),
+    user=Depends(_manage_user),
 ) -> ApiResponse[GithubIntegrationStatus]:
+    await _require_owned_github_oauth(payload.oauth_connection_id, user)
     try:
         result = await _service().connect(project_id, payload)
         return ApiResponse.success(data=result, message="github integration connected")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:  # noqa: BLE001
-        log_error(f"[GithubIntegration] connect failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log_error("[GithubIntegration] binding setup failed")
+        raise HTTPException(status_code=500, detail="GitHub binding setup failed")
 
 
 @router.patch("", response_model=ApiResponse[GithubIntegrationStatus])
 async def update(
     project_id: str,
     payload: GithubIntegrationUpdate,
-    user=Depends(get_current_user),
+    user=Depends(_manage_user),
 ) -> ApiResponse[GithubIntegrationStatus]:
     try:
         result = await _service().update(project_id, payload)
@@ -106,7 +139,7 @@ async def update(
 @router.delete("", response_model=ApiResponse[dict])
 async def disconnect(
     project_id: str,
-    user=Depends(get_current_user),
+    user=Depends(_manage_user),
 ) -> ApiResponse[dict]:
     await _service().disconnect(project_id)
     return ApiResponse.success(data={}, message="github integration disconnected")
@@ -115,7 +148,7 @@ async def disconnect(
 @router.get("/status", response_model=ApiResponse[GithubIntegrationStatus | None])
 async def get_status(
     project_id: str,
-    user=Depends(get_current_user),
+    user=Depends(_read_user),
 ) -> ApiResponse[GithubIntegrationStatus | None]:
     result = await _service().status(project_id)
     return ApiResponse.success(data=result, message="github integration status retrieved")
@@ -125,7 +158,7 @@ async def get_status(
 async def list_repos(
     project_id: str,
     oauth_connection_id: int = Query(..., description="The user's GitHub OAuth row id"),
-    user=Depends(get_current_user),
+    user=Depends(_read_user),
 ) -> ApiResponse[GithubRepoList]:
     """List the OAuth user's GitHub repositories.
 
@@ -134,14 +167,15 @@ async def list_repos(
     OAuth row to use). After ``connect`` the same id is stored on the
     integration row and reused for imports/exports.
     """
+    await _require_owned_github_oauth(oauth_connection_id, user)
     try:
         result = await _service().list_user_repos(oauth_connection_id)
         return ApiResponse.success(data=result, message="repositories retrieved")
     except GithubSyncNotFound:
         raise HTTPException(status_code=404, detail=_DETAIL_OAUTH_NOT_FOUND)
-    except Exception as e:  # noqa: BLE001
-        log_error(f"[GithubIntegration] list_repos failed: {e}")
-        raise HTTPException(status_code=502, detail=f"GitHub API: {e}")
+    except Exception as e:
+        log_error("[GithubIntegration] repository discovery failed")
+        raise HTTPException(status_code=502, detail="GitHub repository discovery failed") from e
 
 
 @router.get("/branches", response_model=ApiResponse[GithubBranchList])
@@ -150,7 +184,7 @@ async def list_branches(
     oauth_connection_id: int = Query(..., description="The user's GitHub OAuth row id"),
     repo_owner: str = Query(..., min_length=1),
     repo_name: str = Query(..., min_length=1),
-    user=Depends(get_current_user),
+    user=Depends(_read_user),
 ) -> ApiResponse[GithubBranchList]:
     """List branches for a (owner, repo) pair.
 
@@ -158,6 +192,7 @@ async def list_branches(
     is the same query param shape as ``/repos`` so the frontend can
     pass the OAuth id it already has cached.
     """
+    await _require_owned_github_oauth(oauth_connection_id, user)
     try:
         result = await _service().list_repo_branches(
             oauth_connection_id, repo_owner, repo_name,
@@ -165,16 +200,16 @@ async def list_branches(
         return ApiResponse.success(data=result, message="branches retrieved")
     except GithubSyncNotFound:
         raise HTTPException(status_code=404, detail=_DETAIL_OAUTH_NOT_FOUND)
-    except Exception as e:  # noqa: BLE001
-        log_error(f"[GithubIntegration] list_branches failed: {e}")
-        raise HTTPException(status_code=502, detail=f"GitHub API: {e}")
+    except Exception as e:
+        log_error("[GithubIntegration] branch discovery failed")
+        raise HTTPException(status_code=502, detail="GitHub branch discovery failed") from e
 
 
 @router.post("/import", response_model=ApiResponse[GithubSyncRunResult])
 async def import_now(
     project_id: str,
     payload: GithubImportRequest,
-    user=Depends(get_current_user),
+    user=Depends(_manage_user),
 ) -> ApiResponse[GithubSyncRunResult]:
     try:
         result = await _service().import_now(project_id, payload)
@@ -187,7 +222,7 @@ async def import_now(
 async def export_now(
     project_id: str,
     payload: GithubExportRequest,
-    user=Depends(get_current_user),
+    user=Depends(_manage_user),
 ) -> ApiResponse[GithubSyncRunResult]:
     try:
         result = await _service().export_now(project_id, payload)
@@ -201,7 +236,7 @@ async def sync_log(
     project_id: str,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user=Depends(get_current_user),
+    user=Depends(_read_user),
 ) -> ApiResponse[GithubSyncLogList]:
     try:
         result = await _service().list_sync_log(
@@ -233,6 +268,6 @@ async def github_webhook(request: Request):
         return await handle_webhook(raw, headers, json_payload)
     except WebhookRejection as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log_error(f"[GithubWebhook] unexpected: {e}")
         raise HTTPException(status_code=500, detail="webhook handler failed")

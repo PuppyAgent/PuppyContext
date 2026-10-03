@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createConnection, type ConnectionErrorDetail, type KeyType } from '../lib/dbConnectorApi';
+import { createImportDatabaseSource, type ImportDatabaseErrorDetail, type ImportDatabaseKeyType } from '../lib/importDatabaseApi';
 import { Dots } from './loading';
 import { ActivityIconButton } from './ActivityIconButton';
 import { ActionButton } from './ui/ActionButton';
@@ -9,15 +9,15 @@ import { ActionButton } from './ui/ActionButton';
 type SupabaseConnectDialogProps = {
   projectId: string;
   onClose: () => void;
-  onConnected: (connectionId: string) => void;
+  onConnected: (importDatabaseSourceId: string) => void;
 };
 
 export function SupabaseConnectDialog({ projectId, onClose, onConnected }: SupabaseConnectDialogProps) {
   const [projectUrl, setProjectUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [keyType, setKeyType] = useState<KeyType>('anon'); // Default to anon
+  const [keyType, setKeyType] = useState<ImportDatabaseKeyType>('anon'); // Default to anon
   const [isConnecting, setIsConnecting] = useState(false);
-  const [error, setError] = useState<ConnectionErrorDetail | null>(null);
+  const [error, setError] = useState<ImportDatabaseErrorDetail | null>(null);
   const [showRLSGuide, setShowRLSGuide] = useState(false);
 
   const canSubmit = projectUrl.trim().length > 0 && apiKey.trim().length > 0;
@@ -32,7 +32,7 @@ export function SupabaseConnectDialog({ projectId, onClose, onConnected }: Supab
       const ref = urlHost.split('.')[0];
       const name = `Supabase (${ref})`;
 
-      const { connection } = await createConnection(projectId, {
+      const { source } = await createImportDatabaseSource(projectId, {
         name,
         provider: 'supabase',
         project_url: projectUrl.trim(),
@@ -40,15 +40,15 @@ export function SupabaseConnectDialog({ projectId, onClose, onConnected }: Supab
         key_type: keyType,
       });
 
-      onConnected(connection.id);
+      onConnected(source.id);
     } catch (err: unknown) {
-      const errorDetail: ConnectionErrorDetail = err instanceof Error
+      const errorDetail: ImportDatabaseErrorDetail = err instanceof Error
         ? {
             error_code: null,
             message: err.message,
             suggested_actions: [],
           }
-        : (err as ConnectionErrorDetail);
+        : (err as ImportDatabaseErrorDetail);
 
       if (errorDetail.error_code === 'RLS_BLOCKED') {
         // Show RLS guidance

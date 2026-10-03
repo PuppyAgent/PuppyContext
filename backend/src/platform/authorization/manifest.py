@@ -375,6 +375,23 @@ for _method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         "mcp.invoke"
     )
 
+PROJECT_ROUTE_AUTHORIZATION.update({
+    **{("GET", f"/api/v1/projects/{{project_id}}/synchronize/github/{suffix}"):
+       _human(ProjectAction.ACCESS_READ) for suffix in ("binding", "repos", "branches", "logs")},
+    **{(method, "/api/v1/projects/{project_id}/synchronize/github/binding"):
+       _human(ProjectAction.SYNCHRONIZE_MANAGE) for method in ("POST", "PATCH", "DELETE")},
+    **{("POST", f"/api/v1/projects/{{project_id}}/synchronize/github/{suffix}"):
+       _human(ProjectAction.SYNCHRONIZE_MANAGE) for suffix in ("pull", "push")},
+    ("POST", "/api/v1/synchronize/github/webhook"): _runtime("synchronize.github.webhook"),
+    ("POST", "/api/v1/imports/database/sources"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
+    ("GET", "/api/v1/imports/database/sources"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/imports/database/sources/{import_database_source_id}"): _human(ProjectAction.ACCESS_READ),
+    ("DELETE", "/api/v1/imports/database/sources/{import_database_source_id}"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
+    ("GET", "/api/v1/imports/database/sources/{import_database_source_id}/tables"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/imports/database/sources/{import_database_source_id}/tables/{table_name}/preview"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/imports/database/sources/{import_database_source_id}/save"): _human(ProjectAction.CONTENT_WRITE),
+})
+
 # Compatibility name for call sites that only consume Human action mappings.
 PROJECT_ROUTE_ACTIONS = {
     key: contract.action

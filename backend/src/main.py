@@ -746,6 +746,11 @@ def create_app() -> FastAPI:
         webhook_router as github_webhook_router,
     )
 
+    from src.platform.synchronize.github.public_router import router as synchronize_github_router
+    from src.platform.synchronize.github.public_router import webhook_router as synchronize_github_webhook_router
+
+    app.include_router(synchronize_github_router)
+    app.include_router(synchronize_github_webhook_router)
     app.include_router(github_sync_router, tags=["github-integration"])
     app.include_router(github_webhook_router, tags=["github-integration"])
     from src.platform.scope_sandbox.router import router as scope_sandbox_router
@@ -761,6 +766,9 @@ def create_app() -> FastAPI:
     app.include_router(profile_router, tags=["profile"])
     app.include_router(imports_router, prefix="/api/v1", tags=["imports"])
     app.include_router(activity_router, prefix="/api/v1", tags=["activity"])
+    from src.platform.imports.database.public_router import router as import_database_sources_router
+
+    app.include_router(import_database_sources_router, prefix="/api/v1")
     app.include_router(database_import_router, prefix="/api/v1", tags=["db-connector"])
     app.include_router(organization_router, prefix="/api/v1", tags=["organizations"])
     from src.platform.billing.router import router as billing_router

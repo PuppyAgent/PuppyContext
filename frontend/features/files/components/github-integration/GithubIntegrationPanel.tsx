@@ -22,21 +22,22 @@
  */
 
 import { useCommitUpdates } from '@/contexts/VersionWebSocketContext';
+import { useAuth } from '@/contexts/SupabaseAuthProvider';
 import { GithubBoundPanel } from '@/features/files/components/github-integration/GithubBoundPanel';
 import { GithubConnectForm } from '@/features/files/components/github-integration/GithubConnectForm';
 import { SyncLogTable } from '@/features/files/components/github-integration/SyncLogTable';
 import { T } from '@/features/files/components/github-integration/tokens';
 import {
-  getGithubBinding,
-  type GithubIntegrationStatus,
-} from '@/lib/githubIntegrationApi';
+  getSynchronizeGithubBinding,
+  type SynchronizeGithubBinding,
+} from '@/lib/synchronizeGithubApi';
 import {
   getGithubStatus as getOauthGithubStatus,
   connectGithub as startGithubOAuth,
   type OAuthStatusResponse,
 } from '@/lib/oauthApi';
 import { useTranslations } from 'next-intl';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useSWR from 'swr';
 
 interface Props {
@@ -45,9 +46,11 @@ interface Props {
 
 export function GithubIntegrationPanel({ projectId }: Readonly<Props>) {
   const t = useTranslations('integrations');
+  const { userId, session, isAuthReady } = useAuth();
+  const ready = isAuthReady && Boolean(userId);
 
-  const { data: oauthStatus, isLoading: oauthLoading } = useSWR<OAuthStatusResponse>(
-    'oauth-github-status',
+  const { data: oauthStatus, error: oauthError, isLoading: oauthLoading, mutate: mutateOauth } = useSWR<OAuthStatusResponse>(
+    ready ? ['oauth-github-status', userId] : null,
     () => getOauthGithubStatus(),
     { revalidateOnFocus: false },
   );
@@ -55,12 +58,17 @@ export function GithubIntegrationPanel({ projectId }: Readonly<Props>) {
   const {
     data: binding,
     isLoading: bindingLoading,
+    error: bindingError,
     mutate: mutateBinding,
-  } = useSWR<GithubIntegrationStatus | null>(
-    projectId ? ['github-binding', projectId] : null,
-    () => getGithubBinding(projectId),
+  } = useSWR<SynchronizeGithubBinding | null>(
+    ready && projectId ? ['synchronize-github-binding', userId, projectId] : null,
+    () => getSynchronizeGithubBinding(projectId),
     { revalidateOnFocus: false },
   );
+
+  useEffect(() => {
+    if (ready) { void mutateOauth(); void mutateBinding(); }
+  }, [ready, session?.access_token, mutateOauth, mutateBinding]);
 
   const [syncLogRefreshKey, setSyncLogRefreshKey] = useState(0);
   const onCommitUpdate = useCallback(() => {
@@ -80,10 +88,16 @@ export function GithubIntegrationPanel({ projectId }: Readonly<Props>) {
         </span>
       </div>
 
-      <GithubBody
+      {oauthError || bindingError ? (
+        <div role="alert">
+          <Hint>{String((oauthError || bindingError).message || t('github.errorGeneric'))}</Hint>
+          <button type="button" onClick={() => { void mutateOauth(); void mutateBinding(); }}>↻</button>
+        </div>
+      ) : <GithubBody
+        key={`${userId}:${projectId}:${binding?.id ?? 'unbound'}`}
         projectId={projectId}
         oauthStatus={oauthStatus}
-        oauthLoading={oauthLoading}
+        oauthLoading={!ready || oauthLoading}
         binding={binding ?? null}
         bindingLoading={bindingLoading}
         onBindingChanged={(next) => {
@@ -93,9 +107,9 @@ export function GithubIntegrationPanel({ projectId }: Readonly<Props>) {
           void mutateBinding();
           setSyncLogRefreshKey((k) => k + 1);
         }}
-      />
+      />}
 
-      {binding && <SyncLogTable projectId={projectId} refreshKey={syncLogRefreshKey} />}
+      {ready && binding && <SyncLogTable key={`${userId}:${projectId}:${binding.id}`} projectId={projectId} refreshKey={syncLogRefreshKey} />}
     </div>
   );
 }
@@ -104,9 +118,9 @@ interface GithubBodyProps {
   projectId: string;
   oauthStatus?: OAuthStatusResponse;
   oauthLoading: boolean;
-  binding: GithubIntegrationStatus | null;
+  binding: SynchronizeGithubBinding | null;
   bindingLoading: boolean;
-  onBindingChanged: (next: GithubIntegrationStatus | null) => void;
+  onBindingChanged: (next: SynchronizeGithubBinding | null) => void;
   onSyncRun: () => void;
 }
 

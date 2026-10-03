@@ -29,6 +29,8 @@ export * from "./accessProviders";
 
 // ── Synchronize bindings and runs ────────────────────────────────────────
 export * from "./endpoints/synchronize";
+export * from "./endpoints/synchronizeGithub";
+export * from "./endpoints/importDatabase";
 
 // ── MCP endpoints ─────────────────────────────────────────────────────────
 export { createMcpEndpointsApi } from "./endpoints/mcpEndpoints";

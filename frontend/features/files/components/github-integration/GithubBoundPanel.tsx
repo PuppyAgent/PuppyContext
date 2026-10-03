@@ -8,21 +8,21 @@
 
 import { T } from '@/features/files/components/github-integration/tokens';
 import {
-  disconnectGithubRepo,
-  exportGithubBranch,
-  githubWebhookUrl,
-  importGithubBranch,
-  type GithubIntegrationStatus,
-  type GithubSyncRunResult,
-} from '@/lib/githubIntegrationApi';
+  deleteSynchronizeGithubBinding,
+  pushSynchronizeGithubBinding,
+  githubSynchronizeWebhookUrl,
+  pullSynchronizeGithubBinding,
+  type SynchronizeGithubBinding,
+  type SynchronizeGithubResult,
+} from '@/lib/synchronizeGithubApi';
 import { useFormatter, useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 interface Props {
   projectId: string;
-  status: GithubIntegrationStatus;
-  onChanged: (status: GithubIntegrationStatus | null) => void;
-  onSyncRun: (run: GithubSyncRunResult) => void;
+  status: SynchronizeGithubBinding;
+  onChanged: (status: SynchronizeGithubBinding | null) => void;
+  onSyncRun: (run: SynchronizeGithubResult) => void;
 }
 
 export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Readonly<Props>) {
@@ -39,7 +39,7 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
     setActionError(null);
     setImporting(true);
     try {
-      const run = await importGithubBranch(projectId, { force: forceImport });
+      const run = await pullSynchronizeGithubBinding(projectId, { force: forceImport });
       onSyncRun(run);
     } catch (err) {
       setActionError((err as Error).message || t('errorGeneric'));
@@ -52,7 +52,7 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
     setActionError(null);
     setExporting(true);
     try {
-      const run = await exportGithubBranch(projectId);
+      const run = await pushSynchronizeGithubBinding(projectId);
       onSyncRun(run);
     } catch (err) {
       setActionError((err as Error).message || t('errorGeneric'));
@@ -70,14 +70,14 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
     );
     if (!confirmed) return;
     try {
-      await disconnectGithubRepo(projectId);
+      await deleteSynchronizeGithubBinding(projectId);
       onChanged(null);
     } catch (err) {
       setActionError((err as Error).message || t('errorGeneric'));
     }
   }
 
-  const webhookUrl = githubWebhookUrl();
+  const webhookUrl = githubSynchronizeWebhookUrl();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -101,7 +101,7 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
               branch: status.default_branch,
             })}
           </span>
-          {status.auto_import && (
+          {status.auto_pull && (
             <span style={{ color: T.text3, fontSize: 11 }}>
               {t('autoImport')} · {status.has_webhook_secret ? '✓' : '⚠'}
             </span>
@@ -130,13 +130,13 @@ export function GithubBoundPanel({ projectId, status, onChanged, onSyncRun }: Re
       <div style={{ display: 'flex', gap: 16 }}>
         <Stat
           label={t('lastImported')}
-          value={status.last_imported_sha ? status.last_imported_sha.slice(0, 12) : t('neverSynced')}
-          when={status.last_imported_at ? fmt.dateTime(new Date(status.last_imported_at), 'short') : null}
+          value={status.last_pulled_sha ? status.last_pulled_sha.slice(0, 12) : t('neverSynced')}
+          when={status.last_pulled_at ? fmt.dateTime(new Date(status.last_pulled_at), 'short') : null}
         />
         <Stat
           label={t('lastExported')}
-          value={status.last_exported_sha ? status.last_exported_sha.slice(0, 12) : t('neverSynced')}
-          when={status.last_exported_at ? fmt.dateTime(new Date(status.last_exported_at), 'short') : null}
+          value={status.last_pushed_sha ? status.last_pushed_sha.slice(0, 12) : t('neverSynced')}
+          when={status.last_pushed_at ? fmt.dateTime(new Date(status.last_pushed_at), 'short') : null}
         />
       </div>
 
