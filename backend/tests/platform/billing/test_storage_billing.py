@@ -273,7 +273,11 @@ def test_oversized_file_check_allows_rename_but_rejects_logical_copy(monkeypatch
         "rename": {"new-name.bin": "large-oid"},
         "copy": {"old-name.bin": "large-oid", "copy.bin": "large-oid"},
     }
-    monkeypatch.setattr(module, "tree_to_flat", lambda _store, root: manifests[root])
+    def blob_paths(_store, root, *, include_gitlinks):
+        assert include_gitlinks is False
+        return manifests[root]
+
+    monkeypatch.setattr(module, "tree_to_flat", blob_paths)
 
     class Store:
         def get(self, oid):
@@ -294,7 +298,11 @@ def test_logical_tree_delta_does_not_reread_unchanged_content(monkeypatch) -> No
         "old": {"same.txt": "same", "removed.bin": "removed"},
         "new": {"same.txt": "same", "added.bin": "added"},
     }
-    monkeypatch.setattr(module, "tree_to_flat", lambda _store, root: manifests[root])
+    def blob_paths(_store, root, *, include_gitlinks):
+        assert include_gitlinks is False
+        return manifests[root]
+
+    monkeypatch.setattr(module, "tree_to_flat", blob_paths)
 
     class Store:
         def __init__(self) -> None:

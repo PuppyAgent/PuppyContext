@@ -64,6 +64,23 @@
 - [ ] Resolve A04/B11/C01 catalog-versus-current-policy discrepancies without
   weakening acceptance or silently changing the existing LWW compatibility profile.
 
+### Product object/tree interoperability (M03/M14/M16, partial)
+
+- [x] Add an explicit repository object format to ObjectStore and tree/splice
+  primitives, keeping SHA-1 defaults and rejecting cross-format identities.
+- [x] Reproduce and fix mode loss in product tree spines, including untouched
+  executable/symlink/gitlink siblings, move/copy, mode-only copy replacement,
+  and blob replacement of an external gitlink. Preserve byte names and no-op saves.
+- [x] Exclude external gitlinks from local object closure and logical-byte/file
+  limit measurements, including gitlinks whose OID coincides with a local blob.
+- [x] Exercise staged product splices followed by pinned publication and cold
+  native Git readback in both formats using actual owned S3/PostgREST. Product
+  primitives invoke no Git process or transport materialization. This is NOT
+  canonical ProductOperationAdapter/API admission or atomic billing acceptance.
+- [ ] Wire repository-format selection, consistent ref/base snapshots and
+  admitted publication into all product/automatic consumers; do not activate
+  native authority on the strength of these primitive tests.
+
 ## 2. Unified authority (M02/M04–M09/M11–M16)
 
 - [x] Add dormant Expand schema and SQL primitive without editing B1: byte refs,
@@ -93,6 +110,14 @@
   select this adapter yet. This does not repair the old route's remaining targets.
 - [x] Exercise SHA-1/SHA-256 HTTP push/cold clone, rewrite/delete/atomic success,
   and SHA-256 physical GC quarantine; preserve reader availability during fencing.
+- [x] Verify clean core commit `11ec37d5` against actual Supabase + S3:
+  756 passed / 34 failed, with 329 pgTAP tests; all 150 added cases pass,
+  including 101 S3-layer cases and all 78 native HTTP workflow comparisons.
+  The sole removed earlier failure (`pull-merge`) is a deterministic recipe
+  correction, NOT a product repair: both clients now receive the same merge
+  message instead of embedding different remote URLs. Offline: 2703 passed /
+  27 skipped / 76 deselected. Later dependency absorption and edits are outside
+  this clean receipt. The 34 remaining original targets still block acceptance.
 - [ ] Complete durable publication/GC restart, remote-I/O quiescence recovery,
   long-upload lease renewal and bounded-resource/performance acceptance.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including

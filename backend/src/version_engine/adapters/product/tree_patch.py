@@ -33,6 +33,7 @@ from typing import Iterable
 
 from src.version_engine.domain.errors import ObjectNotFoundError
 from src.version_engine.write_engine import tree as tree_mod
+from src.version_engine.write_engine.git_object_format import MODE_DIR, MODE_FILE, MODE_GITLINK
 from src.version_engine.storage.object_store import ObjectStore
 
 # Each change is ``(action, rel_path)``. Action is one of "add" / "update"
@@ -64,7 +65,20 @@ def _read_tree_or_empty(store: ObjectStore, h: str) -> dict:
     """
     if not h:
         return {}
-    return tree_mod.read_tree(store, h)
+    # Internal nodes retain mode as a third field. The public two-field
+    # read_tree() compatibility shape cannot safely round-trip native trees.
+    return {
+        entry.name: ["T" if entry.is_dir else "B", entry.sha1_hex, entry.mode]
+        for entry in tree_mod.read_tree_entries(store, h)
+    }
+
+
+def _blob_entry(existing: list | None, oid: str) -> list:
+    """Editing a blob preserves its mode; replacing a gitlink creates a file."""
+    mode = MODE_FILE
+    if existing is not None and existing[0] == "B" and existing[2] != MODE_GITLINK:
+        mode = existing[2]
+    return ["B", oid, mode]
 
 
 def _walk_spine(
@@ -79,7 +93,7 @@ def _walk_spine(
     - ``spine_entries[i]`` is the entries-dict at depth ``i`` (root = 0).
       Always has length ``len(parts)``. Missing intermediate directories
       are represented as ``{}``.
-    - ``found[i]`` is the existing ``["B"|"T", hash]`` entry for
+    - ``found[i]`` is the existing ``["B"|"T", hash, mode]`` entry for
       ``parts[i]`` in ``spine_entries[i]``, or ``None`` if missing.
 
     Each component in ``parts`` is required to be either missing or a
@@ -100,7 +114,7 @@ def _walk_spine(
         if existing is None:
             cur = ""
             continue
-        typ, h = existing
+        typ, h = existing[:2]
         if typ != "T":
             full = "/".join(parts[: i + 1])
             raise ValueError(
@@ -142,7 +156,7 @@ def _rebuild_spine(
         if cur_hash is None:
             parent_entries.pop(name, None)
         else:
-            parent_entries[name] = ["T", cur_hash]
+            parent_entries[name] = ["T", cur_hash, MODE_DIR]
         if parent_entries:
             cur_hash = tree_mod.write_tree(store, parent_entries)
         else:
@@ -185,7 +199,7 @@ def _collect_affected_paths(
     impacted file rather than just the folder root. Walks the subtree
     via ``tree_to_flat`` (tree-node reads only — no blob downloads).
     """
-    typ, h = entry
+    typ, h = entry[:2]
     if typ == "B":
         return [base_path] if base_path else []
     try:
@@ -235,7 +249,8 @@ def splice_put_blob(
 
     leaf_name = parts[-1]
     existing = leaf_entries.get(leaf_name)
-    if existing is not None and existing[0] == "B" and existing[1] == new_blob_hash:
+    replacement = _blob_entry(existing, new_blob_hash)
+    if existing == replacement:
         return root_hash, []
     if existing is not None and existing[0] == "T":
         raise ValueError(
@@ -244,7 +259,7 @@ def splice_put_blob(
         )
 
     action = "add" if existing is None else "update"
-    leaf_entries[leaf_name] = ["B", new_blob_hash]
+    leaf_entries[leaf_name] = replacement
 
     if not spine_path:
         new_root = tree_mod.write_tree(store, leaf_entries)
@@ -301,7 +316,8 @@ def splice_put_blob_ref(
 
     leaf_name = parts[-1]
     existing = leaf_entries.get(leaf_name)
-    if existing is not None and existing[0] == "B" and existing[1] == blob_hash:
+    replacement = _blob_entry(existing, blob_hash)
+    if existing == replacement:
         return root_hash, []
     if existing is not None and existing[0] == "T":
         raise ValueError(
@@ -310,7 +326,7 @@ def splice_put_blob_ref(
         )
 
     action = "add" if existing is None else "update"
-    leaf_entries[leaf_name] = ["B", blob_hash]
+    leaf_entries[leaf_name] = replacement
 
     if not spine_path:
         new_root = tree_mod.write_tree(store, leaf_entries)
@@ -387,7 +403,7 @@ def splice_move(
 ) -> tuple[str, list[Change]]:
     """Move / rename a file or folder. Does not download blob contents.
 
-    The source entry's ``["B"|"T", hash]`` reference is moved verbatim
+    The source entry's ``["B"|"T", hash, mode]`` reference is moved verbatim
     from its old location to the new one. For folders this means the
     entire subtree's tree-node + blob hashes are reused — a folder
     rename of a 1000-file subtree costs the same as a 1-file rename.
@@ -708,7 +724,7 @@ def _apply_multi_put(
         3. Group remaining items by their next path segment and
            recurse — each subdirectory's recursion produces a
            single new sub-hash, which we record as a single
-           ``["T", h]`` entry update at this level.
+           ``["T", h, mode]`` entry update at this level.
         4. If anything actually changed, write the (single) new
            tree node and return its hash.
 
@@ -738,15 +754,12 @@ def _apply_multi_put(
                     f"cannot write file at {full_path!r}: "
                     "path is currently a directory",
                 )
-            if (
-                existing is not None
-                and existing[0] == "B"
-                and existing[1] == blob_hash
-            ):
-                # Idempotent: same hash already at this leaf.
+            replacement = _blob_entry(existing, blob_hash)
+            if existing == replacement:
+                # Idempotent only when both identity and entry mode agree.
                 continue
             action = "add" if existing is None else "update"
-            entries[leaf_name] = ["B", blob_hash]
+            entries[leaf_name] = replacement
             changes.append((action, full_path))
         else:
             next_seg = parts[0]
@@ -771,7 +784,7 @@ def _apply_multi_put(
             store, sub_tree_hash, sub_items,
         )
         if existing is None or existing[1] != new_sub_hash:
-            entries[next_seg] = ["T", new_sub_hash]
+            entries[next_seg] = ["T", new_sub_hash, MODE_DIR]
         changes.extend(sub_changes)
 
     if entries == original_snapshot:

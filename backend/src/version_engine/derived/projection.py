@@ -282,7 +282,7 @@ def _graft_recursive(store, tree_hash: str, path_parts: list[str], new_hash: str
             f"_graft_recursive: object {tree_hash} is a {obj_type}, expected tree"
         )
 
-    entries = list(decode_tree(content))
+    entries = list(decode_tree(content, object_format=store.object_format))
     target = path_parts[0]
     remaining = path_parts[1:]
 
@@ -312,4 +312,4 @@ def _graft_recursive(store, tree_hash: str, path_parts: list[str], new_hash: str
         mode=MODE_DIR,
         sha1_hex=child_hash,
     ))
-    return store.put_tree(encode_tree(new_entries))
+    return store.put_tree(encode_tree(new_entries, object_format=store.object_format))
