@@ -28,8 +28,6 @@ class SynchronizeService:
     def __init__(self, repository: SynchronizeRepository, registry=None):
         self.repository = repository
         self.registry = registry
-        # Compatibility for old helpers that receive a service-like object.
-        self.sync_repo = repository
         self._providers: dict[str, BaseProvider] = {}
 
     def register_provider(self, adapter: BaseProvider) -> None:
@@ -167,33 +165,6 @@ class SynchronizeService:
         base = normalize_path(target_folder_path)
         name = safe_filename(resource.name, resource.external_resource_id)
         return join_path(base, name) if base else name
-
-    async def create_sync(
-        self,
-        project_id: str,
-        provider: str,
-        config: dict,
-        target_folder_path: Optional[str] = None,
-        *,
-        credentials_ref: Optional[str] = None,
-        direction: str = "inbound",
-        conflict_strategy: str = "three_way_merge",
-        sync_mode: str = "manual",
-        trigger: Optional[dict] = None,
-        user_id: Optional[str] = None,
-    ) -> SynchronizeBinding:
-        return await self.create_connection(
-            project_id=project_id,
-            provider=provider,
-            config=config,
-            target_path=target_folder_path,
-            credentials_ref=credentials_ref,
-            direction=direction,
-            conflict_strategy=conflict_strategy,
-            sync_mode=sync_mode,
-            trigger=trigger,
-            user_id=user_id,
-        )
 
     async def create_connection(
         self,

@@ -1,8 +1,8 @@
 """ISSUE-002 — access IDOR + credential-free ordinary responses.
 
 Guarantees verified:
-  1. A caller passing a project_id they are NOT a member of gets an empty list
-     (no IDOR into another tenant's access points).
+  1. A caller passing a project_id they are NOT a member of is denied
+     (no IDOR or fabricated empty-success inventory).
   2. list/get/update/rename never return raw credentials at any config depth.
   3. metadata updates cannot introduce or rotate a credential.
 
@@ -19,7 +19,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.platform.access import router as access_router_mod
-from src.platform.access.router import router as access_router
+from src.platform.access.public_router import router as access_router
+from src.platform.access.project_router import get_access_service
+from src.platform.access.model_repository import AccessModelRepository
+from src.platform.access.surface_repository import AccessSurfaceRepository
+from src.platform.access.service import AccessService
 from src.exception_handler import app_exception_handler
 from src.exceptions import AppException
 from src.platform.auth.dependencies import get_current_user
@@ -101,6 +105,15 @@ def _app():
         email="a@example.com",
         role="authenticated",
     )
+    def service():
+        client = access_router_mod._get_client()
+        return AccessService(
+            repository=AccessModelRepository(client),
+            surface_repository=AccessSurfaceRepository(client),
+            scope_repository=SimpleNamespace(),
+        )
+
+    app.dependency_overrides[get_access_service] = service
     install_authorization(app, authorization_for(ALLOWED))
     return app
 
@@ -109,7 +122,7 @@ def _agent_row():
     return {
         "id": "conn-1",
         "project_id": ALLOWED,
-        "provider": "agent",
+        "kind": "agent",
         "name": "My Agent",
         "status": "active",
         "direction": "outbound",
@@ -172,31 +185,28 @@ def test_legacy_git_regeneration_is_closed_in_favor_of_idempotent_client_issuanc
             json={"grant_mode": "r"},
         )
 
-    assert response.status_code == 410
-    assert response.json()["code"] == 1007
-    assert "/projects/{project_id}/git-credentials" in response.json()["message"]
+    assert response.status_code == 404  # retired HTTP route, not an issuance alias
 
 
-def test_foreign_project_returns_empty_no_idor(monkeypatch):
+def test_foreign_project_is_denied_without_empty_success(monkeypatch):
     _install(monkeypatch, rows=[_agent_row()])
     with TestClient(_app()) as tc:
-        r = tc.get(f"/api/v1/access/?project_id={FOREIGN}")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["data"] == [], "foreign project_id must yield an empty list (no IDOR)"
+        r = tc.get(f"/api/v1/access/surfaces?project_id={FOREIGN}")
+    assert r.status_code in (403, 404), r.text
+    assert "My Agent" not in r.text
 
 
 def test_member_list_masks_credentials(monkeypatch):
     _install(monkeypatch, rows=[_agent_row()])
     with TestClient(_app()) as tc:
-        r = tc.get(f"/api/v1/access/?project_id={ALLOWED}")
+        r = tc.get(f"/api/v1/access/surfaces?project_id={ALLOWED}")
     assert r.status_code == 200, r.text
     items = r.json()["data"]
     assert len(items) == 1
     conn = items[0]
 
     # Raw credential must NOT be present in the list view.
-    assert conn["access_key"] is None
+    assert "access_key" not in conn
     # Masked indicators are present instead.
     assert conn["has_key"] is True
     assert conn["key_last4"] == "WXYZ"
@@ -212,7 +222,8 @@ def test_list_response_carries_no_raw_secret_anywhere(monkeypatch):
     """Belt-and-suspenders: the serialized body must not contain the raw key."""
     _install(monkeypatch, rows=[_agent_row()])
     with TestClient(_app()) as tc:
-        r = tc.get(f"/api/v1/access/?project_id={ALLOWED}")
+        r = tc.get(f"/api/v1/access/surfaces?project_id={ALLOWED}")
+    assert r.status_code == 200, r.text
     assert "mcpkey_abcd1234WXYZ" not in r.text
 
 
@@ -235,7 +246,7 @@ def test_list_serializes_each_rows_own_metadata(monkeypatch):
     _install(monkeypatch, rows=[first, second])
 
     with TestClient(_app()) as tc:
-        response = tc.get(f"/api/v1/access/?project_id={ALLOWED}")
+        response = tc.get(f"/api/v1/access/surfaces?project_id={ALLOWED}")
 
     assert response.status_code == 200, response.text
     by_id = {item["id"]: item for item in response.json()["data"]}
@@ -252,10 +263,10 @@ def test_list_serializes_each_rows_own_metadata(monkeypatch):
 @pytest.mark.parametrize(
     ("method", "path", "json_body"),
     [
-        ("get", f"/api/v1/access/?project_id={ALLOWED}", None),
-        ("get", "/api/v1/access/conn-1", None),
-        ("patch", "/api/v1/access/conn-1", {"status": "inactive"}),
-        ("patch", "/api/v1/access/conn-1/rename", {"name": "Renamed"}),
+        ("get", f"/api/v1/access/surfaces?project_id={ALLOWED}", None),
+        ("get", "/api/v1/access/surfaces/conn-1", None),
+        ("patch", "/api/v1/access/surfaces/conn-1", {"status": "paused"}),
+        ("patch", "/api/v1/access/surfaces/conn-1/rename", {"name": "Renamed"}),
     ],
 )
 def test_all_ordinary_responses_are_recursively_credential_free(
@@ -279,7 +290,7 @@ def test_all_ordinary_responses_are_recursively_credential_free(
 
     data = response.json()["data"]
     connection = data[0] if isinstance(data, list) else data
-    assert connection["access_key"] is None
+    assert "access_key" not in connection
     assert connection["has_key"] is True
     assert connection["key_last4"] == "WXYZ"
 
@@ -288,10 +299,10 @@ def test_metadata_update_rejects_nested_credentials(monkeypatch):
     _install(monkeypatch, rows=[_agent_row()])
     with TestClient(_app()) as tc:
         response = tc.patch(
-            "/api/v1/access/conn-1",
+            "/api/v1/access/surfaces/conn-1",
             json={"config": {"safe": {"providerApiKey": "must-not-be-written"}}},
         )
 
     assert response.status_code == 400, response.text
-    assert "dedicated create or regenerate-key flow" in response.text
+    assert "use explicit credential issuance" in response.text
     assert "must-not-be-written" not in response.text

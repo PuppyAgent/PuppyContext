@@ -12,7 +12,6 @@ from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.models import ProjectAction
 from src.platform.imports.database import public_router as public
-from src.platform.imports.database import router as legacy
 from src.platform.imports.database import service as services
 from src.platform.imports.database.dependencies import get_database_import_service
 from src.platform.imports.database.models import DBConnection
@@ -88,7 +87,6 @@ def environment(monkeypatch):
     )
     app = FastAPI()
     app.include_router(public.router, prefix="/api/v1")
-    app.include_router(legacy.router, prefix="/api/v1")
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id="user-1", role="authenticated"
     )

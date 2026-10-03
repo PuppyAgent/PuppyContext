@@ -27,8 +27,3 @@ class ActivityItemResponse(BaseModel):
     result_commit_id: str | None = None
     created_at: str | None = None
     completed_at: str | None = None
-
-
-class ActivityListResponse(BaseModel):
-    items: list[ActivityItemResponse]
-    total: int

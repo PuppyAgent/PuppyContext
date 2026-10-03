@@ -395,11 +395,13 @@ def test_actual_cli_access_permissions_and_invalid_metadata_prevent_writes(serve
 
 
 def test_actual_cli_old_access_server_reports_upgrade_without_mutation_fallback(server):
-    # Exercise real legacy route shadowing: /access/{id} sees "surfaces" as an
-    # ID on GET and rejects POST with 405, rather than a generic missing URL 404.
+    # This deliberately obsolete fixture (not a shipping compatibility router)
+    # shadows "surfaces" as a GET ID and rejects POST with actual FastAPI 405.
     server.app.router.routes = [route for route in server.app.router.routes
                                 if not route.path.startswith("/api/v1/access/surfaces")]
-    server.app.include_router(access.router, prefix="/api/v1")
+    server.app.add_api_route(
+        "/api/v1/access/{connection_id}", access.get_connection, methods=["GET"]
+    )
     for args in [("add", "sandbox", "must-not-create"), ("ls",), ("providers",)]:
         before = len(server.requests)
         result = server.cli("access", *args, ok=False)

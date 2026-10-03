@@ -58,7 +58,7 @@ class DatabaseImportService:
         )
 
         return {
-            "connection": connection,
+            "source": connection,
             "database_info": test_result,
         }
 

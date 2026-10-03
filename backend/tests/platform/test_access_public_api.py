@@ -243,8 +243,6 @@ def environment(monkeypatch):
     app = FastAPI()
     app.include_router(public.router, prefix="/api/v1")
     app.include_router(public.project_router, prefix="/api/v1")
-    app.include_router(legacy_global.router, prefix="/api/v1")
-    app.include_router(legacy_project.router, prefix="/api/v1")
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id="user-1", email="user@example.test", role="authenticated"
     )
@@ -411,7 +409,9 @@ def test_wrong_domain_foreign_and_legacy_surface_ids_cannot_manage_resources(env
     foreign = memory.insert("project-2")
     legacy = memory.insert("project-1", kind="gmail")
     with TestClient(app, headers=HEADERS) as client:
-        assert client.get(BASE + "?project_id=project-2").json()["data"] == []
+        denied = client.get(BASE + "?project_id=project-2")
+        assert denied.status_code in (403, 404)
+        assert denied.json().get("data") is None
         assert client.get(PROJECT).json()["data"] == []
         assert client.get(BASE).json()["data"] == []
         for surface_id, expected in (
@@ -428,7 +428,7 @@ def test_wrong_domain_foreign_and_legacy_surface_ids_cannot_manage_resources(env
 
 
 @pytest.mark.parametrize("field", ["config", "policy", "trigger"])
-def test_canonical_and_legacy_project_metadata_do_not_leak_or_accept_credentials(
+def test_canonical_metadata_stays_private_and_retired_routes_cannot_write(
     environment, field
 ):
     app, memory, _, _ = environment
@@ -441,24 +441,21 @@ def test_canonical_and_legacy_project_metadata_do_not_leak_or_accept_credentials
         trigger={"type": "manual", "config": {"bearer_token": "forbidden-trigger-secret"}},
     )
     with TestClient(app, headers=HEADERS) as client:
-        for path in (
-            PROJECT,
-            "/api/v1/projects/project-1/connectors",
-            BASE,
-            f"{BASE}/{row.id}",
-            f"/api/v1/access/{row.id}",
-        ):
+        for path in (PROJECT, BASE, f"{BASE}/{row.id}"):
             response = client.get(path)
             assert response.status_code == 200, response.text
             assert "forbidden-" not in response.text
         payload = {field: {"nested": {"api_key": "new-test-secret"}}}
         if field == "trigger":
             payload = {field: {"type": "manual", "config": {"api_key": "new-test-secret"}}}
-        bases = [PROJECT, "/api/v1/projects/project-1/connectors"]
+        bases = [PROJECT]
         if field != "policy":
-            bases.extend([BASE, "/api/v1/access"])
+            bases.append(BASE)
         for base in bases:
             assert client.patch(f"{base}/{row.id}", json=payload).status_code == 400
+        for base in ("/api/v1/projects/project-1/connectors", "/api/v1/access"):
+            assert client.get(f"{base}/{row.id}").status_code == 404
+            assert client.patch(f"{base}/{row.id}", json=payload).status_code == 404
         assert (
             client.post(
                 BASE,

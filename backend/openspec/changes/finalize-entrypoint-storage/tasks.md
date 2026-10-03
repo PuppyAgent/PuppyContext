@@ -36,6 +36,15 @@
 - Remaining: finish the unreachable legacy route/private DTO cleanup audit, commit/integrate and reverify the final candidate, refresh canonical docs/original audits with durable redacted receipts, and obtain scoped target-environment authorization/evidence. No remote query/DDL, push or deployment was performed.
 - TASK-PLAN's later 061 scope update is accepted: its legacy-version/old-queue migration requirement was withdrawn and 061 is archived. Do not reopen or reassign it; 049/058/059 retain their own resource/database/environment requirements.
 
+## Committed candidate and source-retirement follow-up
+
+- Release B `d4e9732c` and Release A `1d20cf18` were fast-forwarded into local Cloud `qubits`. No push/deployment was performed.
+- Committed-source fresh acceptance passed 14 checks at `/tmp/issue049-release-b-committed-fresh-20261004/receipt.json`; populated A→B/recovery passed 9 checks at `/tmp/issue049-release-b-committed-upgrade-20261004/receipt.json`. These receipts certify `d4e9732c`, not subsequent source edits. Integrated-source backend and joint gates independently repeated 2757 and 31 passes.
+- Follow-up removes unmounted legacy APIRouter objects/decorators for generic Synchronize, GitHub, Database Import, global/project Access and Dashboard, and deletes the unused Activity transport. Operations cannot accidentally remount those routes. Generic Synchronize and Database Import now consume canonical request/result DTOs directly; obsolete schemas and service/repository aliases are removed. Old-server CLI rejection uses an explicitly obsolete test-only route, not a product compatibility router.
+- Removed the dead mixed Dashboard Connection DTO/aggregation, including its equal-ID usage join and empty-success exception handlers. The canonical domain-partitioned implementation is authoritative. Upload inventory failure now propagates; an explicit foreign Project Access list is denied rather than presented as an empty success. Security tests run against canonical routes, retain recursive credential masking and reject metadata credential writes.
+- Follow-up backend: **2766 passed, 27 skipped, 76 deselected** (`/tmp/issue058-source-retirement-backend-final.log`). Joint CLI/SDK/queue/real-window gate: **31 passed** (`/tmp/issue058-source-retirement-joint-final.log`). Exact OpenAPI retirement remains unchanged. Nine source-retirement regressions prevent router/alias resurrection. Scoped F/E9 and full checks on rewritten files pass; this is not a claim of repository-wide Ruff cleanliness.
+- Still open locally: remaining Access/GitHub private DTO adapters, final task/document/audit and redacted durable evidence refresh, final source integration/reverification. Hosted authorization and acceptance remain separate and outstanding.
+
 Reproduce populated local acceptance with installed dependencies and no `.env` inputs:
 
 ```bash

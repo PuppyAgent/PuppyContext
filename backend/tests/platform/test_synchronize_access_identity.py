@@ -16,10 +16,10 @@ from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import get_authorization_service
 from src.platform.repository_target.models import ProjectRootTarget
-from src.platform.synchronize import router as sync_router
+from src.platform.synchronize import public_router as sync_router
 from src.platform.synchronize.dependencies import get_synchronize_service
 from src.platform.synchronize.models import SynchronizeBinding
-from src.platform.synchronize.schemas import connection_to_response
+from src.platform.synchronize.schemas import binding_to_response
 from tests.authorization_fakes import authorization_for
 
 
@@ -61,7 +61,7 @@ def test_binding_response_preserves_management_state_and_redacts_secrets():
         last_synced_at="2026-10-02T10:00:00Z", created_at="2026-10-01T10:00:00Z",
     )
     before = asdict(binding)
-    response = connection_to_response(binding)
+    response = binding_to_response(binding)
     assert response["trigger"] == binding.trigger
     assert response["last_synced_at"] == binding.last_synced_at
     assert response["created_at"] == binding.created_at
@@ -81,7 +81,7 @@ def test_binding_list_uses_binding_repository_and_keeps_different_resource_ids()
     app.dependency_overrides[get_authorization_service] = lambda: authorization_for("project-1", role="admin")
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(user_id="user-1", role="authenticated")
     with TestClient(app) as client:
-        response = client.get("/api/v1/integrations/connections", params={"project_id": "project-1"})
+        response = client.get("/api/v1/synchronize/bindings", params={"project_id": "project-1"})
     assert response.status_code == 200
     rows = response.json()["data"]
     assert [row["id"] for row in rows] == ["binding-id"]

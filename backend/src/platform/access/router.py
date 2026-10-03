@@ -1,15 +1,15 @@
-"""Workspace Access API.
+"""Workspace Access operations; public_router alone owns resource HTTP routes.
 
 Access manages target-bound ways to enter or operate on a workspace:
 Git remote, FS CLI, agents, MCP endpoints, and sandboxes.
-External source relationships belong to Integration, not this router.
+External source relationships belong to Synchronize, not Access.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
 from src.common_schemas import ApiResponse
@@ -26,19 +26,11 @@ from src.platform.entitlements.dependencies import get_entitlement_service
 from src.platform.entitlements.service import EntitlementService
 from src.platform.organization.dependencies import resolve_org_ids
 from src.platform.repository_target.models import ProjectRootTarget, ScopeTarget
-from src.platform.repository_target.protocol import require_repository_target_contract
 from src.platform.repository_target.schemas import (
     RepositoryTargetSchema,
     repository_target_schema,
 )
 from src.repo.access_credentials import AccessCredentialRepository
-
-router = APIRouter(
-    prefix="/access",
-    tags=["access"],
-    dependencies=[Depends(require_repository_target_contract)],
-)
-
 
 # ── Schemas ─────────────────────────────────────────────────
 
@@ -305,12 +297,6 @@ def _require_connection_project_access(
 # ── Endpoints ───────────────────────────────────────────────
 
 
-@router.get(
-    "/",
-    response_model=ApiResponse[list[ConnectionOut]],
-    summary="List all access connections",
-    status_code=status.HTTP_200_OK,
-)
 def list_connections(
     project_id: str | None = Query(None),
     provider: str | None = Query(None),
@@ -345,12 +331,6 @@ def list_connections(
     return ApiResponse.success(data=_enrich(rows, sb), message="Access connections listed")
 
 
-@router.get(
-    "/{connection_id}",
-    response_model=ApiResponse[ConnectionOut],
-    summary="Get access connection details",
-    status_code=status.HTTP_200_OK,
-)
 def get_connection(
     connection_id: str = Path(...),
     current_user: CurrentUser = Depends(get_current_user),
@@ -368,12 +348,6 @@ def get_connection(
     return ApiResponse.success(data=_enrich([row], sb)[0], message="Access connection found")
 
 
-@router.patch(
-    "/{connection_id}",
-    response_model=ApiResponse[ConnectionOut],
-    summary="Update access connection (status, trigger, config)",
-    status_code=status.HTTP_200_OK,
-)
 async def update_connection(
     payload: ConnectionUpdate,
     connection_id: str = Path(...),
@@ -421,12 +395,6 @@ async def update_connection(
     )
 
 
-@router.delete(
-    "/{connection_id}",
-    response_model=ApiResponse[None],
-    summary="Delete access connection",
-    status_code=status.HTTP_200_OK,
-)
 async def delete_connection(
     connection_id: str = Path(...),
     current_user: CurrentUser = Depends(get_current_user),
@@ -452,12 +420,6 @@ async def delete_connection(
     return ApiResponse.success(message="Access connection deleted")
 
 
-@router.patch(
-    "/{connection_id}/rename",
-    response_model=ApiResponse[ConnectionOut],
-    summary="Rename an access connection display name",
-    status_code=status.HTTP_200_OK,
-)
 def rename_connection(
     connection_id: str = Path(...),
     body: dict = Body(...),
@@ -489,12 +451,6 @@ def rename_connection(
     )
 
 
-@router.post(
-    "/{connection_id}/regenerate-key",
-    response_model=ApiResponse[dict],
-    summary="Rotate a credential for an access connection",
-    status_code=status.HTTP_200_OK,
-)
 def regenerate_key(
     connection_id: str = Path(...),
     current_user: CurrentUser = Depends(get_current_user),
@@ -585,12 +541,6 @@ def regenerate_key(
 # ── Connection Types (unified) ─────────────────────────────
 
 
-@router.get(
-    "/types",
-    response_model=ApiResponse,
-    summary="List all available access types",
-    status_code=status.HTTP_200_OK,
-)
 def list_connection_types():
     """
     Returns available workspace Access surface types.
@@ -798,12 +748,6 @@ def _create_sandbox(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
     )
 
 
-@router.post(
-    "/",
-    response_model=ApiResponse[UnifiedConnectionOut],
-    summary="Create any access type",
-    status_code=status.HTTP_201_CREATED,
-)
 async def create_connection(
     payload: UnifiedConnectionCreate,
     current_user: CurrentUser = Depends(get_current_user),

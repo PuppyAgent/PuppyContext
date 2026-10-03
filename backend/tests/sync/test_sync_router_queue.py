@@ -332,6 +332,6 @@ async def test_trigger_pull_all_returns_existing_running_and_skips_unqueueable(m
     assert response.code == 0
     assert response.data is not None
     assert response.data.synced == 1
-    assert [item["synchronize_binding_id"] for item in response.data.results] == ["conn-running"]
-    assert all(item["deduped"] is True for item in response.data.results)
+    assert [item.synchronize_binding_id for item in response.data.results] == ["conn-running"]
+    assert all(item.deduped is True for item in response.data.results)
     assert arq_client.enqueued == []

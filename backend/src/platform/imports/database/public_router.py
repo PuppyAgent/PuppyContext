@@ -6,7 +6,6 @@ from src.common_schemas import ApiResponse
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.imports.database import router as operations
-from src.platform.imports.database import schemas as legacy
 from src.platform.imports.database.dependencies import get_database_import_service
 from src.platform.imports.database.public_schemas import (
     ImportDatabasePreview,
@@ -51,15 +50,7 @@ async def create_source(
     user: CurrentUser = Depends(get_current_user),
     service: DatabaseImportService = Depends(get_database_import_service),
 ):
-    result = await operations.create_connection(
-        legacy.CreateConnectionRequest(**body.model_dump()), project_id, user, service
-    )
-    return _reply(
-        result,
-        lambda value: ImportDatabaseSourceCreated(
-            source=_source(value.connection), database_info=value.database_info
-        ),
-    )
+    return _reply(await operations.create_source(body, project_id, user, service))
 
 
 @router.get(
@@ -73,7 +64,7 @@ async def list_sources(
     service: DatabaseImportService = Depends(get_database_import_service),
 ):
     return _reply(
-        await operations.list_connections(project_id, user, service),
+        await operations.list_sources(project_id, user, service),
         lambda rows: [_source(row) for row in rows],
     )
 
@@ -89,7 +80,7 @@ async def get_source(
     service: DatabaseImportService = Depends(get_database_import_service),
 ):
     source = service.get_connection(import_database_source_id, user.user_id)
-    return ApiResponse.success(data=_source(operations._conn_to_response(source)))
+    return ApiResponse.success(data=_source(operations._source_to_response(source)))
 
 
 @router.delete(
@@ -100,7 +91,7 @@ async def delete_source(
     user: CurrentUser = Depends(get_current_user),
     service: DatabaseImportService = Depends(get_database_import_service),
 ):
-    return _reply(await operations.delete_connection(import_database_source_id, user, service))
+    return _reply(await operations.delete_source(import_database_source_id, user, service))
 
 
 @router.get(
@@ -149,16 +140,6 @@ async def save_table(
     user: CurrentUser = Depends(get_current_user),
     service: DatabaseImportService = Depends(get_database_import_service),
 ):
-    result = await operations.save_table(
-        legacy.SaveTableRequest(**body.model_dump()),
-        import_database_source_id,
-        project_id,
-        user,
-        service,
-    )
-    return _reply(
-        result,
-        lambda value: ImportDatabaseSaved(
-            import_database_source_id=import_database_source_id, **_fields(value)
-        ),
-    )
+    return _reply(await operations.save_table(
+        body, import_database_source_id, project_id, user, service,
+    ))

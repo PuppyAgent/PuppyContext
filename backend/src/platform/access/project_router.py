@@ -1,11 +1,8 @@
-"""HTTP API for connectors CRUD + run orchestration.
-
-Mounted at /api/v1/projects/{project_id}/connectors.
-"""
+"""Project Access operations; public_router owns the resource HTTP boundary."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query
 
 from src.common_schemas import ApiResponse
 from src.exceptions import AppException
@@ -16,7 +13,6 @@ from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import AuthorizedProject, require_project_action
 from src.platform.authorization.models import ProjectAction
-from src.platform.repository_target.protocol import require_repository_target_contract
 from src.platform.repository_target.schemas import (
     repository_target_domain,
     repository_target_schema,
@@ -27,13 +23,6 @@ from src.repo.schemas import (
     ConnectorPatch,
     TargetAccessEnableIn,
 )
-
-router = APIRouter(
-    prefix="/projects/{project_id}/connectors",
-    tags=["connectors"],
-    dependencies=[Depends(require_repository_target_contract)],
-)
-
 
 def get_access_service() -> AccessService:
     return AccessService()
@@ -65,11 +54,6 @@ def _to_out(c: AccessSurface) -> ConnectorOut:
     )
 
 
-@router.get(
-    "",
-    response_model=ApiResponse[list[ConnectorOut]],
-    summary="List connectors (optionally filtered)",
-)
 def list_connectors(
     provider: str | None = Query(None),
     direction: str | None = Query(None),
@@ -94,12 +78,6 @@ def list_connectors(
     return ApiResponse.success(data=[_to_out(c) for c in items], message="Connectors listed")
 
 
-@router.post(
-    "",
-    response_model=ApiResponse[ConnectorOut],
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a third-party connector",
-)
 def create_connector(
     payload: ConnectorIn,
     authorized: AuthorizedProject = Depends(
@@ -127,11 +105,6 @@ def create_connector(
     return ApiResponse.success(data=_to_out(c), message="Connector created")
 
 
-@router.post(
-    "/enable-target",
-    response_model=ApiResponse[list[ConnectorOut]],
-    summary="Enable Git and CLI for one repository target",
-)
 def enable_target_access(
     payload: TargetAccessEnableIn,
     authorized: AuthorizedProject = Depends(
@@ -157,11 +130,6 @@ def enable_target_access(
     )
 
 
-@router.patch(
-    "/{connector_id}",
-    response_model=ApiResponse[ConnectorOut],
-    summary="Update connector fields",
-)
 def update_connector(
     connector_id: str,
     payload: ConnectorPatch,
@@ -187,11 +155,6 @@ def update_connector(
     return ApiResponse.success(data=_to_out(updated), message="Connector updated")
 
 
-@router.post(
-    "/{connector_id}/activate-agent",
-    response_model=ApiResponse[ConnectorOut],
-    summary="Activate the built-in AI Agent connector",
-)
 def activate_agent_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -211,11 +174,6 @@ def activate_agent_connector(
     return ApiResponse.success(data=_to_out(updated), message="Agent connector activated")
 
 
-@router.post(
-    "/{connector_id}/run",
-    response_model=ApiResponse[dict],
-    summary="Trigger a connector run now",
-)
 async def run_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -233,11 +191,6 @@ async def run_connector(
     return ApiResponse.success(data={"run_id": run_id}, message="Run triggered")
 
 
-@router.post(
-    "/{connector_id}/pause",
-    response_model=ApiResponse[None],
-    summary="Pause a connector",
-)
 def pause_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -252,11 +205,6 @@ def pause_connector(
     return ApiResponse.success(message="Connector paused")
 
 
-@router.post(
-    "/{connector_id}/resume",
-    response_model=ApiResponse[None],
-    summary="Resume a connector",
-)
 def resume_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -271,11 +219,6 @@ def resume_connector(
     return ApiResponse.success(message="Connector resumed")
 
 
-@router.delete(
-    "/{connector_id}",
-    response_model=ApiResponse[None],
-    summary="Delete a non-builtin connector",
-)
 def delete_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(

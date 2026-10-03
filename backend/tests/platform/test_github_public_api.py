@@ -100,7 +100,7 @@ def environment(monkeypatch):
     monkeypatch.setattr(services, "import_branch", pull)
     monkeypatch.setattr(services, "export_to_branch", push)
     app = FastAPI()
-    for router in (public.router, public.webhook_router, legacy.router, legacy.webhook_router):
+    for router in (public.router, public.webhook_router):
         app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id="user-1", role="authenticated"
