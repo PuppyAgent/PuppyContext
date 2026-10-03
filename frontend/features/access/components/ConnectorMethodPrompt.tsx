@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState, type CSSProperties, type MouseEvent } f
 import { ExternalLink } from 'lucide-react';
 import { AiHandoffButton } from '@/components/ui/AiHandoffButton';
 import { buildGitSyncPrompt, buildMcpSetupPrompt, buildTerminalCliPrompt } from '@/lib/accessPointCliPrompt';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { canonicalGitUrlForTarget } from '@/lib/gitRemote';
 import { getAccessProviderPromptKind, isMcpProvider } from '@/lib/accessProviderRegistry';
 import { T } from '@/features/access/lib/tokens';
@@ -15,13 +15,13 @@ export function ConnectorMethodPrompt({
   scope,
   onConnect,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly onConnect?: () => void;
 }) {
   const mcpSetup = useMcpClientSetup(connector, scope);
   const prompt = useConnectorSetupPrompt(connector, scope);
-  if (isMcpProvider(connector.provider)) {
+  if (isMcpProvider(connector.kind)) {
     return <McpMethodSetupPreview setup={mcpSetup} onConnect={onConnect} />;
   }
   return <MethodPromptPreview prompt={prompt} />;
@@ -32,19 +32,19 @@ export function ConnectorMethodCopyButton({
   scope,
   style,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly style?: CSSProperties;
 }) {
   const mcpSetup = useMcpClientSetup(connector, scope);
   const prompt = useConnectorSetupPrompt(connector, scope);
-  if (isMcpProvider(connector.provider)) {
+  if (isMcpProvider(connector.kind)) {
     return <McpConfigCopyButton config={mcpSetup.config} style={style} />;
   }
   return <PromptCopyButton prompt={prompt} style={style} />;
 }
 
-function useConnectorSetupPrompt(connector: Connector, scope: RepositoryView | undefined): string {
+function useConnectorSetupPrompt(connector: AccessSurface, scope: RepositoryView | undefined): string {
   return useMemo(
     () => buildConnectorSetupPrompt(connector, scope),
     [connector, scope],
@@ -55,7 +55,7 @@ type McpClientSetup = ReturnType<typeof buildMcpSetupPrompt> & {
   readonly apiKey: string;
 };
 
-function useMcpClientSetup(connector: Connector, scope: RepositoryView | undefined): McpClientSetup {
+function useMcpClientSetup(connector: AccessSurface, scope: RepositoryView | undefined): McpClientSetup {
   return useMemo(() => {
     const configKey = connector.config?.api_key;
     const apiKey = typeof configKey === 'string' ? configKey : '';
@@ -75,7 +75,7 @@ function useMcpClientSetup(connector: Connector, scope: RepositoryView | undefin
         apiBase: getApiBase(),
         apiKey,
         scopeName,
-        accessPointName: connector.name,
+        accessPointName: connector.name ?? undefined,
       }),
       apiKey,
     };
@@ -321,17 +321,17 @@ function PromptCopyButton({
   );
 }
 
-function buildConnectorSetupPrompt(connector: Connector, scope: RepositoryView | undefined): string {
+function buildConnectorSetupPrompt(connector: AccessSurface, scope: RepositoryView | undefined): string {
   if (!scope) return '';
   const apiBase = getApiBase();
   const scopeName = scope.name || (scope.path === '' ? 'root' : scope.path || 'Root');
   // Ordinary Connector reads are deliberately secret-free. Credential-bearing
   // setup is rendered only by explicit one-time issuance panels.
   const accessKey = '';
-  if (isMcpProvider(connector.provider)) {
+  if (isMcpProvider(connector.kind)) {
     return '';
   }
-  const promptKind = getAccessProviderPromptKind(connector.provider);
+  const promptKind = getAccessProviderPromptKind(connector.kind);
   if (promptKind === 'git_remote') {
     const gitUrl = canonicalGitUrlForTarget(apiBase, scope.target);
     return buildGitSyncPrompt({

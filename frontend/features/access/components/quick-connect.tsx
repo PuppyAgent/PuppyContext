@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CountBadge } from '@/components/ui/CountBadge';
 import { buildGitSyncPrompt, buildMcpSetupPrompt, buildTerminalCliPrompt } from '@/lib/accessPointCliPrompt';
-import { activateAgentConnector, type Connector, type RepositoryView } from '@/lib/repoApi';
+import { activateAccessSurfaceAgent, type AccessSurface, type RepositoryView } from '@/lib/repoApi';
 import { canonicalGitUrlForTarget } from '@/lib/gitRemote';
 import {
   getAccessProviderLabel,
@@ -62,13 +62,13 @@ export function ConnectorAccessPanel({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
 }) {
   const apiBase = useMemo(() => getApiBase(), []);
   if (!scope) return null;
 
-  const provider = normalizeConnectorProvider(connector.provider);
+  const provider = normalizeConnectorProvider(connector.kind);
   if (isCliProvider(provider)) {
     return <TerminalCliBody connector={connector} scope={scope} apiBase={apiBase} />;
   }
@@ -101,7 +101,7 @@ function TerminalCliBody({
   scope,
   apiBase,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
   readonly apiBase: string;
 }) {
@@ -147,7 +147,7 @@ function GitRemoteBody({
   scope,
   apiBase,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
   readonly apiBase: string;
 }) {
@@ -315,7 +315,7 @@ function AgentBody({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
 }) {
   const router = useWorkspaceRouter();
@@ -343,7 +343,7 @@ function AgentBody({
     setActivating(true);
     setError(null);
     try {
-      const updated = await activateAgentConnector(scope.project_id, connector.id);
+      const updated = await activateAccessSurfaceAgent(scope.project_id, connector.id);
       setActivated(updated.config?.activated === true);
       // Then immediately route to chat — same flow as ConnectMethods.
       router.push(scopePathToDataUrl(scope.project_id, scope.path) + `?ap=${connector.id}`);
@@ -385,7 +385,7 @@ function McpBody({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
 }) {
   const apiBase = useMemo(() => getApiBase(), []);
@@ -398,7 +398,7 @@ function McpBody({
         apiBase,
         apiKey,
         scopeName,
-        accessPointName: connector.name,
+        accessPointName: connector.name ?? undefined,
       }),
     [apiBase, apiKey, scopeName, connector.name],
   );
@@ -480,11 +480,11 @@ function ThirdPartyBody({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
 }) {
   const router = useWorkspaceRouter();
-  const providerLabel = getAccessProviderLabel(connector.provider);
+  const providerLabel = getAccessProviderLabel(connector.kind);
 
   const handleConfigure = useCallback(() => {
     router.push(scopePathToDataUrl(scope.project_id, scope.path) + `?ap=${connector.id}`);

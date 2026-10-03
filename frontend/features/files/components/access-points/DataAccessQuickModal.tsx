@@ -28,8 +28,8 @@ import {
 import { canonicalGitUrlForTarget } from '@/lib/gitRemote';
 import {
   repositoryViewKey,
-  sortConnectorsBuiltinFirst,
-  type Connector,
+  sortAccessSurfacesBuiltinFirst,
+  type AccessSurface,
   type RepositoryView,
 } from '@/lib/repoApi';
 import { APP_Z_INDEX } from '@/lib/zIndex';
@@ -44,7 +44,7 @@ const HOVER_CARD_HEIGHT = 196;
 
 type DataAccessQuickModalProps = {
   readonly scope: RepositoryView;
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly onClose: () => void;
   readonly onCreateAccess: (path: string) => void;
   readonly onOpenFullSettings: (targetKey: string) => void;
@@ -59,9 +59,9 @@ export function DataAccessQuickModal({
 }: DataAccessQuickModalProps) {
   const [manualConnectorId, setManualConnectorId] = useState<string | null>(null);
   const methods = useMemo(() => {
-    const sorted = sortConnectorsBuiltinFirst(connectors);
-    const cliMethods = sorted.filter((connector) => isCliProvider(connector.provider));
-    const gitRemote = sorted.find((connector) => isGitRemoteProvider(connector.provider));
+    const sorted = sortAccessSurfacesBuiltinFirst(connectors);
+    const cliMethods = sorted.filter((connector) => isCliProvider(connector.kind));
+    const gitRemote = sorted.find((connector) => isGitRemoteProvider(connector.kind));
 
     return gitRemote ? [...cliMethods, gitRemote] : cliMethods;
   }, [connectors]);
@@ -159,12 +159,12 @@ function AccessMethodsPanel({
   scope,
   onOpenManualCommands,
 }: {
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly scope: RepositoryView;
   readonly onOpenManualCommands: (connectorId: string) => void;
 }) {
   const sorted = useMemo(
-    () => sortConnectorsBuiltinFirst(connectors),
+    () => sortAccessSurfacesBuiltinFirst(connectors),
     [connectors],
   );
 
@@ -209,14 +209,14 @@ function AccessMethodCard({
   scope,
   onOpenManualCommands,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
   readonly onOpenManualCommands: (connectorId: string) => void;
 }) {
   const setup = useMemo(() => buildSetupGuide(connector, scope), [connector, scope]);
   const [copied, setCopied] = useState(false);
   const meta = accessMethodMeta(connector);
-  const showManualCommands = isGitRemoteProvider(connector.provider) || isCliProvider(connector.provider);
+  const showManualCommands = isGitRemoteProvider(connector.kind) || isCliProvider(connector.kind);
 
   const copyPrompt = async () => {
     if (!setup.prompt) return;
@@ -249,7 +249,7 @@ function AccessMethodCard({
         }}
       >
         <div style={{ minWidth: 0, display: 'flex', gap: 10 }}>
-          <ProviderTile provider={connector.provider} />
+          <ProviderTile provider={connector.kind} />
           <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 7 }}>
               <span
@@ -296,7 +296,7 @@ function AccessMethodCard({
                       color: T.text4,
                     }}
                   />
-                  {isCliProvider(connector.provider) ? 'Generate key' : 'Manual commands'}
+                  {isCliProvider(connector.kind) ? 'Generate key' : 'Manual commands'}
                 </button>
               ) : null}
             </div>
@@ -313,7 +313,7 @@ function AccessMethodCard({
             <ScopeAssuranceRow
               scope={scope}
               status={connector.status}
-              lastUsed={connector.last_run_at}
+              lastUsed={connector.last_activity_at}
             />
           </div>
         </div>
@@ -333,7 +333,7 @@ function ManualCommandsPage({
   scope,
   onBack,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
   readonly onBack: () => void;
 }) {
@@ -381,7 +381,7 @@ function ManualCommandsPage({
           <ArrowLeft size={13} />
           Access methods
         </button>
-        <ProviderTile provider={connector.provider} />
+        <ProviderTile provider={connector.kind} />
         <div style={{ minWidth: 0 }}>
           <div
             style={{
@@ -407,7 +407,7 @@ function ManualCommandsPage({
         </div>
       </div>
       <div style={{ padding: '14px 16px 18px' }}>
-        {isGitRemoteProvider(connector.provider) ? (
+        {isGitRemoteProvider(connector.kind) ? (
           <div style={{ marginBottom: 14 }}>
             <GitCredentialIssuePanel
               connectorId={connector.id}
@@ -417,7 +417,7 @@ function ManualCommandsPage({
             />
           </div>
         ) : null}
-        {isCliProvider(connector.provider) ? (
+        {isCliProvider(connector.kind) ? (
           <CliCredentialIssuePanel
             connectorId={connector.id}
             target={scope.target}
@@ -526,7 +526,7 @@ function ScopeAssuranceRow({
   lastUsed,
 }: {
   readonly scope: RepositoryView;
-  readonly status: Connector['status'] | null;
+  readonly status: AccessSurface['status'] | null;
   readonly lastUsed: string | null;
 }) {
   const chips = [
@@ -567,7 +567,7 @@ function ManualWaysPanel({
   connectors,
   scope,
 }: {
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly scope: RepositoryView;
 }) {
   if (connectors.length === 0) return null;
@@ -605,7 +605,7 @@ function ManualWayRow({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
 }) {
   const setup = useMemo(() => buildSetupGuide(connector, scope), [connector, scope]);
@@ -636,7 +636,7 @@ function ManualWayRow({
       }}
     >
       <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <ProviderTile provider={connector.provider} />
+        <ProviderTile provider={connector.kind} />
         <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
           <span
             style={{
@@ -664,7 +664,7 @@ function ManualWayRow({
               whiteSpace: 'nowrap',
             }}
           >
-            {isGitRemoteProvider(connector.provider)
+            {isGitRemoteProvider(connector.kind)
               ? 'For clone, pull, commit, and push workflows.'
               : getTypeLine(connector)}
           </span>
@@ -683,7 +683,7 @@ function MethodRow({
   scope,
   isFirst,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
   readonly isFirst: boolean;
 }) {
@@ -705,7 +705,7 @@ function MethodRow({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-        <ProviderTile provider={connector.provider} />
+        <ProviderTile provider={connector.kind} />
         <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span
             title={name}
@@ -745,7 +745,7 @@ function MethodRow({
           Last used
         </span>
         <span
-          title={timeAgo(connector.last_run_at)}
+          title={timeAgo(connector.last_activity_at)}
           style={{
             minWidth: 0,
             color: T.text2,
@@ -758,7 +758,7 @@ function MethodRow({
             whiteSpace: 'nowrap',
           }}
         >
-          {timeAgo(connector.last_run_at)}
+          {timeAgo(connector.last_activity_at)}
         </span>
       </div>
 
@@ -772,7 +772,7 @@ function SetupGuideHover({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView;
 }) {
   const setup = useMemo(() => buildSetupGuide(connector, scope), [connector, scope]);
@@ -1136,9 +1136,9 @@ function ProviderTile({ provider }: { readonly provider: string }) {
   );
 }
 
-function buildSetupGuide(connector: Connector, scope: RepositoryView, cliCredential?: string) {
+function buildSetupGuide(connector: AccessSurface, scope: RepositoryView, cliCredential?: string) {
   const scopeName = scope.name || scope.path || 'Root';
-  const promptKind = getAccessProviderPromptKind(connector.provider);
+  const promptKind = getAccessProviderPromptKind(connector.kind);
   if (promptKind === 'git_remote') {
     const gitUrl = canonicalGitUrlForTarget(getApiBase(), scope.target);
     const guide = buildGitSyncPrompt({
@@ -1209,7 +1209,7 @@ function getProviderTileStyle(provider: string) {
   };
 }
 
-function StatusCell({ status }: { readonly status: Connector['status'] }) {
+function StatusCell({ status }: { readonly status: AccessSurface['status'] }) {
   return (
     <StatusIndicator
       status={status}
@@ -1221,19 +1221,19 @@ function StatusCell({ status }: { readonly status: Connector['status'] }) {
   );
 }
 
-function connectorName(connector: Connector): string {
-  return getAccessProviderCardTitle(connector.provider, connector.name);
+function connectorName(connector: AccessSurface): string {
+  return getAccessProviderCardTitle(connector.kind, connector.name);
 }
 
-function accessMethodMeta(connector: Connector): {
+function accessMethodMeta(connector: AccessSurface): {
   readonly title: string;
   readonly description: string;
   readonly badge?: string;
 } {
-  const meta = getAccessProviderMethodMeta(connector.provider, connector.name);
+  const meta = getAccessProviderMethodMeta(connector.kind, connector.name);
   return {
     ...meta,
-    badge: isCliProvider(connector.provider) ? 'Official' : undefined,
+    badge: isCliProvider(connector.kind) ? 'Official' : undefined,
   };
 }
 

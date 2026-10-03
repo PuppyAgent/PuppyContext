@@ -2,7 +2,7 @@
 
 import { AccessPointProviderIcon, StatusDot } from '@/features/files/components/access-points/AccessPointProviderIcon';
 import {
-  connectorAsEndpointShape,
+  accessSurfaceIcon,
   directionLabel,
   providerLabel,
 } from '@/features/files/components/access-points/labels';
@@ -15,7 +15,7 @@ import {
   COLOR_FG_DIM,
 } from '@/features/files/components/access-points/tokens';
 import type { ProviderIconLookup } from '@/features/files/components/access-points/types';
-import type { Connector } from '@/lib/repoApi';
+import type { AccessSurface } from '@/lib/repoApi';
 import { useMemo, useState } from 'react';
 
 /**
@@ -33,15 +33,15 @@ export function ConnectorCard({
   onHoverEnter,
   onHoverLeave,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly providerIcons: ProviderIconLookup;
   readonly onClick: () => void;
   readonly onHoverEnter?: () => void;
   readonly onHoverLeave?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const iconEp = useMemo(() => connectorAsEndpointShape(connector), [connector]);
-  const displayName = connector.name || providerLabel(connector.provider);
+  const iconEp = useMemo(() => accessSurfaceIcon(connector), [connector]);
+  const displayName = connector.name || providerLabel(connector.kind);
 
   return (
     <button
@@ -71,7 +71,7 @@ export function ConnectorCard({
           {displayName}
         </div>
         <div style={{ fontSize: 10, color: COLOR_FG_DIM, lineHeight: 1.4, marginTop: 2 }}>
-          {providerLabel(connector.provider)} · {directionLabel(connector.direction)}
+          {providerLabel(connector.kind)} · {directionLabel(connector.direction ?? '')}
         </div>
       </div>
       <StatusDot status={connector.status} />

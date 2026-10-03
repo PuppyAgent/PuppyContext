@@ -16,6 +16,7 @@ from src.common_schemas import ApiResponse
 from src.config import settings
 from src.exceptions import AppException, ErrorCode, NotFoundException
 from src.infra.supabase.client import SupabaseClient
+from src.platform.access.surface_repository import AccessSurfaceRepository
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import get_authorization_service
@@ -31,7 +32,6 @@ from src.platform.repository_target.schemas import (
     repository_target_schema,
 )
 from src.repo.access_credentials import AccessCredentialRepository
-from src.platform.access.surface_repository import AccessSurfaceRepository
 
 router = APIRouter(
     prefix="/access",
@@ -265,7 +265,7 @@ def _enrich(rows: list[dict], sb_client) -> list[ConnectionOut]:
                 has_key=has_key,
                 key_last4=key_last4,
                 gateway_id=(e["cfg"].get("gateway_id") if isinstance(e["cfg"], dict) else None),
-                trigger=cfg.get("trigger"),
+                trigger=_redact_config(cfg.get("trigger")),
                 last_synced_at=_created_or_updated(
                     cfg.get("last_seen_at") or cfg.get("last_run_at")
                 ),
@@ -409,6 +409,8 @@ async def update_connection(
         cfg.update(payload.config)
         fields["config"] = cfg
     if payload.trigger is not None:
+        if _contains_secret_config_key(payload.trigger):
+            raise HTTPException(400, "Credentials cannot be updated through access metadata; use explicit credential issuance")
         cfg = dict(fields.get("config") or row.get("config") or {})
         cfg["trigger"] = payload.trigger
         fields["config"] = cfg
@@ -542,7 +544,9 @@ def regenerate_key(
             message="Key regenerated",
         )
     if provider == "sandbox":
-        from src.platform.access.adapters.sandbox_endpoint.repository import SandboxEndpointRepository
+        from src.platform.access.adapters.sandbox_endpoint.repository import (
+            SandboxEndpointRepository,
+        )
 
         endpoint = SandboxEndpointRepository(sb).regenerate_access_key(connection_id)
         if not endpoint or not endpoint.get("access_key"):
@@ -761,7 +765,10 @@ def _create_mcp(
 
 def _create_sandbox(payload: UnifiedConnectionCreate) -> UnifiedConnectionOut:
     from src.platform.access.adapters.sandbox_endpoint.repository import SandboxEndpointRepository
-    from src.platform.access.adapters.sandbox_endpoint.schemas import SandboxMountItem, SandboxResourceLimits
+    from src.platform.access.adapters.sandbox_endpoint.schemas import (
+        SandboxMountItem,
+        SandboxResourceLimits,
+    )
     from src.platform.access.adapters.sandbox_endpoint.service import SandboxEndpointService
 
     service = SandboxEndpointService(repository=SandboxEndpointRepository())

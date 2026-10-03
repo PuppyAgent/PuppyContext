@@ -9,7 +9,7 @@ import { getProjects, type ProjectInfo } from '@/lib/projectsApi';
 import { listDir, type NodeInfo } from '@/lib/contentTreeApi';
 import { get } from '@/lib/apiClient';
 import { getToolsByProjectId } from '@/lib/mcpApi';
-import { getRepoIdentity, listScopes, listConnectors } from '@/lib/repoApi';
+import { getRepoIdentity, listScopes, listAccessSurfaces } from '@/lib/repoApi';
 import { listMcpEndpoints } from '@/lib/mcpEndpointsApi';
 import { listSandboxEndpoints } from '@/lib/sandboxEndpointsApi';
 
@@ -17,7 +17,7 @@ vi.mock('@/lib/projectsApi', () => ({ getProjects: vi.fn(), getProject: vi.fn() 
 vi.mock('@/lib/contentTreeApi', async original => ({ ...await original<object>(), listDir: vi.fn() }));
 vi.mock('@/lib/apiClient', () => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() }));
 vi.mock('@/lib/mcpApi', () => ({ getToolsByProjectId: vi.fn(), getToolsByPath: vi.fn() }));
-vi.mock('@/lib/repoApi', () => ({ getRepoIdentity: vi.fn(), listScopes: vi.fn(), listConnectors: vi.fn() }));
+vi.mock('@/lib/repoApi', () => ({ getRepoIdentity: vi.fn(), listScopes: vi.fn(), listAccessSurfaces: vi.fn() }));
 vi.mock('@/lib/mcpEndpointsApi', () => ({ listMcpEndpoints: vi.fn() }));
 vi.mock('@/lib/sandboxEndpointsApi', () => ({ listSandboxEndpoints: vi.fn() }));
 
@@ -34,7 +34,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const listing = (names: string[]) => ({ nodes: names.map(name => ({ id: name, path: name, name: name.split('/').at(-1), type: 'file' } as NodeInfo)), path: '', total: names.length });
-const decorations = [get, getToolsByProjectId, getRepoIdentity, listScopes, listConnectors, listMcpEndpoints, listSandboxEndpoints];
+const decorations = [get, getToolsByProjectId, getRepoIdentity, listScopes, listAccessSurfaces, listMcpEndpoints, listSandboxEndpoints];
 beforeEach(() => {
   vi.mocked(getProjects).mockReset();
   vi.mocked(listDir).mockReset();

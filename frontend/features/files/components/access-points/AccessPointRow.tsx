@@ -3,7 +3,7 @@
 import { StatusDot } from '@/components/ui/StatusDot';
 import { ProviderIcon } from '@/features/access/components/icons';
 import { AccessPointProviderIcon } from '@/features/files/components/access-points/AccessPointProviderIcon';
-import { connectorAsEndpointShape, providerLabel } from '@/features/files/components/access-points/labels';
+import { accessSurfaceIcon, providerLabel } from '@/features/files/components/access-points/labels';
 import {
   ACCESS_PANEL_TYPOGRAPHY,
   COLOR_BORDER,
@@ -21,7 +21,7 @@ import {
   isGitRemoteProvider,
 } from '@/lib/accessProviderRegistry';
 import { AI_AGENT_ENABLED } from '@/lib/featureFlags';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { useMemo, useState } from 'react';
 
 /** Cap on inline integration glyphs before the strip collapses the
@@ -64,7 +64,7 @@ export function AccessPointRow({
    *  integrations. Empty array (frozen at the call site) when the
    *  DB trigger hasn't settled — row degrades to "no chips" without
    *  crashing. */
-  readonly connectors: readonly Connector[];
+  readonly connectors: readonly AccessSurface[];
   readonly providerIcons: ProviderIconLookup;
   /** True iff this scope's path equals the folder the user is
    *  currently viewing in the file tree. */
@@ -77,9 +77,9 @@ export function AccessPointRow({
   // one of each per scope, but we read them
   // defensively in case the trigger hasn't settled yet on a fresh
   // insert.
-  const cliConnector = connectors.find((c) => isCliProvider(c.provider));
-  const gitRemoteConnector = connectors.find((c) => isGitRemoteProvider(c.provider));
-  const agentConnector = connectors.find((c) => isAgentProvider(c.provider));
+  const cliConnector = connectors.find((c) => isCliProvider(c.kind));
+  const gitRemoteConnector = connectors.find((c) => isGitRemoteProvider(c.kind));
+  const agentConnector = connectors.find((c) => isAgentProvider(c.kind));
 
   // Active flags for the chip-render gate. We hide a built-in chip
   // when its connector is paused — the strip is a positive
@@ -97,7 +97,7 @@ export function AccessPointRow({
     () =>
       connectors.filter(
         (c) =>
-          !isBuiltInAccessProvider(c.provider) &&
+          !isBuiltInAccessProvider(c.kind) &&
           c.status !== 'paused',
       ),
     [connectors],
@@ -433,11 +433,11 @@ function IntegrationChip({
   connector,
   providerIcons,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly providerIcons: ProviderIconLookup;
 }) {
-  const ep = useMemo(() => connectorAsEndpointShape(connector), [connector]);
-  const label = connector.name || providerLabel(connector.provider);
+  const ep = useMemo(() => accessSurfaceIcon(connector), [connector]);
+  const label = connector.name || providerLabel(connector.kind);
   return (
     <span
       title={label}

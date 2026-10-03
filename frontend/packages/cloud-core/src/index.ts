@@ -55,20 +55,6 @@ export type {
 export { createScopesApi, matchScopeForPath, isWithinScope } from "./endpoints/scopes";
 export type { RepositoryScope, ScopeMode } from "./endpoints/scopes";
 
-// ── Connectors + repo identity ────────────────────────────────────────────
-export {
-  createConnectorsApi,
-  BUILTIN_PROVIDERS,
-  normalizeConnector,
-  isAccessSurfaceConnector,
-  normalizeAccessSurfaceConnectors,
-  sortConnectorsBuiltinFirst,
-} from "./endpoints/connectors";
-export type {
-  Connector,
-  ConnectorDirection,
-  ConnectorStatus,
-  ConnectorRun,
-  CreateConnectorBody,
-  RepoIdentity,
-} from "./endpoints/connectors";
+// ── Access resources and independent repository identity ───────────────────
+export * from "./endpoints/accessSurfaces";
+export * from "./endpoints/repositoryIdentity";
