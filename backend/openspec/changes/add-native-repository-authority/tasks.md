@@ -45,6 +45,13 @@
   707457024 bytes. Controlled stock Git `maintenance --auto --detach` reproduces
   40 orphan zombies without init versus zero with init, at the same budget.
   This repairs the test environment, not the remaining canonical capabilities.
+- [x] Preserve clean `1d54c3d1` full Docker result: 1086 passed, original 34
+  failures plus a real-S3 workspace-stash cold-mirror timeout and its HTTP-server
+  teardown error; 329 pgTAP, no PID/OOM exhaustion. Isolated same-revision probe
+  4 passed is not a repair. Capture all worker stacks on future Git deadlines
+  without changing the 30-second budget. Supplementary backend: 2773 passed,
+  27 skipped, 76 deselected; not strict target acceptance.
+- [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
   Billing, ETL and Scheduler are disabled in this core application test profile.

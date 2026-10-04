@@ -126,6 +126,13 @@ pin 封存/释放不代替结算。原生 PUT/DELETE 使用隔离 single-attempt
 切换/最后 I/O 选择 18 passed +329 pgTAP，仍非 clean 全量。
 Canonical Git/API、计费结算、生命周期退役及独立进程恢复仍未交付。
 
+clean `1d54c3d1` Docker 全量为 **1086 passed / 35 failed / 1 teardown error**，
+pgTAP 329 通过。原始 34 项仍在，另有 `workspace-stash` 真实 S3 冷 mirror
+30 秒超时及 HTTP 服务未退出；资源耗尽计数为零，内存峰值 692703232 bytes。
+同 revision 的隔离复测 4 passed，但这不是修复或全量通过。Git 超时现在追加
+worker 线程栈（不含 argv/locals），仍保留原 30 秒预算和失败。补充 backend
+回归 2773 passed / 27 skipped / 76 deselected，也不替代 strict Docker 验收。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。

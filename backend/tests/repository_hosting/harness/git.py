@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import faulthandler
 import os
 import subprocess
+import sys
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -41,24 +44,19 @@ class Git:
         )
         if trace_packets:
             env["GIT_TRACE_PACKET"] = "1"
-        result = subprocess.run(
-            [
-                "git",
-                "-c",
-                "core.hooksPath=/dev/null",
-                "-c",
-                "commit.gpgsign=false",
-                "-c",
-                "protocol.file.allow=always",
-                "-C",
-                str(self.path),
-                *map(str, args),
-            ],
-            input=input,
-            capture_output=True,
-            env=env,
-            timeout=30,
-        )
+        command = [
+            "git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
+            "-c", "protocol.file.allow=always", "-C", str(self.path), *map(str, args),
+        ]
+        try:
+            result = subprocess.run(command, input=input, capture_output=True, env=env, timeout=30)
+        except subprocess.TimeoutExpired:
+            # Capture the HTTP/control/storage workers at the actual deadline,
+            # not only the waiting Git client. No argv, locals or credentials.
+            # Diagnostics must neither mask the failure nor change its budget.
+            with suppress(Exception):
+                faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            raise
         if check and result.returncode:
             raise AssertionError(
                 f"git {args}: {result.returncode}\n{result.stderr.decode(errors='replace')}"
