@@ -70,7 +70,11 @@ from src.platform.repository_target.models import (
 
 @pytest.fixture(autouse=True)
 def _use_hard_receive_cap_without_live_entitlement_lookup(monkeypatch):
-    """Git protocol tests are hermetic; entitlement resolution is covered separately."""
+    """Git protocol tests use explicit control-plane doubles, never a live DB."""
+    monkeypatch.setattr(
+        "src.version_engine.infrastructure.supabase.version_ref_repository.VersionRefStore.list_refs",
+        lambda *args, **kwargs: [],
+    )
     monkeypatch.setattr(
         "src.version_engine.entrypoints.git.router._git_receive_max_body_bytes",
         lambda _project_id: int(settings.GIT_MAX_RECEIVE_PACK_BYTES),

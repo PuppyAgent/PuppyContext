@@ -146,7 +146,7 @@ BEGIN
         ('issue029-tool-org', owner_id, NULL, '',
          'search', 'Organization Tool', 'builtin', 'issue029-org');
     INSERT INTO public.access_tools (
-        id, access_point_id, tool_id, enabled, mcp_exposed
+        id, access_surface_id, tool_id, enabled, mcp_exposed
     ) VALUES (
         'issue029-access-tool-valid', 'issue029-surface-root',
         'issue029-tool-private', true, true
@@ -301,7 +301,7 @@ SELECT is(
 );
 SELECT throws_ok(
     $$INSERT INTO public.access_tools (
-        id, access_point_id, tool_id, enabled, mcp_exposed
+        id, access_surface_id, tool_id, enabled, mcp_exposed
       ) VALUES (
         'issue029-access-tool-cross-project', 'issue029-surface-root',
         'issue029-tool-sibling', true, true
@@ -312,7 +312,7 @@ SELECT throws_ok(
 );
 SELECT lives_ok(
     $$INSERT INTO public.access_tools (
-        id, access_point_id, tool_id, enabled, mcp_exposed
+        id, access_surface_id, tool_id, enabled, mcp_exposed
       ) VALUES (
         'issue029-access-tool-org', 'issue029-surface-root',
         'issue029-tool-org', true, true

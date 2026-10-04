@@ -121,7 +121,8 @@ class StorageMeasurement:
 def logical_tree_bytes(store: Any, root_hash: str) -> int:
     if not root_hash:
         return 0
-    manifest = tree_to_flat(store, root_hash)
+    manifest = tree_to_flat(store, root_hash, include_gitlinks=False)
+    # Gitlinks name commits in external repositories, not locally stored files.
     # Logical active size counts each path, even when content-addressed blobs
     # deduplicate physically. This is predictable to customers and providers.
     return sum(len(store.get(oid)) for oid in manifest.values())
@@ -132,8 +133,8 @@ def logical_tree_delta(store: Any, old_root_hash: str, new_root_hash: str) -> in
 
     if old_root_hash == new_root_hash:
         return 0
-    old_manifest = tree_to_flat(store, old_root_hash) if old_root_hash else {}
-    new_manifest = tree_to_flat(store, new_root_hash) if new_root_hash else {}
+    old_manifest = tree_to_flat(store, old_root_hash, include_gitlinks=False) if old_root_hash else {}
+    new_manifest = tree_to_flat(store, new_root_hash, include_gitlinks=False) if new_root_hash else {}
     sizes: dict[str, int] = {}
 
     def size(oid: str) -> int:
@@ -169,8 +170,8 @@ def oversized_new_logical_file(
     as a new logical file and remains subject to the current plan.
     """
 
-    old_manifest = tree_to_flat(store, old_root_hash) if old_root_hash else {}
-    new_manifest = tree_to_flat(store, new_root_hash) if new_root_hash else {}
+    old_manifest = tree_to_flat(store, old_root_hash, include_gitlinks=False) if old_root_hash else {}
+    new_manifest = tree_to_flat(store, new_root_hash, include_gitlinks=False) if new_root_hash else {}
     excess = Counter(new_manifest.values()) - Counter(old_manifest.values())
     sizes: dict[str, int] = {}
     for path, oid in sorted(new_manifest.items()):

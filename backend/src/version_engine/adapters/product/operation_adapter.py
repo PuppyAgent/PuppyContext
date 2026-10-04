@@ -41,7 +41,6 @@ from src.version_engine.adapters.product.tree_patch import (
     splice_mkdir,
     splice_move,
     splice_put_blob,
-    splice_put_blob_ref,
     splice_remove,
     splice_touch,
 )
@@ -416,37 +415,26 @@ class ProductOperationAdapter:
                 f"{new_path!r} (scope={new_scope!r})",
             )
 
-        # Capture the source blob hash from the CURRENT scope tree
-        # BEFORE we hand off to the engine. If a concurrent writer
-        # renames or deletes ``old_rel`` between now and our CAS retry's
-        # splice, the salvage path below uses this hash to recreate the
-        # rename's add-side at ``new_rel``. This preserves the user's
-        # intent ("the file I started from should end up at new_rel")
-        # even when their src token is no longer in the tree.
-        salvage_blob_hash = self._lookup_blob_hash(
-            project_id, old_scope, old_rel,
-        )
+        # Capture the engine's first snapshot, not an independently read live
+        # head: ProjectWriteState may intentionally refer to an older snapshot.
+        # Keep the tree reference so recovery also preserves folders. Only a
+        # successfully evaluated first attempt permits missing-source recovery.
+        source_tree_hash: str | None = None
 
         def splice_fn(store, root_hash):
+            nonlocal source_tree_hash
             try:
-                return splice_move(store, root_hash, old_rel, new_rel)
+                result = splice_move(store, root_hash, old_rel, new_rel)
             except FileNotFoundError:
-                if not salvage_blob_hash:
+                if source_tree_hash is None:
                     raise
-                # ``old_rel`` vanished underneath us (concurrent rename
-                # or delete by another writer). Recreate the rename's
-                # add-side using the blob we captured at submit time so
-                # the new file lands as intended. The delete-side is
-                # already realized by the concurrent op — no further work.
-                from src.utils.logger import log_info
-                log_info(
-                    f"[move] source {old_rel!r} missing in scope tree "
-                    f"during retry; salvaging via base blob "
-                    f"{salvage_blob_hash[:12]} → {new_rel!r}",
+                return splice_copy(
+                    store, root_hash, old_rel, new_rel,
+                    source_root_hash=source_tree_hash,
                 )
-                return splice_put_blob_ref(
-                    store, root_hash, new_rel, salvage_blob_hash,
-                )
+            if source_tree_hash is None:
+                source_tree_hash = root_hash
+            return result
 
         result = await self._apply_operation(
             project_id, old_scope, splice_fn,
@@ -1155,40 +1143,6 @@ class ProductOperationAdapter:
         if not rel:
             return scope
         return f"{scope}/{rel}"
-
-    def _lookup_blob_hash(
-        self, project_id: str, scope: str, rel_path: str,
-    ) -> str:
-        """Resolve the blob hash for ``scope/rel_path`` in the CURRENT
-        scope state. Returns an empty string when the path doesn't exist,
-        refers to a directory, or cannot be inspected.
-        """
-
-        try:
-            from src.version_engine.write_engine import tree as tree_mod
-
-            repo = self._repos.get_server_repo(project_id)
-            scope_hash = repo.get_scope_hash(scope) or ""
-            if not scope_hash:
-                return ""
-            parts = [p for p in rel_path.strip("/").split("/") if p]
-            if not parts:
-                return ""
-            current = scope_hash
-            for part in parts[:-1]:
-                entries = tree_mod.read_tree(repo.store, current)
-                typ, child = entries.get(part, (None, None))
-                if typ != "T":
-                    return ""
-                current = child
-            entries = tree_mod.read_tree(repo.store, current)
-            typ, hash_val = entries.get(parts[-1], (None, None))
-            if typ != "B":
-                return ""
-            return hash_val or ""
-        except Exception:
-            return ""
-
 
 # ══════════════════════════════════════════════════
 # Internal helpers

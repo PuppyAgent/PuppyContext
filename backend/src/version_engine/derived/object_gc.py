@@ -9,17 +9,20 @@ database-authoritative roots and only sweeps objects outside a retention window.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from src.version_engine.write_engine.git_object_format import (
-    decode_commit,
-    decode_object,
-    decode_tree,
-)
+from src.version_engine.write_engine.git_object_format import decode_object, hash_object
+from src.version_engine.write_engine.git_object_graph import object_edges
 
-from src.version_engine.adapters.git.protocol import ZERO_ID, is_object_id
+from src.version_engine.adapters.git.protocol import ZERO_ID
+
+
+def is_object_id(value: str) -> bool:
+    return (isinstance(value, str) and len(value) in (40, 64)
+            and set(value) <= set("0123456789abcdef") and set(value) != {"0"})
 
 
 DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60
@@ -53,7 +56,33 @@ class GitObjectGcResult:
     sweep_skipped_for_safety: bool = False
 
 
-def run_git_object_gc(
+def run_git_object_gc(repo, **options) -> GitObjectGcResult:
+    """Select coordination from the authoritative DB, never a cache/feature flag."""
+    from dataclasses import replace
+
+    control_factory = getattr(getattr(repo, "history", None), "native_ref_authority", None)
+    if callable(control_factory):
+        try:
+            control = control_factory()
+            snapshot = control.snapshot(repo._project_id)
+            if snapshot is not None:
+                if snapshot["authority"] != "native":
+                    diagnostic = _run_git_object_gc(repo, **(options | {"dry_run": True}))
+                    return replace(diagnostic, dry_run=options.get("dry_run", True),
+                                   eligible_count=0, eligible_bytes=0, sweep_skipped_for_safety=True,
+                                   errors=[*diagnostic.errors, "shadow repository: collection fenced during migration"])
+                from src.version_engine.derived.repository_gc import RepositoryCollector
+                return RepositoryCollector(control).run(repo, **options)
+        except Exception as exc:
+            return GitObjectGcResult(
+                getattr(repo, "_project_id", ""), options.get("dry_run", True),
+                0, 0, 0, 0, 0, 0, 0, 0, 0,
+                errors=[f"repository GC coordination failed: {exc}"], sweep_skipped_for_safety=True,
+            )
+    return _run_git_object_gc(repo, **options)
+
+
+def _run_git_object_gc(
     repo,
     *,
     dry_run: bool = True,
@@ -61,6 +90,7 @@ def run_git_object_gc(
     max_delete: int | None = None,
     quarantine_seconds: int = 0,
     now: datetime | None = None,
+    additional_roots: tuple[str, ...] = (),
 ) -> GitObjectGcResult:
     """Collect unreachable objects for one repo and optionally delete them.
 
@@ -79,6 +109,11 @@ def run_git_object_gc(
     walk_errors: list[str] = []
     inventory_errors: list[str] = []
     roots = collect_object_gc_roots(repo, errors=root_errors)
+    for object_id in additional_roots:
+        if not is_object_id(object_id):
+            root_errors.append("invalid additional GC root")
+        else:
+            roots.add(object_id)
     reachable = mark_reachable_objects(repo, roots, errors=walk_errors)
 
     all_objects = _all_object_ids(repo, errors=inventory_errors)
@@ -95,14 +130,11 @@ def run_git_object_gc(
     kept_young = 0
     kept_unknown_age = 0
     for object_id in unreachable:
-        if _object_is_old_enough(
-            object_id,
-            metadata,
-            retention_seconds=retention_seconds,
-            now=now,
-        ):
-            eligible.append(object_id)
-        elif retention_seconds <= 0:
+        # Native capacity inventory can retain a reservation after a failed PUT
+        # or post-DELETE SQL outage. Only a fresh canonical absence proof adds
+        # this marker; live/unsettled roots are still protected by the walk.
+        if ((metadata.get(object_id) or {}).get("capacity_missing") is True or retention_seconds <= 0
+                or _object_is_old_enough(object_id, metadata, retention_seconds=retention_seconds, now=now)):
             eligible.append(object_id)
         elif object_id not in metadata:
             kept_unknown_age += 1
@@ -301,47 +333,48 @@ def mark_reachable_objects(
     *,
     errors: list[str] | None = None,
 ) -> set[str]:
-    """Walk canonical Git commit/tree/blob graphs."""
+    """Walk and verify canonical Git graphs, including nested annotated tags.
 
+    Proven legacy raw roots remain opaque leaves. A damaged Git object must
+    never be mistaken for such a leaf: any unproven closure stops sweeping.
+    """
     out_errors = errors if errors is not None else []
     reachable: set[str] = set()
+    kinds: dict[str, str] = {}
     stack = [
-        object_id for object_id in roots
+        (object_id, None) for object_id in roots
         if is_object_id(object_id) and object_id != ZERO_ID
     ]
 
     while stack:
-        object_id = stack.pop()
+        object_id, expected_type = stack.pop()
         if object_id in reachable:
+            if expected_type is not None and kinds.get(object_id) != expected_type:
+                out_errors.append(f"walk {object_id}: unexpected object type")
             continue
         reachable.add(object_id)
-
-        # Split FETCH from DECODE so the fail-safe gate fires only on the case
-        # that actually threatens closure completeness.
-        #
-        #   • Fetch failure (object genuinely missing, or a transient
-        #     object-store read error): we CANNOT see whether this was a tree
-        #     with children, so its subtree may be silently dropped from the
-        #     reachable set. This is the "Damaged folder" trigger — record it
-        #     as a walk error so the caller refuses to delete.
-        #   • Fetched-but-not-a-git-object (e.g. a legacy raw blob stored at a
-        #     tree position): we DID read it and it provably has no git-tree
-        #     children to follow, so nothing was dropped. Treat it as an opaque
-        #     leaf and continue WITHOUT gating, so GC isn't permanently wedged
-        #     by such objects.
         try:
             loose = repo.store.get_loose(object_id)
-        except Exception as exc:  # noqa: BLE001 - fail-safe: unreadable ⇒ gate.
+        except Exception as exc:  # noqa: BLE001 - unreadable closure gates sweep.
             out_errors.append(f"read {object_id}: {exc}")
             continue
 
         try:
             obj_type, body = decode_object(loose)
-        except Exception:  # noqa: BLE001 - present but not git ⇒ opaque leaf.
+        except Exception as exc:  # noqa: BLE001
+            if expected_type is not None or hashlib.sha1(loose).hexdigest() != object_id:
+                out_errors.append(f"decode {object_id}: {exc}")
+            # A legacy raw object's id is the hash of its unframed bytes.
             continue
 
+        kinds[object_id] = obj_type
         try:
-            stack.extend(_child_object_ids(obj_type, body))
+            object_format = "sha256" if len(object_id) == 64 else "sha1"
+            if hash_object(obj_type, body, object_format=object_format) != object_id:
+                raise ValueError("object hash mismatch")
+            if expected_type is not None and obj_type != expected_type:
+                raise ValueError("unexpected object type")
+            stack.extend(object_edges(obj_type, body, object_format=object_format))
         except Exception as exc:  # noqa: BLE001
             out_errors.append(f"walk {object_id}: {exc}")
 
@@ -349,21 +382,8 @@ def mark_reachable_objects(
 
 
 def _child_object_ids(obj_type: str, body: bytes) -> list[str]:
-    """Return the Git object ids a commit/tree directly references."""
-    children: list[str] = []
-    if obj_type == "commit":
-        commit = decode_commit(body)
-        tree = commit.get("tree", "")
-        if is_object_id(tree):
-            children.append(tree)
-        for parent in commit.get("parents") or []:
-            if is_object_id(parent):
-                children.append(parent)
-    elif obj_type == "tree":
-        for entry in decode_tree(body):
-            if is_object_id(entry.sha1_hex):
-                children.append(entry.sha1_hex)
-    return children
+    """Compatibility helper; all graph semantics live in the typed edge parser."""
+    return [edge.oid for edge in object_edges(obj_type, body)]
 
 
 def _add_history_roots(repo, add, errors: list[str]) -> None:

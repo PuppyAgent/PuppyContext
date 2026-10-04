@@ -24,16 +24,19 @@ def write_tree(store: ObjectStore, entries) -> str:
     if isinstance(entries, dict):
         converted: list[TreeEntry] = []
         for name, value in entries.items():
-            typ, sha1 = value
+            if len(value) not in {2, 3}:
+                raise ValueError("tree entry requires kind, OID and optional mode")
+            typ, sha1 = value[:2]
+            mode = value[2] if len(value) == 3 else (MODE_DIR if typ == "T" else MODE_FILE)
             converted.append(
                 TreeEntry(
                     name=name,
-                    mode=MODE_DIR if typ == "T" else MODE_FILE,
+                    mode=mode,
                     sha1_hex=sha1,
                 )
             )
         entries = converted
-    return store.put_tree(encode_tree(entries))
+    return store.put_tree(encode_tree(entries, object_format=store.object_format))
 
 
 def read_tree(store: ObjectStore, h: str) -> dict:
@@ -41,7 +44,7 @@ def read_tree(store: ObjectStore, h: str) -> dict:
     if obj_type != "tree":
         raise ValueError(f"object {h} is a {obj_type}, expected tree")
     out: dict = {}
-    for entry in decode_tree(content):
+    for entry in decode_tree(content, object_format=store.object_format):
         out[entry.name] = ["T" if entry.is_dir else "B", entry.sha1_hex]
     return out
 
@@ -50,7 +53,7 @@ def read_tree_entries(store: ObjectStore, h: str) -> list[TreeEntry]:
     obj_type, content = store.get_object(h)
     if obj_type != "tree":
         raise ValueError(f"object {h} is a {obj_type}, expected tree")
-    return decode_tree(content)
+    return decode_tree(content, object_format=store.object_format)
 
 
 def scan_dir(store: ObjectStore, dirpath: Path, ignore, _depth: int = 0) -> str:
@@ -68,10 +71,12 @@ def scan_dir(store: ObjectStore, dirpath: Path, ignore, _depth: int = 0) -> str:
             entries.append(
                 TreeEntry(name=child.name, mode=MODE_DIR, sha1_hex=scan_dir(store, child, ignore, _depth + 1))
             )
-    return store.put_tree(encode_tree(entries))
+    return store.put_tree(encode_tree(entries, object_format=store.object_format))
 
 
-def tree_to_flat(store: ObjectStore, tree_hash: str, prefix: str = "") -> dict:
+def tree_to_flat(
+    store: ObjectStore, tree_hash: str, prefix: str = "", *, include_gitlinks: bool = True,
+) -> dict:
     result: dict = {}
     stack = [(tree_hash, prefix)]
     while stack:
@@ -80,7 +85,7 @@ def tree_to_flat(store: ObjectStore, tree_hash: str, prefix: str = "") -> dict:
             path = f"{pfx}{entry.name}" if not pfx else f"{pfx}/{entry.name}"
             if entry.is_dir:
                 stack.append((entry.sha1_hex, path))
-            else:
+            elif include_gitlinks or not entry.is_gitlink:
                 result[path] = entry.sha1_hex
     return result
 
@@ -119,6 +124,8 @@ def collect_reachable_hashes(store: ObjectStore, tree_hash: str) -> set:
         visited_trees.add(th)
         result.add(th)
         for entry in read_tree_entries(store, th):
+            if entry.is_gitlink:
+                continue  # External repository identity, not a local object.
             result.add(entry.sha1_hex)
             if entry.is_dir and entry.sha1_hex not in visited_trees:
                 stack.append(entry.sha1_hex)

@@ -153,3 +153,6 @@ todo/
 
 # Python bytecode (alternate cache dir)
 .pycache/
+
+# Isolated repository-hosting acceptance artifacts
+backend/.hosting-test-results/

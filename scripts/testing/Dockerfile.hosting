@@ -1,0 +1,31 @@
+# Local-only Linux acceptance runner. No application secrets/source enter layers.
+FROM python:3.12.11-slim-bookworm AS git-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential curl ca-certificates xz-utils libcurl4-openssl-dev libssl-dev zlib1g-dev libexpat1-dev \
+    && rm -rf /var/lib/apt/lists/*
+# Stock Git 2.39 loses SHA-256 identity when cloning even a stock empty bare
+# repository. Pin the tested client/server version, not a weakened assertion.
+RUN curl -fsS --connect-timeout 15 --max-time 120 --retry 2 \
+    https://www.kernel.org/pub/software/scm/git/git-2.50.1.tar.xz -o /tmp/git.tar.xz \
+    && echo '7e3e6c36decbd8f1eedd14d42db6674be03671c2204864befa2a41756c5c8fc4  /tmp/git.tar.xz' | sha256sum -c - \
+    && tar -xJf /tmp/git.tar.xz -C /tmp \
+    && make -C /tmp/git-2.50.1 -j4 prefix=/opt/git NO_GETTEXT=YesPlease NO_TCLTK=YesPlease all install
+
+FROM python:3.12.11-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client ca-certificates libcurl4 libexpat1 openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=git-build /opt/git /opt/git
+RUN pip install --no-cache-dir uv==0.11.29
+WORKDIR /opt/dependencies
+COPY pyproject.toml uv.lock ./
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+RUN --mount=type=cache,id=issue-062-uv-linux,target=/root/.cache/uv \
+    UV_CONCURRENT_DOWNLOADS=4 UV_HTTP_TIMEOUT=60 UV_HTTP_RETRIES=2 \
+    uv sync --frozen --no-install-project --no-dev
+ENV PATH="/opt/venv/bin:/opt/git/bin:/usr/local/bin:/usr/bin:/bin" \
+    PYTHONPATH=/source/backend PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PYTHONPYCACHEPREFIX=/tmp/pycache \
+    AWS_EC2_METADATA_DISABLED=true HOME=/tmp/home
+WORKDIR /source/backend
+ENTRYPOINT ["/opt/venv/bin/python", "/source/scripts/testing/container_hosting.py"]

@@ -21,6 +21,7 @@ from src.version_engine.adapters.git.protocol import (
     pkt_line,
     read_pkt_lines,
 )
+from src.version_engine.adapters.git.refs import scope_named_refs
 from src.version_engine.adapters.git.submission import submit_git_tree
 from src.version_engine.adapters.git.view_projection import resolve_git_view_head
 from src.version_engine.write_engine import tree as tree_mod
@@ -161,6 +162,7 @@ async def receive_pack_response_from_path(
 
     try:
         official_ref_updated = False
+        named_refs = scope_named_refs(repo, scope_path, strict=True)
         async with sync_context_off_loop(
             official_receive_pack_quarantine(
                 repo,
@@ -169,23 +171,25 @@ async def receive_pack_response_from_path(
                 roots=[command.new_id],
                 exclude_roots=_named_ref_exclude_roots(
                     repo, project_id, scope_path, scope_excludes, command,
+                    named_refs=named_refs,
                 ),
                 scope_excludes=scope_excludes,
+                extra_refs=named_refs,
             )
         ) as official:
             official_ref_updated = official.ref_points_to(command.ref, command.new_id)
             if not official_ref_updated:
-                try:
-                    official.quarantine.get_object(command.new_id)
-                except Exception:
-                    if official.output:
-                        return _official_receive_pack_response(official.output)
-                    return receive_pack_result(
-                        command.ref,
-                        outcome="rejected",
-                        message="puppyone-rejected: git receive-pack rejected update",
-                        capabilities=command.capabilities,
-                    )
+                # Object presence is not acceptance: existing objects also
+                # remain readable after stock Git rejects a command. Never
+                # promote or publish a ref that the receiver did not update.
+                if official.output:
+                    return _official_receive_pack_response(official.output)
+                return receive_pack_result(
+                    command.ref,
+                    outcome="rejected",
+                    message="puppyone-rejected: git receive-pack rejected update",
+                    capabilities=command.capabilities,
+                )
             quarantine = official.quarantine
             obj_type, commit_body = quarantine.get_object(command.new_id)
             if obj_type != "commit":
@@ -647,7 +651,9 @@ def _get_scope_state(repo, scope_path: str) -> tuple[str, str]:
     )
 
 
-def _named_ref_exclude_roots(repo, project_id, scope_path, scope_excludes, command):
+def _named_ref_exclude_roots(
+    repo, project_id, scope_path, scope_excludes, command, *, named_refs=None,
+):
     """Already-promoted commit boundary for a branch/tag push (GAP-3).
 
     A branch/tag almost always descends from the scope head and/or existing
@@ -674,16 +680,24 @@ def _named_ref_exclude_roots(repo, project_id, scope_path, scope_excludes, comma
             excludes.append(gv.head)
     except Exception as exc:  # noqa: BLE001 — bound best-effort; never block push setup
         log_error(f"[GitReceivePack] scope-head exclude lookup failed: {exc}")
-    try:
-        from src.version_engine.infrastructure.supabase.version_ref_repository import (
-            VersionRefStore,
-        )
-        for row in VersionRefStore().list_refs(project_id, scope_path):
-            cid = row.get("commit_id")
-            if cid and is_object_id(cid):
-                excludes.append(cid)
-    except Exception as exc:  # noqa: BLE001
-        log_error(f"[GitReceivePack] version_refs exclude lookup failed: {exc}")
+    if named_refs is not None:
+        # The write path supplies its already-required strict snapshot. Never
+        # repeat the lookup or mistake a failed lookup for an empty namespace.
+        excludes.extend(cid for cid in named_refs.values() if is_object_id(cid))
+    else:
+        # Retain this helper's best-effort optimization contract for older
+        # callers. Omitting exclusions merely copies more objects; this is
+        # NOT the receive admission/ref snapshot (which is fail-closed).
+        try:
+            from src.version_engine.infrastructure.supabase.version_ref_repository import (
+                VersionRefStore,
+            )
+            for row in VersionRefStore().list_refs(project_id, scope_path):
+                cid = row.get("commit_id")
+                if cid and is_object_id(cid):
+                    excludes.append(cid)
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"[GitReceivePack] version_refs exclude lookup failed: {exc}")
     return list(dict.fromkeys(excludes))
 
 

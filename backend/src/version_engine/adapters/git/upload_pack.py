@@ -25,6 +25,7 @@ from src.version_engine.adapters.git.protocol import (
     pkt_line,
     run_git,
 )
+from src.version_engine.adapters.git.refs import scope_named_refs
 from src.utils.logger import log_error
 
 
@@ -72,6 +73,7 @@ def info_refs_response(
             repo,
             scope_path,
             scope_excludes,
+            extra_refs=scope_named_refs(repo, scope_path, strict=True),
         )
     else:
         # Advertise the scope head AND any stored branch/tag refs (GAP-3).

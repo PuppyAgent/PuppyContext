@@ -12,8 +12,6 @@ from pathlib import Path
 from src.version_engine.domain.errors import ObjectNotFoundError
 from src.version_engine.write_engine.git_object_format import (
     EMPTY_TREE_CONTENT,
-    EMPTY_TREE_LOOSE_BYTES,
-    EMPTY_TREE_SHA1,
     decode_object,
     encode_object,
     hash_object,
@@ -21,6 +19,19 @@ from src.version_engine.write_engine.git_object_format import (
 
 
 class StorageBackend(abc.ABC):
+    @property
+    def publication_project_id(self) -> str | None:
+        """Namespace binding when the backend addresses multiple Projects."""
+        return None
+
+    def get_durable(self, h: str) -> bytes:
+        """Explicit physical read capability; unknown/caching backends fail closed."""
+        raise NotImplementedError("backend does not provide durable object readback")
+
+    def put_durable(self, h: str, loose_bytes: bytes) -> None:
+        """Write-through; caching backends must override to bypass staging."""
+        self.put(h, loose_bytes)
+
     @abc.abstractmethod
     def get(self, h: str) -> bytes:
         """Return Git loose-object bytes for object id ``h``."""
@@ -76,6 +87,9 @@ class FileSystemBackend(StorageBackend):
             except FileNotFoundError:
                 pass
 
+    def get_durable(self, h: str) -> bytes:
+        return self.get(h)
+
     def exists(self, h: str) -> bool:
         return self._path_for(h).exists()
 
@@ -114,13 +128,25 @@ class FileSystemBackend(StorageBackend):
 class ObjectStore:
     """High-level store for Git loose objects."""
 
-    def __init__(self, objects_dir: Path, backend: StorageBackend | None = None):
+    def __init__(
+        self, objects_dir: Path, backend: StorageBackend | None = None,
+        *, object_format: str = "sha1",
+    ):
+        self._empty_tree_id, self._empty_tree_loose = encode_object(
+            "tree", EMPTY_TREE_CONTENT, object_format=object_format,
+        )
+        self._object_format = object_format
         self.dir = objects_dir
         self._backend = backend or FileSystemBackend(objects_dir)
 
+    @property
+    def object_format(self) -> str:
+        """Repository identity, not a format guessed from an incoming object."""
+        return self._object_format
+
     def _put_typed(self, obj_type: str, content: bytes) -> str:
-        sha1, loose = encode_object(obj_type, content)
-        if sha1 == EMPTY_TREE_SHA1:
+        sha1, loose = encode_object(obj_type, content, object_format=self.object_format)
+        if sha1 == self._empty_tree_id:
             return sha1
         self._backend.put(sha1, loose)
         return sha1
@@ -135,17 +161,21 @@ class ObjectStore:
         return self._put_typed("commit", content)
 
     def get_object(self, sha1: str) -> tuple[str, bytes]:
-        if sha1 == EMPTY_TREE_SHA1:
+        if sha1 == self._empty_tree_id:
             return "tree", EMPTY_TREE_CONTENT
-        return self._decode_verified(sha1, self._backend.get(sha1))
+        return self._decode_verified(
+            sha1, self._backend.get(sha1), object_format=self.object_format,
+        )
 
     @staticmethod
-    def _decode_verified(sha1: str, loose: bytes) -> tuple[str, bytes]:
+    def _decode_verified(
+        sha1: str, loose: bytes, *, object_format: str = "sha1",
+    ) -> tuple[str, bytes]:
         try:
             obj_type, content = decode_object(loose)
         except Exception as exc:
             raise ObjectNotFoundError(f"object corrupt: {sha1} ({exc})") from exc
-        actual = hash_object(obj_type, content)
+        actual = hash_object(obj_type, content, object_format=object_format)
         if actual != sha1:
             raise ObjectNotFoundError(f"object corrupt: expected {sha1}, got {actual}")
         return obj_type, content
@@ -153,18 +183,18 @@ class ObjectStore:
     def get_objects_many(self, sha1s: list[str]) -> dict[str, tuple[str, bytes]]:
         """Batch transport only; identical hash verification to single reads."""
         return {
-            sha1: self._decode_verified(sha1, loose)
+            sha1: self._decode_verified(sha1, loose, object_format=self.object_format)
             for sha1, loose in self.get_loose_many(sha1s).items()
         }
 
     def put_loose(self, sha1: str, loose_bytes: bytes) -> None:
-        if sha1 == EMPTY_TREE_SHA1:
+        if sha1 == self._empty_tree_id:
             return
         self._backend.put(sha1, loose_bytes)
 
     def get_loose(self, sha1: str) -> bytes:
-        if sha1 == EMPTY_TREE_SHA1:
-            return EMPTY_TREE_LOOSE_BYTES
+        if sha1 == self._empty_tree_id:
+            return self._empty_tree_loose
         return self._backend.get(sha1)
 
     def get_loose_many(self, sha1s: list[str]) -> dict[str, bytes]:
@@ -172,8 +202,8 @@ class ObjectStore:
         out: dict[str, bytes] = {}
         rest: list[str] = []
         for sha1 in unique:
-            if sha1 == EMPTY_TREE_SHA1:
-                out[sha1] = EMPTY_TREE_LOOSE_BYTES
+            if sha1 == self._empty_tree_id:
+                out[sha1] = self._empty_tree_loose
             else:
                 rest.append(sha1)
         getter = getattr(self._backend, "get_many", None)
@@ -192,13 +222,13 @@ class ObjectStore:
         return content
 
     def exists(self, h: str) -> bool:
-        if h == EMPTY_TREE_SHA1:
+        if h == self._empty_tree_id:
             return True
         return self._backend.exists(h)
 
     def exists_many(self, hashes: list[str]) -> set[str]:
-        existing = {h for h in hashes if h == EMPTY_TREE_SHA1}
-        rest = [h for h in hashes if h != EMPTY_TREE_SHA1]
+        existing = {h for h in hashes if h == self._empty_tree_id}
+        rest = [h for h in hashes if h != self._empty_tree_id]
         if rest:
             existing.update(self._backend.exists_many(rest))
         return existing
@@ -217,8 +247,8 @@ class ObjectStore:
         return deleted
 
     async def async_put(self, data: bytes) -> str:
-        sha1, loose = encode_object("blob", data)
-        if sha1 == EMPTY_TREE_SHA1:
+        sha1, loose = encode_object("blob", data, object_format=self.object_format)
+        if sha1 == self._empty_tree_id:
             return sha1
         async_put = getattr(self._backend, "async_put", None)
         if callable(async_put):
@@ -240,7 +270,7 @@ class ObjectStore:
         return await asyncio.to_thread(self.count)
 
     async def async_put_loose(self, h: str, loose: bytes) -> None:
-        if h == EMPTY_TREE_SHA1:
+        if h == self._empty_tree_id:
             return
         async_put = getattr(self._backend, "async_put", None)
         if callable(async_put):

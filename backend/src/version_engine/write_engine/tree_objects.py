@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from src.version_engine.write_engine import tree as tree_mod
 from src.version_engine.write_engine.git_object_format import (
-    EMPTY_TREE_SHA1,
     MODE_DIR,
     MODE_FILE,
     TreeEntry,
@@ -88,13 +87,11 @@ def find_missing_tree_objects(store, root_hash: str) -> list[str]:
     verified too; blob entries are existence-checked only — blob bytes are
     never downloaded. An empty result means the whole closure is present.
 
-    This is the integrity invariant every committed root MUST satisfy: a tree
-    object may only reference children that are durably present. Use it to
-    assert that tree builders / grafts persist a complete closure (so a write
-    can never publish a dangling tree), and as a diagnostic when auditing an
-    existing root.
+    This is a compatibility existence diagnostic, not a physical durability
+    receipt: a caching backend may answer from memory. Native publication must
+    use ClosureVerifier with cache-independent physical readback instead.
     """
-    if not root_hash or root_hash == EMPTY_TREE_SHA1:
+    if not root_hash:
         return []
     missing: list[str] = []
     seen: set[str] = set()
@@ -121,7 +118,9 @@ def _verify_tree_children(store, tree_body: bytes, seen: set, missing: list) -> 
     when absent.
     """
     subtrees: list[str] = []
-    for entry in decode_tree(tree_body):
+    for entry in decode_tree(tree_body, object_format=store.object_format):
+        if entry.is_gitlink:
+            continue  # The referenced commit belongs to the submodule repository.
         child = entry.sha1_hex
         if not child or child in seen:
             continue
@@ -253,4 +252,4 @@ def _write_nested_tree(store, node: dict) -> str:
         else:
             sub_hash = _write_nested_tree(store, val)
             entries.append(TreeEntry(name=name, mode=MODE_DIR, sha1_hex=sub_hash))
-    return store.put_tree(encode_tree(entries))
+    return store.put_tree(encode_tree(entries, object_format=store.object_format))

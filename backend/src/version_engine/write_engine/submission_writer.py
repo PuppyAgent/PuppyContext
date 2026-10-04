@@ -114,7 +114,9 @@ class SubmissionWriter:
                 repo, scope_norm,
             )
             expected_scope_head_commit_id = (
-                current_scope_head_id if scope_norm else None
+                current_scope_head_id
+                if scope_norm or intent.source_channel in {"git", "access_git"}
+                else None
             )
             acceptable_git_heads: set[str] | None = None
             if intent.source_channel in {"git", "access_git"}:
@@ -124,9 +126,13 @@ class SubmissionWriter:
                         (intent.audit_detail or {}).get("git_visible_old_commit_id")
                         or ""
                     )
+                    # A root-derived view can have a visible HEAD before its
+                    # first scope-state row exists. That alias is valid only
+                    # while the canonical source head remains absent. Keeping
+                    # the old visible alias after another writer commits would
+                    # turn a stale Git CAS retry into an automatic merge/ack.
                     acceptable_git_heads = {
-                        head
-                        for head in (canonical_scope_head_id, git_visible_head_id)
+                        head for head in (canonical_scope_head_id or git_visible_head_id,)
                         if head
                     }
                     current_scope_head_id = (
@@ -391,7 +397,17 @@ class SubmissionWriter:
                     current_files, merged_files, incoming_files, scope_norm,
                 )
 
-            if not changes and new_scope_hash == old_scope_hash:
+            preserves_new_git_identity = (
+                intent.source_channel in {"git", "access_git"}
+                and bool(intent.client_commit_id)
+                and intent.client_commit_id != current_scope_head_id
+                and new_scope_hash == intent.proposed_tree_id
+            )
+            if (
+                not changes
+                and new_scope_hash == old_scope_hash
+                and not preserves_new_git_identity
+            ):
                 return TransactionResult(
                     status="ok",
                     commit_id=current_scope_head_id,

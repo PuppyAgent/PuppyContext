@@ -67,6 +67,12 @@ class SupabaseHistoryManager:
         self._client = supabase.client
         self._project_id = project_id
 
+    def native_ref_authority(self):
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            RefAuthorityRepository,
+        )
+        return RefAuthorityRepository(self._client)
+
     # ── Global Head ──
     #
     # There is no dedicated "global head" column on the projects
@@ -368,6 +374,12 @@ class SupabaseHistoryManager:
                     ),
                 }
             )
+
+        if expected_scope_head_commit_id is not None:
+            # The pre-repair RPC accepts but ignores this argument for root
+            # writes. Require the versioned entrypoint; never fall back to an
+            # older schema and silently lose head-CAS protection.
+            rpc_name += "_checked"
 
         try:
             resp = self._client.rpc(rpc_name, rpc_args).execute()
