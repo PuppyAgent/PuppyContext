@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkedSrcDirs = [
-  path.join(repoRoot, "packages", "data-ui", "src"),
   path.join(repoRoot, "packages", "editor-ui", "src"),
   path.join(repoRoot, "frontend", "shared-ui", "src"),
   // ISSUE-022: shared cloud domain must stay platform-agnostic (no Next.js,

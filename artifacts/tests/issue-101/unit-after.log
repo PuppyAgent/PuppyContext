@@ -23,6 +23,6 @@ Browserslist: browsers data (caniuse-lite) is 11 months old. Please run:
   Why you should do it regularly: https://github.com/browserslist/update-db#readme
 
  Test Files  44 passed (44)
-      Tests  268 passed (268)
-   Start at  08:28:29
-   Duration  12.76s (transform 1.81s, setup 3.12s, import 3.93s, tests 4.43s, environment 9.66s)
+      Tests  270 passed (270)
+   Start at  08:31:47
+   Duration  11.08s (transform 1.15s, setup 2.73s, import 2.90s, tests 4.10s, environment 8.45s)
