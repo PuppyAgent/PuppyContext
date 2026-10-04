@@ -23,7 +23,7 @@ enabled in `next build`. The existing backend and frontend workflows are untouch
 
 Dependency-cruiser includes TypeScript type-only imports, re-exports and dynamic
 imports. `tsconfig.dependencies.json` inherits the application configuration and
-maps the three existing source-only root packages, which have no package
+maps the remaining source-only root package aliases, which have no package
 manifests. Normal `@/` aliases and installed `@puppyone/cloud-core` exports resolve
 to source. Missing local imports fail rather than disappearing from the graph.
 Shared UI and package sources may depend on one another, but never on frontend

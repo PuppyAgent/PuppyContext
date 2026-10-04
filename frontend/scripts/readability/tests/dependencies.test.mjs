@@ -41,7 +41,7 @@ test('allowed directions resolve app aliases and root package aliases', t => {
   write(path, 'frontend/app/page.ts', "export { value } from '@/features/a';");
   write(path, 'frontend/features/a.ts', "export { value } from '@puppyone/data-core';");
   write(path, 'packages/data-core/src/index.ts', 'export const value = 1;');
-  write(path, 'packages/data-ui/src/index.ts', "export { value } from '@puppyone/data-core';");
+  write(path, 'packages/example/src/index.ts', "export { value } from '@puppyone/data-core';");
   const result = gate(path, 'run-dependencies');
   assert.equal(result.status, 0, result.output);
   assert.match(result.output, /0 dependency violations/);

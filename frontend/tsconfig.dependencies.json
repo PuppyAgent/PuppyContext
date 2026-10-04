@@ -4,7 +4,6 @@
     "paths": {
       "@/*": ["./*"],
       "@puppyone/data-core": ["../packages/data-core/src/index.ts"],
-      "@puppyone/data-ui": ["../packages/data-ui/src/index.ts"],
       "@puppyone/editor-ui": ["../packages/editor-ui/src/index.ts"]
     }
   }

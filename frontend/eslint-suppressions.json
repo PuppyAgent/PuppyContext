@@ -713,7 +713,7 @@
       "count": 1
     },
     "no-nested-ternary": {
-      "count": 22
+      "count": 12
     }
   },
   "frontend/features/files/components/github-integration/GithubBoundPanel.tsx": {
@@ -813,14 +813,6 @@
   "frontend/features/workspace/navigation/routes.ts": {
     "no-nested-ternary": {
       "count": 1
-    }
-  },
-  "frontend/features/workspace/paneLayout.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "no-nested-ternary": {
-      "count": 9
     }
   },
   "frontend/features/workspace/usePaneMotion.ts": {
@@ -962,16 +954,6 @@
   "frontend/tests/workspace/boundaries.test.ts": {
     "no-nested-ternary": {
       "count": 1
-    }
-  },
-  "packages/data-ui/src/DataWorkspace.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "packages/data-ui/src/fileIcons.tsx": {
-    "no-nested-ternary": {
-      "count": 3
     }
   },
   "packages/editor-ui/src/PuppyoneEditorHost.tsx": {
