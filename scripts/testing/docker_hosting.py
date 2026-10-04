@@ -15,6 +15,7 @@ ENVIRONMENT_KEYS = frozenset({
     'HOSTING_TEST_DB_URL', 'HOSTING_TEST_SUPABASE', 'HOSTING_TEST_ANON_KEY',
     'HOSTING_TEST_S3', 'SUPABASE_URL', 'SUPABASE_KEY', 'SUPABASE_SERVICE_ROLE_KEY',
     'S3_ENDPOINT_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION', 'S3_BUCKET_NAME',
+    'JWT_SECRET',
 })
 
 
@@ -64,7 +65,7 @@ def container_environment(environ):
         raise ValueError('Docker acceptance requires actual Auth/PostgREST/S3')
     if values.get('SKIP_AUTH') != 'false' or values.get('APP_ENV') != 'test':
         raise ValueError('Docker acceptance cannot bypass authentication')
-    for key in ('SUPABASE_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'HOSTING_TEST_ANON_KEY',
+    for key in ('SUPABASE_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'HOSTING_TEST_ANON_KEY', 'JWT_SECRET',
                 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION'):
         if not values.get(key):
             raise ValueError('missing Docker test configuration: ' + key)
@@ -114,17 +115,25 @@ def run_tests(root, output, command, environ, cli_env, image, result):
     name = 'issue-062-tests-' + values['HOSTING_TEST_STACK'].removeprefix('puppy-baseline-')
     environment_receipt = output / 'container-environment.json'
     environment_receipt.unlink(missing_ok=True)
+    redis_name = 'issue-062-redis-' + values['HOSTING_TEST_STACK'].removeprefix('puppy-baseline-')
+    values.update(AUTH_SECURITY_REDIS_URL=f'redis://{redis_name}:6379/1',
+                  NOTIFICATIONS_REDIS_URL=f'redis://{redis_name}:6379/2',
+                  ETL_REDIS_URL=f'redis://{redis_name}:6379/0')
     with tempfile.TemporaryDirectory(prefix='issue-062-docker-env-') as directory:
         path = Path(directory) / 'test.env'
         path.write_text(''.join(f'{key}={value}\n' for key, value in sorted(values.items())))
         path.chmod(0o600)
         run = ['docker', 'run', '--rm', '--name', name, '--label', 'puppyone.owner=issue-062',
                '--network', network, '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-               '--memory=4g', '--cpus=4', '--pids-limit=1024', '--tmpfs', '/tmp:rw,nosuid,size=2g',
+               '--memory=4g', '--cpus=4', '--pids-limit=1024', '--tmpfs', '/tmp:rw,nosuid,exec,size=2g',
                '--mount', f'type=bind,src={root},dst=/source,readonly',
                '--mount', f'type=bind,src={output},dst=/evidence',
                '--env-file', str(path), image, *args]
         try:
+            subprocess.run(['docker', 'run', '-d', '--rm', '--name', redis_name,
+                            '--label', 'puppyone.owner=issue-062', '--network', network,
+                            '--memory=128m', '--cpus=1', '--pids-limit=128', 'redis:6-alpine'],
+                           env=cli_env, stdout=subprocess.DEVNULL, check=True, timeout=120)
             completed = subprocess.run(run, env=cli_env, check=False, timeout=3600)
             if environment_receipt.exists():
                 metadata = json.loads(environment_receipt.read_text())
@@ -140,3 +149,4 @@ def run_tests(root, output, command, environ, cli_env, image, result):
         finally:
             # One exact owned name, never daemon restart, compose down, or prune.
             subprocess.run(['docker', 'rm', '-f', name], env=cli_env, capture_output=True, timeout=30, check=False)
+            subprocess.run(['docker', 'rm', '-f', redis_name], env=cli_env, capture_output=True, timeout=30, check=False)

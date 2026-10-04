@@ -89,6 +89,13 @@ def main():
     if os.environ.get('SKIP_AUTH') != 'false' or os.environ.get('APP_ENV') != 'test':
         raise ValueError('container acceptance requires authenticated test settings')
     Path('/tmp/home').mkdir(exist_ok=True)
+    hook = Path('/tmp/hosting-hook-probe')
+    hook.write_text('#!/bin/sh\nexit 0\n')
+    hook.chmod(0o700)
+    try:
+        subprocess.run([str(hook)], check=True, timeout=5)
+    finally:
+        hook.unlink()
     with ExitStack() as cleanup:
         for port, host, remote_port in destinations(os.environ):
             bridge = Bridge(port, (host, remote_port))
@@ -109,7 +116,7 @@ def main():
             'psql': subprocess.check_output(['psql', '--version'], text=True).strip(),
             'environment_names': sorted(k for k in os.environ if k.startswith(('HOSTING_TEST_', 'S3_', 'SUPABASE_'))),
             'skip_auth': settings.SKIP_AUTH, 'dotenv_inherited': False,
-            'startup_checks': ['settings', 'production_supabase_client'],
+            'startup_checks': ['settings', 'production_supabase_client', 'executable_test_tmpfs'],
             'services': ['owned_postgres', 'owned_auth_postgrest', 'owned_s3'],
         }
         Path('/evidence/container-environment.json').write_text(json.dumps(receipt, indent=2) + '\n')

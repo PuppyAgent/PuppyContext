@@ -75,8 +75,26 @@ origin：改用另一个容器内端口会与 Kong 提供给 Storage 的 SigV4 o
 Supabase client 启动检查和认证未绕过的事实，不记录密钥值。`run.json`
 区分 Linux 执行版本与宿主机编排版本；缺少容器证据、SQL 证据、要求的
 S3 层或出现失败/skip/XFAIL 均不能获得严格验收。只清理本次 owned 容器，
-不重启 Docker、不 prune、不操作其他已运行的应用栈。此运行器尚不代表
-完整 `src.main` 服务与所有异步 worker 的独立启动/重启验收。
+不重启 Docker、不 prune、不操作其他已运行的应用栈。
+
+后续冻结版本全量首次执行得到 964 passed / 43 failed；比宿主机多出的
+8 项来自 Docker tmpfs 默认 `noexec` 导致拒绝 hook 未执行，另 1 项是 Git
+2.39.5 在 clone 原生空 SHA-256 bare 仓库时同样错误建立 SHA-1 仓库。
+现在显式启用**测试临时盘** exec 并启动时探测，保持原拒绝断言；镜像改用
+校验官方 tarball SHA-256 后编译的 stock Git 2.50.1。不是修复旧 Git，也
+不宣称所有客户端版本通过；未把这九项失败重标为 skip/XFAIL。
+
+`hosting_application` 是新增独立层：Docker 内真实 `src.main` 进程、
+本次 owned Redis、GoTrue 密码登录所得 JWT、实际 Git credential 签发，
+随后原生 Git push → API 读写 → 拒绝过期 base/未授权用户 → 进程重启与
+cache 清除 → 冷 Git fetch/fsck → 撤销 credential。没有依赖替身，也没有
+把 secret 放进 remote URL。应用日志使用可写测试目录，而源码保持只读。
+Docker 严格验收还要求这一层确实执行通过。
+
+该应用用例覆盖现有 SHA-1 compatibility profile；Native 全功能正式入口、
+quota、异步 worker、长 I/O 与崩溃恢复仍须各自验收。此本地 profile 明确
+关闭可选外部 AI、Billing、ETL 和 Scheduler，不把未配置的外部服务算作
+已验证环境。Git/应用/环境修复选择：13 passed plus 329 pgTAP，非全量。
 
 ### Git 命令符合性与测试驱动实施
 

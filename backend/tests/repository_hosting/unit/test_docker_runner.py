@@ -14,7 +14,7 @@ spec.loader.exec_module(docker)
 
 
 def environment():
-    return dict(APP_ENV='test', SKIP_AUTH='false', MANAGED_AI_ENABLED='false',
+    return dict(APP_ENV='test', SKIP_AUTH='false', MANAGED_AI_ENABLED='false', JWT_SECRET='owned-jwt-secret',
                 HOSTING_TEST_STACK='puppy-baseline-1234abcd', HOSTING_TEST_SUPABASE='1', HOSTING_TEST_S3='1',
                 HOSTING_TEST_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres',
                 SUPABASE_URL='http://127.0.0.1:54321', SUPABASE_KEY='owned-service',
@@ -40,7 +40,7 @@ def test_container_configuration_drops_unrelated_secrets_and_proxy_settings():
 
 @pytest.mark.parametrize('key,value', [
     ('HOSTING_TEST_STACK', 'production'), ('HOSTING_TEST_SUPABASE', '0'), ('HOSTING_TEST_S3', '0'),
-    ('SKIP_AUTH', 'true'), ('APP_ENV', 'production'), ('SUPABASE_KEY', ''),
+    ('SKIP_AUTH', 'true'), ('APP_ENV', 'production'), ('SUPABASE_KEY', ''), ('JWT_SECRET', ''),
     ('S3_SECRET_ACCESS_KEY', ''), ('HOSTING_TEST_ANON_KEY', ''), ('S3_BUCKET_NAME', 'production'),
     ('SUPABASE_URL', 'https://hosted.example'), ('S3_ENDPOINT_URL', 'https://external.example'),
     ('HOSTING_TEST_DB_URL', 'postgresql://user@production/db'), ('S3_REGION', 'local\nBAD=value'),
@@ -58,6 +58,13 @@ def test_source_dotenv_never_enters_docker(tmp_path, path):
     secret.write_text('not-a-test-secret')
     with pytest.raises(ValueError, match='dotenv'):
         docker.check_source(tmp_path)
+
+
+def test_actual_application_layer_cannot_be_omitted_when_requested():
+    result = dict(application=True, pytest_exit=0, target=True, layers={'hosting_s3': {'passed': 1}})
+    assert runner.result_exit_code(result) == 1
+    result['layers']['hosting_application'] = {'passed': 1}
+    assert runner.result_exit_code(result) == 0
 
 
 def test_remote_docker_daemon_is_not_accepted():

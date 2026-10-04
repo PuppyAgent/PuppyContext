@@ -97,6 +97,8 @@ def result_exit_code(result):
     layers = result.get("layers", {})
     if result.get("s3") and not layers.get("hosting_s3", {}).get("passed", 0):
         return max(1, code)
+    if result.get("application") and not layers.get("hosting_application", {}).get("passed", 0):
+        return max(1, code)
     if not layers or any(counts.get("failed", 0) for counts in layers.values()):
         return max(1, code)
     if result.get("target") and any(
@@ -311,6 +313,7 @@ def main():
     result = {
         "live": args.live,
         "execution_environment": "docker" if args.docker else "host",
+        "application": args.docker,
         "native_pg": args.native_pg,
         "s3": args.s3,
         "object_environment": "owned_supabase_s3" if args.s3 else "not_started",
@@ -428,6 +431,11 @@ def main():
                         SUPABASE_KEY=status["SERVICE_ROLE_KEY"],
                         SUPABASE_SERVICE_ROLE_KEY=status["SERVICE_ROLE_KEY"],
                     )
+                    if args.docker:
+                        if not status.get("JWT_SECRET"):
+                            raise RuntimeError("owned Supabase application JWT configuration missing")
+                        env["JWT_SECRET"] = status["JWT_SECRET"]
+                        command.append("--hosting-application")
                     if args.s3:
                         endpoint = status.get("STORAGE_S3_URL") or status.get("S3_PROTOCOL_URL")
                         required = ("S3_PROTOCOL_ACCESS_KEY_ID", "S3_PROTOCOL_ACCESS_KEY_SECRET", "S3_PROTOCOL_REGION")

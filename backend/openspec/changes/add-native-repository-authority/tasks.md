@@ -26,8 +26,18 @@
   dotenv/cloud credentials, remote daemons and missing container evidence.
   Preserve the declared S3 origin for SigV4. Initial selection: 69 passed plus
   329 pgTAP; no full-target, main-service/worker or multi-instance completion claim.
-- [ ] Complete frozen-revision full Docker target and actual application/worker
-  startup, environment, authenticated entrypoint and restart acceptance.
+- [x] Run a frozen-source Linux full target: 964 passed / 43 failed, plus 329
+  pgTAP. Reproduce the nine additional failures as tmpfs noexec (eight rejection
+  hooks) and stock Git 2.39 empty SHA-256 clone identity (also fails stock bare).
+  Enable executable test tmpfs with startup probe and pin verified Git 2.50.1;
+  preserve every assertion and keep old-client/version boundaries explicit.
+- [x] Add real src.main + owned Redis startup and authenticated legacy-profile
+  Git/API read/write, stale-base rejection, foreign-user denial, cold process
+  restart and credential revocation. Correct writable log/cache configuration.
+  Selected Linux Docker regression: 13 passed plus 329 pgTAP; no auth doubles.
+- [ ] Complete the updated frozen full Docker target, native canonical application
+  admission and worker/resource/crash-recovery acceptance. Optional external AI,
+  Billing, ETL and Scheduler are disabled in this core application test profile.
 - [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
