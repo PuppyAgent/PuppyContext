@@ -1,0 +1,140 @@
+
+> context-base-ui@0.0.3 test:readability-gates
+> node --test scripts/readability/tests/*.test.mjs
+
+TAP version 13
+# Subtest: frontend/lib/a.ts cannot import @/components/b (including type-only imports)
+ok 1 - frontend/lib/a.ts cannot import @/components/b (including type-only imports)
+  ---
+  duration_ms: 674.23725
+  type: 'test'
+  ...
+# Subtest: frontend/lib/a.ts cannot import @/contexts/b (including type-only imports)
+ok 2 - frontend/lib/a.ts cannot import @/contexts/b (including type-only imports)
+  ---
+  duration_ms: 512.886042
+  type: 'test'
+  ...
+# Subtest: frontend/lib/a.ts cannot import @/features/b (including type-only imports)
+ok 3 - frontend/lib/a.ts cannot import @/features/b (including type-only imports)
+  ---
+  duration_ms: 534.054458
+  type: 'test'
+  ...
+# Subtest: frontend/lib/a.ts cannot import @/app/b (including type-only imports)
+ok 4 - frontend/lib/a.ts cannot import @/app/b (including type-only imports)
+  ---
+  duration_ms: 507.096
+  type: 'test'
+  ...
+# Subtest: frontend/components/a.ts cannot import @/features/b (including type-only imports)
+ok 5 - frontend/components/a.ts cannot import @/features/b (including type-only imports)
+  ---
+  duration_ms: 517.531208
+  type: 'test'
+  ...
+# Subtest: frontend/features/a.ts cannot import @/app/b (including type-only imports)
+ok 6 - frontend/features/a.ts cannot import @/app/b (including type-only imports)
+  ---
+  duration_ms: 523.924875
+  type: 'test'
+  ...
+# Subtest: frontend/shared-ui/src/a.ts cannot import @/app/b (including type-only imports)
+ok 7 - frontend/shared-ui/src/a.ts cannot import @/app/b (including type-only imports)
+  ---
+  duration_ms: 528.722042
+  type: 'test'
+  ...
+# Subtest: frontend/packages/example/a.ts cannot import @/lib/b (including type-only imports)
+ok 8 - frontend/packages/example/a.ts cannot import @/lib/b (including type-only imports)
+  ---
+  duration_ms: 517.271292
+  type: 'test'
+  ...
+# Subtest: packages/example/src/a.ts cannot import @/features/b (including type-only imports)
+ok 9 - packages/example/src/a.ts cannot import @/features/b (including type-only imports)
+  ---
+  duration_ms: 559.5895
+  type: 'test'
+  ...
+# Subtest: packages/example/src/a.ts cannot import @/middleware (including type-only imports)
+ok 10 - packages/example/src/a.ts cannot import @/middleware (including type-only imports)
+  ---
+  duration_ms: 559.825625
+  type: 'test'
+  ...
+# Subtest: relative dynamic imports cannot bypass the package boundary
+ok 11 - relative dynamic imports cannot bypass the package boundary
+  ---
+  duration_ms: 564.791458
+  type: 'test'
+  ...
+# Subtest: allowed directions resolve app aliases and root package aliases
+ok 12 - allowed directions resolve app aliases and root package aliases
+  ---
+  duration_ms: 557.7225
+  type: 'test'
+  ...
+# Subtest: unresolved local aliases fail instead of hiding dependency edges
+ok 13 - unresolved local aliases fail instead of hiding dependency edges
+  ---
+  duration_ms: 525.1655
+  type: 'test'
+  ...
+# Subtest: known cycle passes; a new cycle fails; removed cycles require pruning
+ok 14 - known cycle passes; a new cycle fails; removed cycles require pruning
+  ---
+  duration_ms: 3046.135042
+  type: 'test'
+  ...
+# Subtest: all six rules reject new violations in frontend/lib/mutation.ts
+ok 15 - all six rules reject new violations in frontend/lib/mutation.ts
+  ---
+  duration_ms: 1311.77925
+  type: 'test'
+  ...
+# Subtest: all six rules reject new violations in packages/example/src/mutation.ts
+ok 16 - all six rules reject new violations in packages/example/src/mutation.ts
+  ---
+  duration_ms: 781.1165
+  type: 'test'
+  ...
+# Subtest: native suppression allows the recorded count, rejects growth and requires pruning
+ok 17 - native suppression allows the recorded count, rejects growth and requires pruning
+  ---
+  duration_ms: 3656.328042
+  type: 'test'
+  ...
+# Subtest: existing React hook and Next rules remain enabled
+ok 18 - existing React hook and Next rules remain enabled
+  ---
+  duration_ms: 762.386375
+  type: 'test'
+  ...
+# Subtest: suppression ratchet rejects count increases and equal-total entry swaps
+ok 19 - suppression ratchet rejects count increases and equal-total entry swaps
+  ---
+  duration_ms: 1.094917
+  type: 'test'
+  ...
+# Subtest: dependency ratchet rejects new edges, duplicate entries and changed cycles
+ok 20 - dependency ratchet rejects new edges, duplicate entries and changed cycles
+  ---
+  duration_ms: 0.482333
+  type: 'test'
+  ...
+# Subtest: CI command compares against Git base, including decreased counts
+ok 21 - CI command compares against Git base, including decreased counts
+  ---
+  duration_ms: 443.160458
+  type: 'test'
+  ...
+1..21
+# tests 21
+# suites 0
+# pass 21
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10180.8295

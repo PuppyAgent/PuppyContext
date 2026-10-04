@@ -1,0 +1,1042 @@
+[
+  {
+    "type": "dependency",
+    "from": "frontend/components/agent/views/SyncDetailView.tsx",
+    "to": "frontend/features/files/components/PanelShell.tsx",
+    "unresolvedTo": "@/features/files/components/PanelShell",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/AppSidebar.tsx",
+    "to": "frontend/features/history/components/items/index.ts",
+    "unresolvedTo": "@/features/history/components/items",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/editors/markdown/MarkdownEditor.tsx",
+    "to": "frontend/features/files/editor/preserveMarkdownScroll.ts",
+    "unresolvedTo": "@/features/files/editor/preserveMarkdownScroll",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/editors/table/components/ImportModal.tsx",
+    "to": "frontend/features/workspace/navigation/index.ts",
+    "unresolvedTo": "@/features/workspace/navigation",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectAuxiliaryActions.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectAuxiliaryActions.tsx",
+    "to": "frontend/features/workspace/session.tsx",
+    "unresolvedTo": "@/features/workspace/session",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectChatSidebar.tsx",
+    "to": "frontend/features/workspace/activeFile.tsx",
+    "unresolvedTo": "@/features/workspace/activeFile",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectChatSidebar.tsx",
+    "to": "frontend/features/workspace/session.tsx",
+    "unresolvedTo": "@/features/workspace/session",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectHeaderBreadcrumbs.tsx",
+    "to": "frontend/features/workspace/navigation/index.ts",
+    "unresolvedTo": "@/features/workspace/navigation",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectSettingsDialog.tsx",
+    "to": "frontend/features/workspace/navigation/index.ts",
+    "unresolvedTo": "@/features/workspace/navigation",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/project/ProjectWorkspaceShell.tsx",
+    "to": "frontend/features/workspace/regions.tsx",
+    "unresolvedTo": "@/features/workspace/regions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/ProjectsHeader.tsx",
+    "to": "frontend/features/workspace/navigation/index.ts",
+    "unresolvedTo": "@/features/workspace/navigation",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/ProjectsHeader.tsx",
+    "to": "frontend/features/workspace/regions.tsx",
+    "unresolvedTo": "@/features/workspace/regions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/ProjectsHeader.tsx",
+    "to": "frontend/features/workspace/session.tsx",
+    "unresolvedTo": "@/features/workspace/session",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/RightAuxiliaryPanel/ResizablePanel.tsx",
+    "to": "frontend/features/workspace/usePaneMotion.ts",
+    "unresolvedTo": "@/features/workspace/usePaneMotion",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/FileNavigationRegion.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ProjectNavigationRegion.tsx",
+    "to": "frontend/features/workspace/layoutStore.tsx",
+    "unresolvedTo": "@/features/workspace/layoutStore",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ProjectNavigationRegion.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ResponsiveDrawer.tsx",
+    "to": "frontend/features/workspace/layoutStore.tsx",
+    "unresolvedTo": "@/features/workspace/layoutStore",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ResponsiveDrawer.tsx",
+    "to": "frontend/features/workspace/regions.tsx",
+    "unresolvedTo": "@/features/workspace/regions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ResponsiveDrawer.tsx",
+    "to": "frontend/features/workspace/usePaneMotion.ts",
+    "unresolvedTo": "@/features/workspace/usePaneMotion",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ResponsiveDrawer.tsx",
+    "to": "frontend/features/workspace/useSidebarOverlay.ts",
+    "unresolvedTo": "@/features/workspace/useSidebarOverlay",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/ResponsiveDrawer.tsx",
+    "to": "frontend/features/workspace/useSidebarSwipe.ts",
+    "unresolvedTo": "@/features/workspace/useSidebarSwipe",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceAuxiliaryRegion.tsx",
+    "to": "frontend/features/workspace/layoutStore.tsx",
+    "unresolvedTo": "@/features/workspace/layoutStore",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceAuxiliaryRegion.tsx",
+    "to": "frontend/features/workspace/regions.tsx",
+    "unresolvedTo": "@/features/workspace/regions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceAuxiliaryRegion.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceAuxiliaryRegion.tsx",
+    "to": "frontend/features/workspace/usePaneMotion.ts",
+    "unresolvedTo": "@/features/workspace/usePaneMotion",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceAuxiliaryRegion.tsx",
+    "to": "frontend/features/workspace/useSidebarOverlay.ts",
+    "unresolvedTo": "@/features/workspace/useSidebarOverlay",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceAuxiliaryRegion.tsx",
+    "to": "frontend/features/workspace/useSidebarSwipe.ts",
+    "unresolvedTo": "@/features/workspace/useSidebarSwipe",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceFileColumn.tsx",
+    "to": "frontend/features/workspace/layoutStore.tsx",
+    "unresolvedTo": "@/features/workspace/layoutStore",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceFilesButton.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceInspectorRegion.tsx",
+    "to": "frontend/features/workspace/layoutStore.tsx",
+    "unresolvedTo": "@/features/workspace/layoutStore",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceInspectorRegion.tsx",
+    "to": "frontend/features/workspace/regions.tsx",
+    "unresolvedTo": "@/features/workspace/regions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceInspectorRegion.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceInspectorRegion.tsx",
+    "to": "frontend/features/workspace/usePaneMotion.ts",
+    "unresolvedTo": "@/features/workspace/usePaneMotion",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceInspectorRegion.tsx",
+    "to": "frontend/features/workspace/useSidebarOverlay.ts",
+    "unresolvedTo": "@/features/workspace/useSidebarOverlay",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceNavigationButton.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceProjectRail.tsx",
+    "to": "frontend/features/workspace/navigation/index.ts",
+    "unresolvedTo": "@/features/workspace/navigation",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/sidebar/WorkspaceProjectRail.tsx",
+    "to": "frontend/features/workspace/responsive.tsx",
+    "unresolvedTo": "@/features/workspace/responsive",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/components/UserMenuPanel.tsx",
+    "to": "frontend/features/workspace/navigation/index.ts",
+    "unresolvedTo": "@/features/workspace/navigation",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "components-no-features"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/fileIcons.tsx",
+    "to": "frontend/components/ui/CountBadge.tsx",
+    "unresolvedTo": "@/components/ui/CountBadge",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/fileIcons.tsx",
+    "to": "frontend/components/ui/TreeDisclosureMarker.tsx",
+    "unresolvedTo": "@/components/ui/TreeDisclosureMarker",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/hooks/useActivity.ts",
+    "to": "frontend/contexts/SupabaseAuthProvider.tsx",
+    "unresolvedTo": "@/contexts/SupabaseAuthProvider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/hooks/useEntrypointRequestContext.ts",
+    "to": "frontend/contexts/SupabaseAuthProvider.tsx",
+    "unresolvedTo": "@/contexts/SupabaseAuthProvider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/hooks/useManualSave.ts",
+    "to": "frontend/features/files/useManualSave.ts",
+    "unresolvedTo": "@/features/files/useManualSave",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "export"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/hooks/useOnboarding.ts",
+    "to": "frontend/contexts/OnboardingContext.tsx",
+    "unresolvedTo": "@/contexts/OnboardingContext",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "export"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/audio/AudioPreview.tsx",
+    "unresolvedTo": "@/components/editors/audio/AudioPreview",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/binary/BinaryPlaceholder.tsx",
+    "unresolvedTo": "@/components/editors/binary/BinaryPlaceholder",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/code/MonacoCodeViewer.tsx",
+    "unresolvedTo": "@/components/editors/code/MonacoCodeViewer",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/html/HtmlArtifactPreview.tsx",
+    "unresolvedTo": "@/components/editors/html/HtmlArtifactPreview",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/image/ImagePreview.tsx",
+    "unresolvedTo": "@/components/editors/image/ImagePreview",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/markdown/index.ts",
+    "unresolvedTo": "@/components/editors/markdown",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/pdf/PdfPreview.tsx",
+    "unresolvedTo": "@/components/editors/pdf/PdfPreview",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/spreadsheet/CsvTableViewer.tsx",
+    "unresolvedTo": "@/components/editors/spreadsheet/CsvTableViewer",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/text/index.ts",
+    "unresolvedTo": "@/components/editors/text",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/editors/video/VideoPreview.tsx",
+    "unresolvedTo": "@/components/editors/video/VideoPreview",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "dynamic-import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "frontend/lib/viewers/registry.tsx",
+    "to": "frontend/components/loading/index.ts",
+    "unresolvedTo": "@/components/loading",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "lib-no-application"
+    }
+  },
+  {
+    "type": "cycle",
+    "from": "frontend/features/files/editor/EditorSessionProvider.tsx",
+    "to": "frontend/features/files/editor/session.ts",
+    "unresolvedTo": "./session",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "frontend/features/files/editor/session.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "frontend/features/files/useManualSave.ts",
+        "dependencyTypes": [
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "frontend/features/files/editor/EditorSessionProvider.tsx",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "frontend/features/files/editor/session.ts",
+    "to": "frontend/features/files/useManualSave.ts",
+    "unresolvedTo": "../useManualSave",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "frontend/features/files/useManualSave.ts",
+        "dependencyTypes": [
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "frontend/features/files/editor/session.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  }
+]

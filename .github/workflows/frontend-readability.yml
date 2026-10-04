@@ -1,0 +1,54 @@
+name: Frontend Readability
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'packages/**'
+      - 'artifacts/tests/issue-105/**'
+      - '.github/workflows/frontend-readability.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'packages/**'
+      - 'artifacts/tests/issue-105/**'
+      - '.github/workflows/frontend-readability.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-readability-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  readability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Reject baseline enlargement against the actual base commit
+        run: npm run lint:baselines
+        env:
+          READABILITY_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - run: npm run test:readability-gates
+      - run: npm run lint
+      - run: npm run lint:dependencies
+      - run: npm run test:unit
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-for-build-only
+          NEXT_PUBLIC_API_URL: http://localhost:9090

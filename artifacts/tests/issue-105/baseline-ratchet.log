@@ -1,0 +1,6 @@
+
+> context-base-ui@0.0.3 lint:baselines
+> node scripts/readability/check-baselines.mjs 923e3911
+
+frontend/eslint-suppressions.json: 231 entries, 446 violations; no baseline increase.
+frontend/.dependency-cruiser-known-violations.json: 59 entries, 59 violations; no baseline increase.
