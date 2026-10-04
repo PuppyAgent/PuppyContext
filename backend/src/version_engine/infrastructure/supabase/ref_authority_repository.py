@@ -18,6 +18,11 @@ class RefAuthorityRepository:
             raise RuntimeError("invalid repository snapshot response")
         return result
 
+    def read_snapshot(self, project_id: str, actor: str) -> dict | None:
+        # Internal primitive profile. Authenticated adapters select the admitted
+        # subclass, whose metadata reads revalidate the actor in SQL as well.
+        return self.snapshot(project_id)
+
     def result(self, project_id: str, actor: str, request_key: str):
         return self.call("get_version_ref_transaction", p_project_id=project_id,
                          p_actor=actor, p_request_key=request_key)
@@ -67,6 +72,12 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
         super().__init__(client)
         self.lease_provider = lease_provider
 
+    def read_snapshot(self, project_id: str, actor: str) -> dict:
+        result = self.call("get_admitted_version_repository_snapshot", p_project_id=project_id, p_actor=actor)
+        if not isinstance(result, dict):
+            raise RuntimeError("invalid admitted repository snapshot response")
+        return result
+
     def _lease(self, project_id):
         lease = self.lease_provider(project_id)
         if lease is None or not lease.is_active:
@@ -79,9 +90,13 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
 
     def begin(self, project_id: str, actor: str, pin: str, generation: int, roots: dict):
         lease, holder = self._lease(project_id)
-        self.call("check_version_repository_write_admission", p_project_id=project_id,
-                  p_actor=actor, p_lease_id=lease, p_holder_id=holder)
-        return super().begin(project_id, actor, pin, generation, roots)
+        return self.call("begin_admitted_version_object_publication", p_project_id=project_id,
+                         p_actor=actor, p_pin_id=pin, p_generation=generation, p_roots=roots,
+                         p_lease_id=lease, p_holder_id=holder)
+
+    def begin_read(self, project_id: str, actor: str, pin: str):
+        return self.call("begin_admitted_version_repository_read", p_project_id=project_id,
+                         p_actor=actor, p_pin_id=pin)
 
     def apply(self, project_id: str, actor: str, request_key: str, generation: int,
               updates: list[dict], receipt: str | None, message: str):
@@ -98,3 +113,11 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
                          p_actor=actor, p_request_key=request_key, p_generation=generation,
                          p_updates=updates, p_receipt_id=receipt, p_message=message,
                          p_lease_id=lease, p_holder_id=holder, p_usage=usage)
+
+    def apply_policy(self, project_id: str, actor: str, request_key: str, generation: int,
+                     updates: list[dict], receipt: str | None, message: str, *, usage=None, policy=None):
+        lease, holder = self._lease(project_id)
+        return self.call("apply_policy_version_ref_transaction", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key, p_generation=generation,
+                         p_updates=updates, p_receipt_id=receipt, p_message=message,
+                         p_lease_id=lease, p_holder_id=holder, p_usage=usage, p_policy=policy)

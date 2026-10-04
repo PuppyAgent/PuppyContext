@@ -510,3 +510,33 @@ storage-invocation quiescence authority.
 The application storage-reconciliation scheduler selects the checked service;
 RPC or measurement failures never fall back to the old root-only path. This is
 internal service authority, not an end-user authorization shortcut.
+
+### Checked file policy and continued admission (partial; no activation)
+
+An empty forward Expand explicitly enrolls file policy only alongside retained
+capacity and logical billing. The checked publisher binds the current
+`upload.max_single_file_bytes` projection/revision, incoming physical manifest
+and actual before/after selected HEAD to the same ref/usage transaction. Private
+transaction-bound authorization fences old publishers. New oversized blob
+allocations fail before PUT, including blobs reachable only through named refs
+or history. Previously published large blobs can remain in retained history or
+be tagged after a plan downgrade; allocations and rejected receipts alone do
+not confer grandfathered publication rights. Current-tree moves preserve per-OID
+path counts, whereas additional oversized copies are rejected. Typed DAG
+counting does not expand paths or count external gitlinks.
+
+Publication pins capture the checked actor and Project lease atomically.
+Every new storage invocation, including deduplicated uploads, rechecks current
+actor, lease and entitlement after waits. An uploading pin cannot borrow a
+retry's new lease. A verified pin can recover with a current lease, but remains
+sealed against further PUTs; billing re-verifies that pin's incoming roots,
+never inserts unpublished roots into a read snapshot. Exact committed-result
+replay still needs only current read permission and the original digest.
+
+Admitted read pins and metadata-only advertisement/`ls-refs` recheck current
+credentials after repository lock waits. Metadata discovery still does no
+object I/O and does not create read pins. Backend reconciliation uses the
+scheduler's distinct backend-only control, not a fabricated user credential or
+an exception to the end-user reader's checks. These capabilities do not select
+native authority in the canonical router or finish Scope, consumer, recovery,
+retirement and migration gates.

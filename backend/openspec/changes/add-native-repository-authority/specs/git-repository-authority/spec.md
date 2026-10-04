@@ -161,6 +161,31 @@ Native canonical publication SHALL preserve the existing `storage.logical_bytes`
 - **AND** a lost acknowledgement replays the original result without rereading storage or changing the counter again
 - **AND** cancellation and bounded cleanup discard only transient measurement metadata, never acknowledged results or unsettled storage I/O claims
 
+### Requirement: Checked file and continued I/O admission
+Native canonical publication SHALL enforce the current acknowledged single-file limit without changing the existing logical move/copy policy. Missing initialized policy or checked publication capability SHALL fail closed. Stored grants, publication pins and captured contexts SHALL NOT extend a revoked or expired actor's authority.
+
+#### Scenario: New oversized object in any published graph
+- **WHEN** a new oversized blob is introduced through a branch, tag, custom ref or commit history
+- **THEN** its allocation is rejected before physical PUT and existing refs, usage and acknowledged objects remain unchanged
+- **AND** an already allocated but unpublished/rejected blob is not grandfathered by that allocation or receipt
+
+#### Scenario: Downgrade, rename and additional copy
+- **WHEN** a previously published oversized blob remains in history or receives a new named reference after a plan downgrade
+- **THEN** its prior publication can prove grandfathered content without another logical current-tree charge
+- **WHEN** a current-tree operation moves that content
+- **THEN** preserved path multiplicity remains legal, but additional oversized occurrences are rejected atomically
+
+#### Scenario: Expiry and invocation isolation
+- **WHEN** an actor, lease or entitlement expires while storage admission waits
+- **THEN** no new capacity claim, allocation or physical write is authorized
+- **AND** an uploading pin cannot borrow another retry's lease, while verified completion can be replayed without new PUTs
+- **AND** settling a specifically known-completed invocation after revocation does not grant new write authority
+
+#### Scenario: Metadata discovery after credential expiry
+- **WHEN** an advertisement or protocol-v2 ref discovery waits past current credential expiry
+- **THEN** it rejects rather than using a stale grant
+- **AND** accepted metadata discovery remains object-I/O-free
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

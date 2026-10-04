@@ -245,6 +245,19 @@
   read-only grant to replay while rejecting new writes and changed requests.
   Selected actual-service regression: 54 passed plus 329 pgTAP; no skips/XFAIL.
   This is not a full clean-revision target receipt or canonical authentication.
+- [x] Add optional checked file admission alongside capacity/billing: new blob
+  limits before PUT, prior-published grandfathering, current-tree move/copy
+  multiplicity, private publisher fences and atomic rollback. Capture actor/lease
+  on pins; revalidate every new I/O claim and prohibit uploading-pin lease
+  borrowing. Checked readers/metadata discovery recheck current credentials.
+  Preserve current-reader result replay and backend-only reconciliation authority.
+  No canonical routing or native activation is implied. Selected pre-metadata
+  integration: 98 passed +329 pgTAP; metadata guard final strict native-PG:
+  47 passed; current component/storage-billing: 365 passed.
+  Retain the sealed-retry regression (unpublished incoming roots were incorrectly
+  sent through a read snapshot) and its repair: fresh verification under the
+  publication pin, never wider reader authority. Subsequent broad regression and
+  clean frozen acceptance remain separate receipts.
 - [x] Connect technical capacity to native publication/collection: explicit
   Org/Project inventory, atomic unique-object reservations/ledger, pre-PUT
   admission, verified-closure sealing, old-issuer fences and non-expiring

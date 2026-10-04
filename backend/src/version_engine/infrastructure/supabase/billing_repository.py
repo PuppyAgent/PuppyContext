@@ -2,6 +2,31 @@
 from __future__ import annotations
 
 from src.platform.billing.storage import logical_verified_tree_bytes
+from src.version_engine.storage.publication import ClosureVerifier
+from src.version_engine.write_engine.git_object_graph import object_edges
+
+
+def verified_current_tree(service, snapshot, oid, manifest=None):
+    """Reuse incoming proof, otherwise read only the pinned current tree."""
+    if oid is None:
+        return None, None
+    if manifest is not None and oid in manifest.objects:
+        commit = manifest.objects[oid]
+        trees = [child for child, kind in commit.edges if kind == 'tree']
+        if commit.kind != 'commit' or len(trees) != 1:
+            raise ValueError('logical billing requires a verified commit tree')
+        return manifest, trees[0]
+    kind, body = snapshot.object(oid)
+    if kind != 'commit':
+        raise ValueError('logical billing requires a verified commit tree')
+    tree = next(child for child, child_kind in object_edges(kind, body, object_format=service.object_format)
+                if child_kind == 'tree')
+    if tree == snapshot.empty_tree:
+        return None, None
+    verifier = ClosureVerifier(service.backend, object_format=service.object_format,
+                               max_objects=service.verifier.max_objects-len(snapshot._verified_sizes),
+                               max_bytes=snapshot._remaining_bytes)
+    return verifier.verify({tree: 'tree'}, progress=snapshot.check_live), tree
 
 
 class RepositoryBilling:
@@ -49,16 +74,8 @@ class RepositoryBilling:
                 return value  # Named refs/identical default OID: no object I/O.
 
             def measure(oid):
-                if oid is None:
-                    return 0  # Explicit unborn/deleted selected ref, not missing data.
-                proof = manifest
-                if proof is None or oid not in proof.objects:
-                    proof = service.verifier.verify({oid: 'commit'}, progress=snapshot.check_live)
-                commit = proof.objects[oid]
-                trees = [child for child, kind in commit.edges if kind == 'tree']
-                if commit.kind != 'commit' or len(trees) != 1:
-                    raise ValueError('logical billing requires a verified commit tree')
-                return logical_verified_tree_bytes(proof, trees[0])
+                proof, tree = verified_current_tree(service, snapshot, oid, manifest)
+                return logical_verified_tree_bytes(proof, tree) if tree is not None else 0
 
             value.update(old_bytes=measure(before), new_bytes=measure(after))
             return value

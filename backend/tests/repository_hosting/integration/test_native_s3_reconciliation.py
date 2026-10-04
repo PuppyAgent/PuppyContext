@@ -7,9 +7,7 @@ import pytest
 
 from src.platform.project.write_lease import ProjectWriteLease, ProjectWriteLeaseRepository
 from src.version_engine.infrastructure.supabase.billing_repository import RepositoryBilling
-from src.version_engine.infrastructure.supabase.usage_reconciliation import (
-    RepositoryUsageReconciler,
-)
+from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
 from src.version_engine.storage.backends.s3 import S3StorageBackend
 from src.version_engine.write_engine.git_object_format import encode_object
 from src.version_engine.write_engine.ref_transaction import RefEdit, RefState, RefTransactionService
@@ -58,9 +56,11 @@ async def test_native_s3_reconciliation_cold_measurement_and_lost_ack(publicatio
     await asyncio.to_thread(legacy.put, tree, loose)
     pg.sql(f"UPDATE public.projects SET version_root_hash={literal(tree)} WHERE id={literal(sibling)};"
            f"UPDATE public.organization_usage_counters SET value=99 WHERE org_id={literal(org)}")
-    reconciler = RepositoryUsageReconciler(service.control, lambda project: S3StorageBackend(s3, project, supabase=db))
+    # Exercise the same backend-only factory selected by the scheduler. A job
+    # actor must NOT bypass the admitted end-user reader's credential checks.
+    reconciler = VersionRepoManager(s3, db).create_usage_reconciler()
     request = str(uuid.uuid4())
-    real_call = service.control.call
+    real_call = reconciler.control.call
 
     def lose_ack(function, **parameters):
         result = real_call(function, **parameters)
@@ -68,11 +68,11 @@ async def test_native_s3_reconciliation_cold_measurement_and_lost_ack(publicatio
             raise TimeoutError('known completed reconciliation ACK lost')
         return result
 
-    monkeypatch.setattr(service.control, 'call', lose_ack)
+    monkeypatch.setattr(reconciler.control, 'call', lose_ack)
     with pytest.raises(TimeoutError, match='ACK lost'):
         await asyncio.to_thread(reconciler.reconcile, org, request_key=request)
     assert value(fixture) == 277
-    monkeypatch.setattr(service.control, 'call', real_call)
+    monkeypatch.setattr(reconciler.control, 'call', real_call)
     monkeypatch.setattr(reconciler, 'measure', lambda *args: pytest.fail('replay remeasured objects'))
     pg.sql(f"UPDATE public.organization_entitlements SET effective_until=clock_timestamp() WHERE org_id={literal(org)}")
     replay = await asyncio.to_thread(reconciler.reconcile, org, request_key=request)

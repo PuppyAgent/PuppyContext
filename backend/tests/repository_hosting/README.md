@@ -160,6 +160,22 @@ native 冷测量、lost ACK、202-Project 分页和 populated migration rollback
 psql boolean JSON 解码夹具错误，以及选中过 Auth 的 native-PG run 的 16 skips；
 修正后 strict native-PG 10 passed，再运行上述 82-case 实服 selection 全绿。
 
+后续 file admission 使用新的空 Expand 和 optional checked publisher：新 blob
+单文件限制在 PUT 前拒绝，已发布历史可 grandfather，但 rejected receipt / allocation
+不构成发布证明；当前树 rename 保留 multiplicity，额外超限 copy 拒绝。每次 I/O
+claim 检查当前 actor/lease/entitlement；uploading pin 不能借用另一重试的新 lease。
+Admitted metadata advertisement / `ls-refs` 在 SQL 等待后重新检查 credential，仍为
+零 object I/O。无 canonical routing/activation，Scope/consumer/recovery/migration 未关闭。
+
+File-policy 首轮实服 94 passed / 4 failed：两条零 delta event 计数夹具断言错误，
+以及两种格式真实的 sealed-retry 回归（未发布 root 错送入 read snapshot）。修复通过
+原 publication pin 重新验证 incoming graph，不扩大 reader authority；后续实服
+**98 passed + 329 pgTAP**。再后 broad run **267 passed / 2 failed + 329 pgTAP**
+暴露对账测试错误复用 admitted user control；改为 application scheduler 同一个
+backend-only factory，未给 user reader 增加特权。该 broad run 期间有源码修改，
+不是 frozen acceptance。metadata guard 最终 strict native-PG **47 passed**，组件
+及 storage billing **365 passed**。清洁冻结全量结果另记，不把以上 selection 合并计数。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。
