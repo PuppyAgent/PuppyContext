@@ -4,13 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/SupabaseAuthProvider';
 import { canonicalProjectGitUrl } from '@/lib/gitRemote';
 import { uploadFiles as uploadFilesApi } from '@/lib/uploadApi';
-import {
-  addPendingTasks,
-  updateTaskStatusById,
-  updateTaskProgress,
-  replaceTaskId,
-} from '@/components/BackgroundTaskNotifier';
-import { refreshAllContentNodes } from '@/lib/hooks/useData';
+import { useTaskActions } from '@/features/tasks/TaskProvider';
+import { useOrganization } from '@/contexts/OrganizationContext';
 import {
   resolveDataTransferSnapshot,
   snapshotDataTransfer,
@@ -77,6 +72,8 @@ export function GetStartedPanel({
   onChanged,
 }: GetStartedPanelProps) {
   const { session } = useAuth();
+  const { currentOrg } = useOrganization();
+  const { addPendingTasks, replaceTaskId, updateTaskProgress, updateTaskStatusById } = useTaskActions(projectId, currentOrg?.id);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingImportFiles, setPendingImportFiles] = useState<File[]>([]);
@@ -145,7 +142,6 @@ export function GetStartedPanel({
           },
         );
 
-        refreshAllContentNodes(projectId);
         onChanged?.();
       } catch (err) {
         // /upload/init failed — flip placeholders to failed so the
@@ -159,7 +155,7 @@ export function GetStartedPanel({
         setUploading(false);
       }
     },
-    [projectId, session?.access_token, onChanged],
+    [projectId, session?.access_token, onChanged, addPendingTasks, replaceTaskId, updateTaskProgress, updateTaskStatusById],
   );
 
   const handleCandidateFiles = useCallback(

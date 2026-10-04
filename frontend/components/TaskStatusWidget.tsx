@@ -1,19 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   isTerminalStatus,
   getStatusDisplayText,
   cancelETLTask,
   ETLTaskStatus,
 } from '../lib/etlApi';
-import {
-  getAllPendingTasks,
-  clearAllTasks,
-  removeTaskById,
-  PendingTask,
-  TaskType,
-} from './BackgroundTaskNotifier';
+import { usePendingTasks, useTaskActions, useTaskProgress } from '@/features/tasks/TaskProvider';
+import type { PendingTask, TaskType } from '@/features/tasks/model';
 import {
   ACTIVITY_BG,
   ACTIVITY_BORDER,
@@ -54,76 +49,30 @@ interface TaskStatusWidgetProps {
  * 简洁交互：
  * - 收起：小圆圈，点击展开
  * - 展开：任务列表 + 收起按钮 + 清空按钮
- * - 不自己轮询，只监听 BackgroundTaskNotifier 的事件
+ * - 不自己轮询，通过 SWR 订阅后台任务
  */
 export function TaskStatusWidget({ inline = false }: TaskStatusWidgetProps) {
-  const [tasks, setTasks] = useState<TaskWithStatus[]>([]);
+  const pendingTasks = usePendingTasks();
+  const progress = useTaskProgress();
+  const { clearAllTasks, removeTaskById } = useTaskActions();
   const [isExpanded, setIsExpanded] = useState(false);
+  const tasks: TaskWithStatus[] = useMemo(() => [...pendingTasks]
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .map(task => ({
+      ...task,
+      displayStatus: task.status || 'pending',
+      displayProgress: progress[JSON.stringify([task.projectId, task.taskId])] ?? task.progress,
+    })), [pendingTasks, progress]);
 
-  // 从 sessionStorage 加载任务
-  const loadTasks = useCallback(() => {
-    const allTasks = getAllPendingTasks();
-    // Newest first: matches the chat-app / activity-feed convention
-    // where the most recent action sits at the top of the list and
-    // pushes older items down. Without this, dropping 5 PDFs in a row
-    // shows them in upload-start order, which makes spotting the new
-    // task you just added require scrolling past finished ones.
-    const sorted = [...allTasks].sort((a, b) => b.timestamp - a.timestamp);
-    const tasksWithStatus: TaskWithStatus[] = sorted.map(t => ({
-      ...t,
-      displayStatus: t.status || 'pending',
-      displayProgress: t.progress,
-    }));
-    setTasks(tasksWithStatus);
-
-    // 有新任务时自动展开
-    if (
-      tasksWithStatus.length > 0 &&
-      tasksWithStatus.some(t => !isTaskTerminal(t.displayStatus))
-    ) {
-      setIsExpanded(true);
-    }
-  }, []);
-
-  // 监听任务更新事件
+  // Only list/status changes expand the widget; progress preserves a collapse.
   useEffect(() => {
-    loadTasks();
+    if (pendingTasks.some(task => !isTaskTerminal(task.status || 'pending'))) setIsExpanded(true);
+  }, [pendingTasks]);
 
-    const handleUpdate = () => loadTasks();
-    // Lightweight progress-only updates skip the full reload to
-    // avoid a re-render storm during a multipart upload (parts can
-    // fire ``progress`` dozens of times per second). Patch only
-    // the affected row's ``displayProgress`` in-place.
-    const handleProgress = (e: Event) => {
-      const detail = (e as CustomEvent<{ taskId: string; progress: number }>)
-        .detail;
-      if (!detail) return;
-      setTasks(prev =>
-        prev.map(t =>
-          t.taskId === detail.taskId
-            ? { ...t, displayProgress: detail.progress }
-            : t,
-        ),
-      );
-    };
-
-    window.addEventListener('etl-tasks-updated', handleUpdate);
-    window.addEventListener('etl-task-progress', handleProgress);
-    window.addEventListener('storage', handleUpdate);
-
-    return () => {
-      window.removeEventListener('etl-tasks-updated', handleUpdate);
-      window.removeEventListener('etl-task-progress', handleProgress);
-      window.removeEventListener('storage', handleUpdate);
-    };
-  }, [loadTasks]);
-
-  // 清空所有任务
   const handleClear = useCallback(() => {
     clearAllTasks();
-    setTasks([]);
     setIsExpanded(false);
-  }, []);
+  }, [clearAllTasks]);
 
   // Per-task removal. For processing FILE tasks we ALSO call the
   // backend cancel endpoint (the worker honors it via the `cancelled`
@@ -143,8 +92,8 @@ export function TaskStatusWidget({ inline = false }: TaskStatusWidgetProps) {
         console.warn('[TaskStatusWidget] cancel failed:', e);
       }
     }
-    removeTaskById(task.taskId);
-  }, []);
+    removeTaskById(task.projectId, task.taskId);
+  }, [removeTaskById]);
 
   const processingCount = tasks.filter(
     t => !isTaskTerminal(t.displayStatus)
