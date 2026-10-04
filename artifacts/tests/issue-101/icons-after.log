@@ -1,0 +1,10 @@
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-readability-101/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  08:29:13
+   Duration  802ms (transform 177ms, setup 88ms, import 277ms, tests 10ms, environment 327ms)
+

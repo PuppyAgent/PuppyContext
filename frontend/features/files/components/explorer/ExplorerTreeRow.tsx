@@ -259,6 +259,249 @@ function getSidebarFileKind(name: string, type: string): SidebarFileKind {
   return 'file';
 }
 
+const FILE_KIND_GLYPHS: Record<SidebarFileKind, ReactNode> = {
+  audio: (
+    <>
+      <path
+        d='M2.6 10.9V7.1h2.25L8.7 4.35v9.3L4.85 10.9H2.6Z'
+        fill={SETI_FILE_COLORS.audio}
+      />
+      <path
+        d='M10.8 6.55c1.05 1.1 1.05 2.8 0 3.9'
+        stroke={SETI_FILE_COLORS.audio}
+        strokeWidth='1.45'
+        strokeLinecap='butt'
+      />
+      <path
+        d='M12.95 5.05c1.8 1.95 1.8 5.9 0 7.9'
+        stroke={SETI_FILE_COLORS.audio}
+        strokeWidth='1.25'
+        strokeLinecap='butt'
+        opacity='0.78'
+      />
+    </>
+  ),
+  image: (
+    <>
+      <rect
+        x='2.75'
+        y='3.75'
+        width='12.5'
+        height='10.5'
+        rx='1.25'
+        stroke={SETI_FILE_COLORS.image}
+        strokeWidth='1.45'
+      />
+      <path
+        d='M3.8 12.5 6.35 9.65l2.05 2.1 2.35-3.05 3.35 3.8'
+        stroke={SETI_FILE_COLORS.image}
+        strokeWidth='1.45'
+        strokeLinecap='butt'
+        strokeLinejoin='miter'
+      />
+      <rect x='10.85' y='5.6' width='2' height='2' rx='0.35' fill={SETI_FILE_COLORS.image} />
+    </>
+  ),
+  video: (
+    <>
+      <rect
+        x='2.9'
+        y='5.1'
+        width='12.2'
+        height='7.8'
+        rx='1.15'
+        stroke={SETI_FILE_COLORS.video}
+        strokeWidth='1.45'
+      />
+      <path d='M7.9 7.2v3.6L11.3 9 7.9 7.2Z' fill={SETI_FILE_COLORS.video} />
+    </>
+  ),
+  spreadsheet: (
+    <>
+      <rect
+        x='3.1'
+        y='3.1'
+        width='11.8'
+        height='11.8'
+        rx='1.15'
+        stroke={SETI_FILE_COLORS.spreadsheet}
+        strokeWidth='1.35'
+      />
+      <path
+        d='M3.35 7.05h11.3M3.35 10.95h11.3M7.05 3.35v11.3M10.95 3.35v11.3'
+        stroke={SETI_FILE_COLORS.spreadsheet}
+        strokeWidth='1.05'
+        opacity='0.82'
+      />
+    </>
+  ),
+  json: (
+    <text
+      x='9'
+      y='12.35'
+      textAnchor='middle'
+      fontSize='9.5'
+      fontWeight='800'
+      fontFamily='var(--po-font-sans)'
+      fill={SETI_FILE_COLORS.json}
+    >
+      {'{}'}
+    </text>
+  ),
+  html: (
+    <>
+      <path
+        d='m7.05 5.15-3.5 3.75 3.5 3.75'
+        stroke={SETI_FILE_COLORS.html}
+        strokeWidth='1.65'
+        strokeLinecap='butt'
+        strokeLinejoin='miter'
+      />
+      <path
+        d='m10.95 5.15 3.5 3.75-3.5 3.75'
+        stroke={SETI_FILE_COLORS.html}
+        strokeWidth='1.65'
+        strokeLinecap='butt'
+        strokeLinejoin='miter'
+      />
+      <path
+        d='M9.95 4.95 8.05 12.9'
+        stroke={SETI_FILE_COLORS.html}
+        strokeWidth='1.35'
+        strokeLinecap='butt'
+        opacity='0.86'
+      />
+    </>
+  ),
+  code: (
+    <>
+      <path
+        d='m7.2 5.55-3 3.45 3 3.45'
+        stroke={SETI_FILE_COLORS.code}
+        strokeWidth='1.55'
+        strokeLinecap='butt'
+        strokeLinejoin='miter'
+      />
+      <path
+        d='m10.8 5.55 3 3.45-3 3.45'
+        stroke={SETI_FILE_COLORS.code}
+        strokeWidth='1.55'
+        strokeLinecap='butt'
+        strokeLinejoin='miter'
+      />
+    </>
+  ),
+  pdf: (
+    <>
+      <path
+        d='M5.15 2.75h5.6l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.3c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
+        fill={FILE_ICON_FILL}
+        stroke={SETI_FILE_COLORS.pdf}
+        strokeWidth='1.3'
+        strokeLinejoin='round'
+      />
+      <path
+        d='M10.75 2.95v2.45h2.4'
+        stroke={SETI_FILE_COLORS.pdf}
+        strokeWidth='1.05'
+        strokeLinejoin='round'
+      />
+      <path
+        d='M5.95 10.1h5.85M5.95 12.15h4.1'
+        stroke={SETI_FILE_COLORS.pdf}
+        strokeWidth='1.15'
+        strokeLinecap='round'
+      />
+    </>
+  ),
+  markdown: (
+    <>
+      <path
+        d='M5.15 2.75h5.6l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.3c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
+        fill={FILE_ICON_FILL}
+        stroke={SETI_FILE_COLORS.markdown}
+        strokeWidth='1.3'
+        strokeLinejoin='miter'
+      />
+      <path
+        d='M10.75 2.95v2.45h2.4'
+        stroke={SETI_FILE_COLORS.markdown}
+        strokeWidth='1.05'
+        strokeLinejoin='miter'
+      />
+      <text
+        x='8.8'
+        y='12.3'
+        textAnchor='middle'
+        fontSize='7.6'
+        fontWeight='780'
+        fontFamily='var(--po-font-sans)'
+        fill={SETI_FILE_COLORS.markdown}
+      >
+        M
+      </text>
+    </>
+  ),
+  archive: (
+    <>
+      <path
+        d='M4 6.2 6.1 4.2h5.8L14 6.2v6.6c0 .6-.5 1.1-1.1 1.1H5.1c-.6 0-1.1-.5-1.1-1.1V6.2Z'
+        fill={FILE_ICON_FILL}
+        stroke={SETI_FILE_COLORS.archive}
+        strokeWidth='1.25'
+        strokeLinejoin='round'
+      />
+      <path
+        d='M6.2 7.2h5.6M7.3 9.1h3.4M7.3 11h3.4'
+        stroke={SETI_FILE_COLORS.archive}
+        strokeWidth='1.05'
+        strokeLinecap='round'
+        opacity='0.82'
+      />
+    </>
+  ),
+  text: (
+    <>
+      <path
+        d='M5.1 2.75h5.65l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.35c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
+        fill={FILE_ICON_FILL}
+        stroke={SETI_FILE_COLORS.text}
+        strokeWidth='1.2'
+        strokeLinejoin='round'
+      />
+      <path
+        d='M10.75 2.95v2.45h2.4'
+        stroke={FILE_ICON_SOFT}
+        strokeWidth='1'
+        strokeLinejoin='round'
+      />
+      <path
+        d='M5.85 8.25h5.2M5.85 10.25h5.2M5.85 12.25h3.65'
+        stroke={SETI_FILE_COLORS.text}
+        strokeWidth='1.05'
+        strokeLinecap='round'
+      />
+    </>
+  ),
+  file: (
+    <>
+      <path
+        d='M5.1 2.75h5.65l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.35c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
+        fill={FILE_ICON_FILL}
+        stroke={SETI_FILE_COLORS.file}
+        strokeWidth='1.2'
+        strokeLinejoin='round'
+      />
+      <path
+        d='M10.75 2.95v2.45h2.4'
+        stroke={FILE_ICON_SOFT}
+        strokeWidth='1'
+        strokeLinejoin='round'
+      />
+    </>
+  ),
+};
+
 export function FileTypeIcon({
   kind,
   size = 16,
@@ -266,9 +509,6 @@ export function FileTypeIcon({
   kind: SidebarFileKind;
   size?: number;
 }) {
-  const color = SETI_FILE_COLORS[kind];
-  const muted = FILE_ICON_SOFT;
-
   return (
     <svg
       width={size}
@@ -279,235 +519,7 @@ export function FileTypeIcon({
     >
       <title>{FILE_KIND_TITLES[kind]}</title>
 
-      {kind === 'audio' ? (
-        <>
-          <path
-            d='M2.6 10.9V7.1h2.25L8.7 4.35v9.3L4.85 10.9H2.6Z'
-            fill={color}
-          />
-          <path
-            d='M10.8 6.55c1.05 1.1 1.05 2.8 0 3.9'
-            stroke={color}
-            strokeWidth='1.45'
-            strokeLinecap='butt'
-          />
-          <path
-            d='M12.95 5.05c1.8 1.95 1.8 5.9 0 7.9'
-            stroke={color}
-            strokeWidth='1.25'
-            strokeLinecap='butt'
-            opacity='0.78'
-          />
-        </>
-      ) : kind === 'image' ? (
-        <>
-          <rect
-            x='2.75'
-            y='3.75'
-            width='12.5'
-            height='10.5'
-            rx='1.25'
-            stroke={color}
-            strokeWidth='1.45'
-          />
-          <path
-            d='M3.8 12.5 6.35 9.65l2.05 2.1 2.35-3.05 3.35 3.8'
-            stroke={color}
-            strokeWidth='1.45'
-            strokeLinecap='butt'
-            strokeLinejoin='miter'
-          />
-          <rect x='10.85' y='5.6' width='2' height='2' rx='0.35' fill={color} />
-        </>
-      ) : kind === 'video' ? (
-        <>
-          <rect
-            x='2.9'
-            y='5.1'
-            width='12.2'
-            height='7.8'
-            rx='1.15'
-            stroke={color}
-            strokeWidth='1.45'
-          />
-          <path d='M7.9 7.2v3.6L11.3 9 7.9 7.2Z' fill={color} />
-        </>
-      ) : kind === 'spreadsheet' ? (
-        <>
-          <rect
-            x='3.1'
-            y='3.1'
-            width='11.8'
-            height='11.8'
-            rx='1.15'
-            stroke={color}
-            strokeWidth='1.35'
-          />
-          <path
-            d='M3.35 7.05h11.3M3.35 10.95h11.3M7.05 3.35v11.3M10.95 3.35v11.3'
-            stroke={color}
-            strokeWidth='1.05'
-            opacity='0.82'
-          />
-        </>
-      ) : kind === 'json' ? (
-        <text
-          x='9'
-          y='12.35'
-          textAnchor='middle'
-          fontSize='9.5'
-          fontWeight='800'
-          fontFamily='var(--po-font-sans)'
-          fill={color}
-        >
-          {'{}'}
-        </text>
-      ) : kind === 'html' ? (
-        <>
-          <path
-            d='m7.05 5.15-3.5 3.75 3.5 3.75'
-            stroke={color}
-            strokeWidth='1.65'
-            strokeLinecap='butt'
-            strokeLinejoin='miter'
-          />
-          <path
-            d='m10.95 5.15 3.5 3.75-3.5 3.75'
-            stroke={color}
-            strokeWidth='1.65'
-            strokeLinecap='butt'
-            strokeLinejoin='miter'
-          />
-          <path
-            d='M9.95 4.95 8.05 12.9'
-            stroke={color}
-            strokeWidth='1.35'
-            strokeLinecap='butt'
-            opacity='0.86'
-          />
-        </>
-      ) : kind === 'code' ? (
-        <>
-          <path
-            d='m7.2 5.55-3 3.45 3 3.45'
-            stroke={color}
-            strokeWidth='1.55'
-            strokeLinecap='butt'
-            strokeLinejoin='miter'
-          />
-          <path
-            d='m10.8 5.55 3 3.45-3 3.45'
-            stroke={color}
-            strokeWidth='1.55'
-            strokeLinecap='butt'
-            strokeLinejoin='miter'
-          />
-        </>
-      ) : kind === 'pdf' ? (
-        <>
-          <path
-            d='M5.15 2.75h5.6l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.3c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
-            fill={FILE_ICON_FILL}
-            stroke={color}
-            strokeWidth='1.3'
-            strokeLinejoin='round'
-          />
-          <path
-            d='M10.75 2.95v2.45h2.4'
-            stroke={color}
-            strokeWidth='1.05'
-            strokeLinejoin='round'
-          />
-          <path
-            d='M5.95 10.1h5.85M5.95 12.15h4.1'
-            stroke={color}
-            strokeWidth='1.15'
-            strokeLinecap='round'
-          />
-        </>
-      ) : kind === 'markdown' ? (
-        <>
-          <path
-            d='M5.15 2.75h5.6l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.3c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
-            fill={FILE_ICON_FILL}
-            stroke={color}
-            strokeWidth='1.3'
-            strokeLinejoin='miter'
-          />
-          <path
-            d='M10.75 2.95v2.45h2.4'
-            stroke={color}
-            strokeWidth='1.05'
-            strokeLinejoin='miter'
-          />
-          <text
-            x='8.8'
-            y='12.3'
-            textAnchor='middle'
-            fontSize='7.6'
-            fontWeight='780'
-            fontFamily='var(--po-font-sans)'
-            fill={color}
-          >
-            M
-          </text>
-        </>
-      ) : kind === 'archive' ? (
-        <>
-          <path
-            d='M4 6.2 6.1 4.2h5.8L14 6.2v6.6c0 .6-.5 1.1-1.1 1.1H5.1c-.6 0-1.1-.5-1.1-1.1V6.2Z'
-            fill={FILE_ICON_FILL}
-            stroke={color}
-            strokeWidth='1.25'
-            strokeLinejoin='round'
-          />
-          <path
-            d='M6.2 7.2h5.6M7.3 9.1h3.4M7.3 11h3.4'
-            stroke={color}
-            strokeWidth='1.05'
-            strokeLinecap='round'
-            opacity='0.82'
-          />
-        </>
-      ) : kind === 'text' ? (
-        <>
-          <path
-            d='M5.1 2.75h5.65l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.35c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
-            fill={FILE_ICON_FILL}
-            stroke={color}
-            strokeWidth='1.2'
-            strokeLinejoin='round'
-          />
-          <path
-            d='M10.75 2.95v2.45h2.4'
-            stroke={muted}
-            strokeWidth='1'
-            strokeLinejoin='round'
-          />
-          <path
-            d='M5.85 8.25h5.2M5.85 10.25h5.2M5.85 12.25h3.65'
-            stroke={color}
-            strokeWidth='1.05'
-            strokeLinecap='round'
-          />
-        </>
-      ) : (
-        <>
-          <path
-            d='M5.1 2.75h5.65l2.6 2.65v8.5c0 .5-.4.9-.9.9h-7.35c-.5 0-.9-.4-.9-.9V3.65c0-.5.4-.9.9-.9Z'
-            fill={FILE_ICON_FILL}
-            stroke={color}
-            strokeWidth='1.2'
-            strokeLinejoin='round'
-          />
-          <path
-            d='M10.75 2.95v2.45h2.4'
-            stroke={muted}
-            strokeWidth='1'
-            strokeLinejoin='round'
-          />
-        </>
-      )}
+      {FILE_KIND_GLYPHS[kind] ?? FILE_KIND_GLYPHS.file}
     </svg>
   );
 }
