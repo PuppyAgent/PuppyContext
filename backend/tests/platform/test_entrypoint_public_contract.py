@@ -63,6 +63,13 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
         for name, change in native[category].items():
             assert expected["contract"][category][name] == change["before"]
             expected["contract"][category][name] = change["after"]
+    # The optional bulk precondition follows the existing single-write contract.
+    # Only this request schema changes; paths and historical fixtures do not.
+    bulk = json.loads(Path(__file__).with_name("product_bulk_base_contract_delta.json").read_text())
+    assert bulk["paths"] == {} and set(bulk["schemas"]) == {"BulkWriteRequest"}
+    change = bulk["schemas"]["BulkWriteRequest"]
+    assert expected["contract"]["schemas"]["BulkWriteRequest"] == change["before"]
+    expected["contract"]["schemas"]["BulkWriteRequest"] = change["after"]
     assert contract(app.openapi()) == expected["contract"]
 
 

@@ -80,6 +80,11 @@
   plus 329 pgTAP, no skips/errors/resource exhaustion. All 18 native GC consumer
   regressions are repaired; supplementary backend 2773 passed / 27 skipped /
   76 deselected. This remains failed full acceptance, not activation readiness.
+- [x] Run clean frozen `6fe12550`: 1343 passed / exactly the original 34
+  failures, plus 329 pgTAP; no skips/errors/resource exhaustion. Preserve the
+  preceding startup failure (CLI exit 1 after 27.784s, no SQL/JUnit); its cause
+  remains unestablished and unchanged-budget retry is not causal repair.
+  Supplementary frozen backend: 2773 passed / 27 skipped / 76 deselected.
 - [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
@@ -211,6 +216,18 @@
 
 ### Legacy product-operation recovery (M14 compatibility, partial)
 
+- [x] Reproduce HTTP bulk-write discarding a supplied stale base and overwriting
+  the newer ACK. Preserve optional bases through byte/reference bulk commands,
+  including empty-base/no-op/CAS-retry and multi-scope rejection. Retain 25 red
+  cases; expanded 31 component regressions pass. Register one exact forward
+  request-schema delta; historical fixtures and omitted-base policy stay intact.
+  Components/legacy/contracts: 520 passed; actual owned services: 64+329 (PG11,
+  Auth8, application3, S3 4, component38), including real JWT bulk success/409,
+  anonymous denial, cold restart/fetch and preservation of earlier commit bytes.
+  The first 60+329 selection is rejected for missing the requested S3 test layer;
+  preserve it and the initial/miscomputed contract-delta failures. Supplementary
+  dirty backend: 2773/27 skipped/76 deselected. Native Product publication and
+  automatic starting-base capture remain unfinished; this is not M09 acceptance.
 - [x] Reproduce original C04/F12 failures without changing catalog assertions.
 - [x] Bind rename recovery to the engine's first successful snapshot, including
   directory sources, rather than a separately read live blob.

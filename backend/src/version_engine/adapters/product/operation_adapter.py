@@ -597,6 +597,7 @@ class ProductOperationAdapter:
         policy: str = "",
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         """Batch write + optional batch delete.
 
@@ -614,6 +615,7 @@ class ProductOperationAdapter:
                 who, message, defer_projection,
                 policy=policy, source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
 
         write_groups = self._group_paths_by_scope(
@@ -621,6 +623,12 @@ class ProductOperationAdapter:
         )
         del_groups = self._group_paths_by_scope(project_id, clean_del)
         all_scopes = set(write_groups.keys()) | set(del_groups.keys())
+
+        if base_commit_id is not None:
+            if len(all_scopes) > 1:
+                raise ValueError("base_commit_id is ambiguous for multi-scope bulk operations")
+            # Even an empty batch must honor a supplied precondition.
+            all_scopes = all_scopes or {""}
 
         first_result: WriteResult | None = None
         for target_scope in all_scopes:
@@ -635,6 +643,7 @@ class ProductOperationAdapter:
                 defer_projection,
                 policy=policy, source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
             first_result = first_result or r
         return first_result or WriteResult(
@@ -654,11 +663,12 @@ class ProductOperationAdapter:
         policy: str = "",
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         ops: list[tuple] = []
         ops.extend(("put", path, content) for path, content in rel_files.items())
         ops.extend(("rm", path) for path in rel_dels)
-        if not ops:
+        if not ops and base_commit_id is None:
             return WriteResult()
 
         def splice_fn(store, root_hash):
@@ -669,6 +679,7 @@ class ProductOperationAdapter:
             who=who,
             message=message or f"bulk write {len(rel_files)} files",
             op_type="bulk_write",
+            expected_head_commit_id=base_commit_id,
             policy=policy,
             source_channel=source_channel,
             audit_detail={
@@ -761,6 +772,7 @@ class ProductOperationAdapter:
         verify_blobs: bool = True,
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         """Commit a tree update referencing already-staged blobs by hash.
 
@@ -797,6 +809,7 @@ class ProductOperationAdapter:
                 project_id, scope, clean, clean_del, who, message,
                 source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
 
         write_groups = self._group_paths_by_scope(
@@ -804,6 +817,11 @@ class ProductOperationAdapter:
         )
         del_groups = self._group_paths_by_scope(project_id, clean_del)
         all_scopes = set(write_groups.keys()) | set(del_groups.keys())
+
+        if base_commit_id is not None:
+            if len(all_scopes) > 1:
+                raise ValueError("base_commit_id is ambiguous for multi-scope bulk operations")
+            all_scopes = all_scopes or {""}
 
         first_result: WriteResult | None = None
         for target_scope in all_scopes:
@@ -817,6 +835,7 @@ class ProductOperationAdapter:
                 rel_refs, rel_dels, who, message,
                 source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
             first_result = first_result or r
         return first_result or WriteResult(
@@ -834,13 +853,14 @@ class ProductOperationAdapter:
         *,
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         ops: list[tuple] = []
         ops.extend(
             ("put_ref", path, ref.hash) for path, ref in rel_refs.items()
         )
         ops.extend(("rm", path) for path in rel_dels)
-        if not ops:
+        if not ops and base_commit_id is None:
             return WriteResult()
 
         def splice_fn(store, root_hash):
@@ -852,6 +872,7 @@ class ProductOperationAdapter:
             who=who,
             message=message or f"bulk write {len(rel_refs)} files",
             op_type="bulk_write",
+            expected_head_commit_id=base_commit_id,
             audit_detail={
                 "writes": len(rel_refs),
                 "deletes": len(rel_dels),

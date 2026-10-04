@@ -247,16 +247,20 @@ async def bulk_write(
     node_types = {item.path: item.node_type for item in body.files}
 
     who = f"user:{current_user.user_id}"
-    outcome = await commands.bulk_write(
-        project_id,
-        files,
-        actor=who,
-        node_types=node_types,
-        message=body.message,
-        default_message="bulk write",
-        project_write_state=write_state,
-    )
-    result = outcome.result
+    try:
+        outcome = await commands.bulk_write(
+            project_id,
+            files,
+            actor=who,
+            node_types=node_types,
+            message=body.message,
+            default_message="bulk write",
+            base_commit_id=body.base_commit_id,
+            project_write_state=write_state,
+        )
+        result = outcome.result
+    except ConcurrentMutationError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
     return ApiResponse.success(data={
         "commit_id": result.commit_id,

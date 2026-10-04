@@ -103,6 +103,17 @@ persistence or admitted native publication. The catalog's three remaining policy
 discrepancies stay failing; current LWW behavior and catalog assertions are not
 changed just to produce a green result.
 
+Bulk Product writes also preserve an optional caller-supplied `base_commit_id`
+through HTTP schemas, command normalization, byte/reference batching and the
+existing operation writer's atomic expected-head guard. Previously HTTP input
+silently discarded that field and overwrote a newer acknowledged file. Empty
+strings mean an absent base; they must not become an omitted precondition. Empty
+batches still check a supplied base, CAS retries retain it, and one base cannot
+be spread across separate Scope transactions. Omitting the precondition retains
+existing legacy policy. An exact forward delta changes only `BulkWriteRequest`;
+this compatibility fix does not implement native ref/HEAD/grant publication or
+supply a missing starting base for automatic producers.
+
 ## Release properties and remaining gates
 
 Phase: Expand only. Existing data rows rewritten: zero. Runtime: small DDL plus

@@ -119,9 +119,10 @@ class BulkWriteItem(BaseModel):
 
 
 class BulkWriteRequest(BaseModel):
-    """Bulk write request"""
+    """Bulk write request; an explicit base guards the entire batch."""
     files: list[BulkWriteItem]
     message: str = ""
+    base_commit_id: str | None = None
 
 
 # ============================================================

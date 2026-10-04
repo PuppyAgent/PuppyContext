@@ -247,6 +247,20 @@ Scheduled GC SHALL use a Project-bound maintenance inventory without granting le
 - **AND** physical verification, quarantine, uncertain-I/O fencing and exact ref preservation remain enforced
 - **AND** missing metadata or scope inventory capabilities do not become an empty repository
 
+### Requirement: Bulk writes preserve explicit starting preconditions
+Product bulk entrypoints SHALL preserve an explicitly supplied starting-base precondition through request parsing, normalization and byte/reference batching into the common write funnel. A stale base SHALL reject without replacing acknowledged content, history or audit. Empty legacy base strings SHALL remain distinct from omitted preconditions. This compatibility behavior SHALL NOT enable native publication or infer a missing native ref/HEAD/grant contract.
+
+#### Scenario: A collaborator wins before a bulk save
+- **WHEN** a bulk request supplies its earlier base and another writer has advanced the selected head
+- **THEN** the request rejects with HTTP 409 and preserves the winner's exact tree and bytes
+- **AND** an internal CAS retry does not substitute the newer head for the original base
+
+#### Scenario: Empty and grouped bulk operations
+- **WHEN** an empty batch supplies a stale base
+- **THEN** it rejects rather than silently discarding the precondition
+- **AND** one supplied base cannot be split into separately acknowledged Scope transactions
+- **AND** requests omitting a legacy precondition retain the existing policy
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

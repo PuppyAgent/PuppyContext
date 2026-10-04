@@ -252,9 +252,27 @@ Auth3、application3、S310），无 skips/errors/资源缺口；组件/契约/l
 （最后补充 text/base64 Unicode 路径长度上限一致性）。
 两种格式的真实 src.main/JWT 读取覆盖应用重启前后；enrollment/entitlements 仍由测试 owner
 合成安装。此前 backend **2772 passed / 1 failed / 27 skipped** 的失败是新增公开 wire 未登记
-forward contract delta，原失败保留；补充精确 delta 后定向契约已通过，不等于完整 backend 重跑。
+forward contract delta，原失败保留；补充精确 delta 后定向契约已通过。
+随后干净冻结 **6fe12550** 完整重试 **1343 passed / 原34 failed + 329 pgTAP**，失败集与
+9b060399一致；native18、component757/34、PG278、Auth132、application3、S3155，无
+skip/error/耗尽。PID峰值47、内存710967296 bytes。首次 CLI startup 在27.784s退出1、
+没有 SQL/JUnit，严格拒绝；原因未定，未改预算/代理/daemon，重试不等于因果修复。
+同提交干净补充 backend **2773/27 skipped/76 deselected**。
 Signed inline/download、历史/Scope、native Save/其它写入、自动生产者和完整资源/恢复/迁移仍待完成。
 不自动激活任何现有仓库，不把读取子集或测试增量称为 M08/M09/A6–A11 完成。
+
+### Bulk starting-base 兼容性修复（非 native 写入完成）
+
+实际复现 HTTP bulk-write 丢弃传入的旧 `base_commit_id`、覆盖较新 ACK。保留25项 red，
+将 optional base 沿 schema → commands → byte/reference bulk → 原有 expected-head/CAS
+传递；显式空 base、不含操作的 batch、重试和多 Scope 分组均不能丢失/替换此前提。
+省略 base 的原有策略不变，历史 HTTP fixture 不改；单独精确 delta 仅改 BulkWriteRequest。
+扩展组件31项，相关组件/legacy/contract合计520通过；owned服务 **64+329**（PG11、Auth8、
+application3、S3 4、component38），实际 JWT 验证 bulk 成功/409、匿名拒绝、冷重启/fetch
+及原 commit 字节保留。首次60+329选择因缺 requested S3 layer 被严格拒绝；原回执与首次
+contract失败、误用 Pydantic 而非 FastAPI schema fingerprint 的失败均保留。dirty backend
+2773/27 skipped/76 deselected。以上不是新提交的冻结全量、native ref/HEAD/grant 发布、
+自动生产者 base 捕获或 M09 完成。
 
 ### Git 命令符合性与测试驱动实施
 

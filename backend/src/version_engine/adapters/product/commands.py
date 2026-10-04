@@ -426,6 +426,7 @@ class VersionWriteCommandService:
         policy: str = "",
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteCommandOutcome:
         modified: dict[str, bytes] = {}
         for path, content in files.items():
@@ -442,6 +443,7 @@ class VersionWriteCommandService:
                 actor=actor,
                 message=message or default_message,
                 scope=scope,
+                base_commit_id=base_commit_id,
                 defer_projection=defer_projection,
                 policy=policy,
                 source_channel=source_channel,
@@ -465,6 +467,7 @@ class VersionWriteCommandService:
         verify_blobs: bool = True,
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteCommandOutcome:
         clean = {validate_path(path): ref for path, ref in file_refs.items()}
         clean_deleted = self.normalize_paths(deleted or [])
@@ -478,6 +481,7 @@ class VersionWriteCommandService:
             verify_blobs=verify_blobs,
             source_channel=source_channel,
             project_write_state=project_write_state,
+            **({"base_commit_id": base_commit_id} if base_commit_id is not None else {}),
         )
         return WriteCommandOutcome(
             result=result,
