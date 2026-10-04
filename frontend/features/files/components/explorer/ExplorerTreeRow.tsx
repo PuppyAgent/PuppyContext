@@ -259,7 +259,7 @@ function getSidebarFileKind(name: string, type: string): SidebarFileKind {
   return 'file';
 }
 
-function FileTypeIcon({
+export function FileTypeIcon({
   kind,
   size = 16,
 }: {

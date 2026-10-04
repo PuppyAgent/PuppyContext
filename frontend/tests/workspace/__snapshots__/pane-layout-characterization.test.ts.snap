@@ -1,0 +1,856 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`workspace layout pre-refactor outputs > locks 'empty first segment' geometry and retained closed pane widths > closed 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 480,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "mainWidth": 520,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 220,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'empty first segment' geometry and retained closed pane widths > open 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 440,
+    "width": 440,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'horizontal' geometry and retained closed pane widths > closed 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 480,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "mainWidth": 520,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 220,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'horizontal' geometry and retained closed pane widths > open 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 440,
+    "width": 420,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 360,
+    "width": 360,
+  },
+  "segments": {
+    "first": 620,
+    "gap": 20,
+    "orientation": "horizontal",
+    "second": 420,
+  },
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'negative second segment' geometry and retained closed pane widths > closed 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 480,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "mainWidth": 520,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 220,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'negative second segment' geometry and retained closed pane widths > open 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 440,
+    "width": 440,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'unsegmented' geometry and retained closed pane widths > closed 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 480,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "mainWidth": 520,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 220,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'unsegmented' geometry and retained closed pane widths > open 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 440,
+    "width": 440,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'vertical' geometry and retained closed pane widths > closed 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 480,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 450,
+  },
+  "mainWidth": 520,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 220,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks 'vertical' geometry and retained closed pane widths > open 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 1060,
+  },
+  "availableWidth": 1060,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 440,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 420,
+    "width": 420,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 360,
+  },
+  "segments": {
+    "first": 400,
+    "gap": 20,
+    "orientation": "vertical",
+    "second": 500,
+  },
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 0 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "availableWidth": 0,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "mainWidth": 0,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 0,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 32 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "availableWidth": 32,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 32,
+  },
+  "mainWidth": 32,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 0,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 390 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 358,
+  },
+  "availableWidth": 390,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 350,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 390,
+  },
+  "mainWidth": 390,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 350,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 619 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 420,
+  },
+  "availableWidth": 619,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 299,
+    "width": 360,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 619,
+  },
+  "mainWidth": 619,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 299,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 620 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 620,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 320,
+  },
+  "mainWidth": 320,
+  "overlayOwner": "inspector",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 919 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 599,
+    "width": 450,
+  },
+  "availableWidth": 919,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 299,
+    "width": 360,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 469,
+  },
+  "mainWidth": 469,
+  "overlayOwner": "inspector",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 299,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 920 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 920,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 1090 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 320,
+    "width": 320,
+  },
+  "availableWidth": 1090,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 280,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 450,
+    "width": 450,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 170,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 1309 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 1309,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 389,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 369,
+    "width": 369,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 169,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 1310 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 1310,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 390,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 370,
+    "width": 370,
+  },
+  "mainWidth": 320,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 170,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks every output field at width 1800 with both right panes requested 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 490,
+    "width": 450,
+  },
+  "availableWidth": 1800,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 480,
+    "width": 320,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 490,
+    "width": 450,
+  },
+  "mainWidth": 360,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 220,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks sanitized dimensions and clamped preferences > -1 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "availableWidth": 0,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "mainWidth": 0,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 0,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks sanitized dimensions and clamped preferences > 0 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "availableWidth": 0,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "mainWidth": 0,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 0,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks sanitized dimensions and clamped preferences > 319.5 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 319.5,
+    "width": 300,
+  },
+  "availableWidth": 319.5,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 19.5,
+  },
+  "mainWidth": 19.5,
+  "overlayOwner": "inspector",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 279.5,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks sanitized dimensions and clamped preferences > 1280 1`] = `
+{
+  "auxiliary": {
+    "presentation": "docked",
+    "resizeMax": 300,
+    "width": 300,
+  },
+  "availableWidth": 1280,
+  "files": {
+    "presentation": "docked",
+    "resizeMax": 320,
+    "width": 220,
+  },
+  "inspector": {
+    "presentation": "docked",
+    "resizeMax": 400,
+    "width": 400,
+  },
+  "mainWidth": 0,
+  "overlayOwner": null,
+  "projects": {
+    "presentation": "docked",
+    "resizeMax": 360,
+    "width": 360,
+  },
+  "segments": null,
+  "sharedHeader": false,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks sanitized dimensions and clamped preferences > Infinity 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "availableWidth": 0,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "mainWidth": 0,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 0,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > locks sanitized dimensions and clamped preferences > NaN 1`] = `
+{
+  "auxiliary": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "availableWidth": 0,
+  "files": {
+    "presentation": "overlay",
+    "resizeMax": 220,
+    "width": 0,
+  },
+  "inspector": {
+    "presentation": "overlay",
+    "resizeMax": 300,
+    "width": 0,
+  },
+  "mainWidth": 0,
+  "overlayOwner": "auxiliary",
+  "projects": {
+    "presentation": "overlay",
+    "resizeMax": 160,
+    "width": 0,
+  },
+  "segments": null,
+  "sharedHeader": true,
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > preserves the exhaustive 'empty first segment' layout matrix 1`] = `
+{
+  "cases": 3072,
+  "sha256": "22a4d79b1cef6ad0b9ea99b3150f7afa7888ca90bc5ff23694bb8d2004e8df33",
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > preserves the exhaustive 'horizontal' layout matrix 1`] = `
+{
+  "cases": 3072,
+  "sha256": "a0094754ec5accc30f924d35c2538990ed448f224a881970b9a70089bccc729b",
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > preserves the exhaustive 'negative second segment' layout matrix 1`] = `
+{
+  "cases": 3072,
+  "sha256": "22a4d79b1cef6ad0b9ea99b3150f7afa7888ca90bc5ff23694bb8d2004e8df33",
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > preserves the exhaustive 'unsegmented' layout matrix 1`] = `
+{
+  "cases": 3072,
+  "sha256": "22a4d79b1cef6ad0b9ea99b3150f7afa7888ca90bc5ff23694bb8d2004e8df33",
+}
+`;
+
+exports[`workspace layout pre-refactor outputs > preserves the exhaustive 'vertical' layout matrix 1`] = `
+{
+  "cases": 3072,
+  "sha256": "85682974cae68641d4e00adce90f2508d3cdde60e0463b521eaf5b626d5ffca0",
+}
+`;
