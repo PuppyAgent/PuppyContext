@@ -391,7 +391,7 @@ class StorageQuotaService:
 
 
 class StorageReconciliationService:
-    """Periodically correct incremental logical-byte counters from root trees."""
+    """Schedule checked reconciliation; retain explicit legacy test compatibility."""
 
     def __init__(
         self,
@@ -400,13 +400,19 @@ class StorageReconciliationService:
         entitlement_service: EntitlementService | None = None,
         usage_repository: StorageUsageRepository | None = None,
         project_repository: ProjectRepositorySupabase | None = None,
+        checked_reconciler: Any = None,
     ) -> None:
+        self._checked = checked_reconciler
         self._repo_manager = repo_manager
         self._entitlements = entitlement_service or EntitlementService()
         self._usage = usage_repository or StorageUsageRepository()
         self._projects = project_repository or ProjectRepositorySupabase()
 
     async def reconcile_once(self, *, limit: int, min_age_seconds: int) -> dict[str, int]:
+        if self._checked is not None:
+            for _ in range(10):
+                if await asyncio.to_thread(self._checked.prune) < 200:
+                    break
         org_ids = await asyncio.to_thread(
             self._usage.claim_reconciliation_batch,
             limit=limit,
@@ -415,6 +421,10 @@ class StorageReconciliationService:
         summary = {"claimed": len(org_ids), "reconciled": 0, "failed": 0}
         for org_id in org_ids:
             try:
+                if self._checked is not None:
+                    await asyncio.to_thread(self._checked.reconcile, org_id)
+                    summary["reconciled"] += 1
+                    continue
                 projects = await asyncio.to_thread(self._projects.get_by_org_id, org_id)
 
                 def measure(project_rows=projects) -> tuple[int, list[tuple[str, str]]]:

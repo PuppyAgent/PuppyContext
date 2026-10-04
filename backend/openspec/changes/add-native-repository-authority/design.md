@@ -477,7 +477,36 @@ No caller-provided quota limit or uninitialized-usage fallback is accepted.
 A red regression demonstrated that the legacy full reconciler could reset a
 native incremental counter to its stale legacy-root total. A new event fence
 rolls back that old reconciliation for enrolled Organizations. This deliberately
-fails closed: native-aware full reconciliation, lifecycle settlement, complete
-file/named-ref policy and canonical authenticated routing remain unfinished.
+fails closed for the old caller. Checked full reconciliation is described below;
+lifecycle settlement, complete file/named-ref policy and canonical authenticated
+routing remain separate gates.
 Actual S3/PG tests use synthetic entitlement rows and explicit admitted grants;
 they are not evidence of the external billing service or native public HTTP.
+
+### Complete logical reconciliation
+
+The legacy Project-list facade defaults to 100 rows and cannot be an accounting
+inventory. A forward Expand captures all Organization Projects in SQL under the
+existing Organization/metric advisory locks, with no object I/O. The service
+reads stable inventory pages of 200, measures canonical native trees under read
+pins (not commit history), and preserves legacy namespace/chunk compatibility
+for legacy or shadow authority. Current-tree DAG memoization preserves repeated
+paths without exponential expansion. Object/decoded-byte budgets include the
+native selector commit; incomplete inventories and more than one million
+Projects fail closed, never truncate.
+
+Final reconciliation takes the same locks, compares both directions of the
+captured inventory (including HEAD symref, object format and generation), checks
+all measurements and current entitlement, then delegates to the existing usage
+counter/event function. Private same-transaction authorization admits this call
+through the older-reconciler fence. Waiting past capture or entitlement expiry
+rolls everything back. Completed receipts survive measurement-row cleanup and
+replay without another charge or renewed entitlement. Cancellation cannot undo
+an already committed/unknown-ACK result. At most one unfinished inventory per
+Organization is admitted; expired/cancelled metadata is cleaned in bounded
+batches, not silently replaced by another capture. This cleanup grants no GC or
+storage-invocation quiescence authority.
+
+The application storage-reconciliation scheduler selects the checked service;
+RPC or measurement failures never fall back to the old root-only path. This is
+internal service authority, not an end-user authorization shortcut.

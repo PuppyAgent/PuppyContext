@@ -154,6 +154,13 @@ Native canonical publication SHALL preserve the existing `storage.logical_bytes`
 - **THEN** its counter and event changes are rejected atomically until a checked native-aware reconciliation path exists
 - **AND** the previously settled usage and acknowledged refs remain unchanged
 
+#### Scenario: Complete mixed-authority reconciliation
+- **WHEN** the backend reconciles an Organization containing legacy and native repositories, including more Projects than an ordinary UI page
+- **THEN** it captures the complete Project/authority/generation/default-HEAD/root inventory, pages measurements without truncation, and verifies current-tree object identities and path-multiplicity sizes
+- **AND** before replacing usage it locks the Organization and Projects and rejects changed, incomplete, expired or overflowed measurements atomically
+- **AND** a lost acknowledgement replays the original result without rereading storage or changing the counter again
+- **AND** cancellation and bounded cleanup discard only transient measurement metadata, never acknowledged results or unsettled storage I/O claims
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

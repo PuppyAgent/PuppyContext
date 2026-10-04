@@ -137,6 +137,20 @@ class VersionRepoManager:
             scopes=ScopeManager(scope_backend),
         )
 
+    def create_usage_reconciler(self):
+        """Backend scheduler capability; never exposed to Runtime credentials."""
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            RefAuthorityRepository,
+        )
+        from src.version_engine.infrastructure.supabase.usage_reconciliation import (
+            RepositoryUsageReconciler,
+        )
+
+        return RepositoryUsageReconciler(
+            RefAuthorityRepository(self._supabase.client),
+            lambda project_id: S3StorageBackend(self._s3, project_id, supabase=self._supabase),
+        )
+
     def get_scope_backend(self, project_id: str) -> SupabaseScopeBackend:
         """Return a lightweight ScopeBackend for listing a project's scopes.
 

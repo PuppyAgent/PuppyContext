@@ -51,6 +51,10 @@
   4 passed is not a repair. Capture all worker stacks on future Git deadlines
   without changing the 30-second budget. Supplementary backend: 2773 passed,
   27 skipped, 76 deselected; not strict target acceptance.
+- [x] Run clean frozen logical-settlement `defff62e`: 1131 passed / exactly the
+  original 34 failures, plus 329 pgTAP; no skips/errors/exhaustion. Supplementary
+  backend: 2773 passed / 27 skipped / 76 deselected. This is not complete target
+  acceptance; current canonical/consumer/migration work remains separate.
 - [x] Repeat full order at clean frozen `8defc2cb`: 1089 passed / the original
   34 failures, 329 pgTAP, no skips/errors/exhaustion. The extra timeout did not
   recur; preserve the earlier failure, do not label diagnostics a product repair.
@@ -82,8 +86,15 @@
   plus 329 pgTAP, no skips/errors/resource exhaustion. Component suite: 337 passed.
 - [x] Reproduce the old full reconciler overwriting native usage (one real PG
   regression failed), then fence its event/counter transaction for enrolled Orgs.
-- [ ] Implement native-aware full reconciliation and lifecycle settlement; the
-  old reconciler now fails closed rather than resetting native usage.
+- [x] Implement checked mixed-authority reconciliation and select it in the
+  application scheduler: complete SQL inventory, 200-row pages, current-tree
+  physical measurement, full inventory CAS, current entitlement, late expiry
+  rollback, cancellation/backpressure, bounded metadata cleanup and lost-ACK
+  replay. Keep legacy namespace/chunk reads distinct from native proof. Selected
+  owned Docker: 82 passed plus 329 pgTAP (S3 4, PG 27, Auth 24, component 26,
+  legacy application 1). Preserve earlier SQL/fixture and skipped-auth receipts;
+  focused strict native-PG recovery: 10 passed. No external billing claim.
+- [ ] Complete lifecycle logical settlement and native canonical worker acceptance.
 - [ ] Complete named-ref/file-policy admission, canonical caller integration and
   real authenticated native application acceptance. No billing activation.
 

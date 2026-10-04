@@ -447,6 +447,7 @@ def _init_storage_reconciler(app: FastAPI) -> None:
 
     service = StorageReconciliationService(
         repo_manager=app.state.version_engine.repo_manager,
+        checked_reconciler=app.state.version_engine.repo_manager.create_usage_reconciler(),
     )
     stop_event = asyncio.Event()
 

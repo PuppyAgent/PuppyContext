@@ -148,6 +148,18 @@ ref/audit/outbox 放进同一事务。失败不改 refs 或账单，rewind 按�
 这不是完整 file/ref policy、真实 Native HTTP 或外部 Billing 集成验收；原 34
 项失败、完整 canonical/消费者/迁移门禁仍在。
 
+`defff62e` 冻结全量：**1131 passed / 原 34 failed + 329 pgTAP**，无新失败或
+资源耗尽；补充 backend 2773 passed / 27 skipped / 76 deselected（不是严格验收）。
+后续 checked 对账已接 application scheduler：完整 SQL inventory、200-row pages、
+native 当前树物理读（不读 commit history）、legacy placement 兼容、最终双向
+inventory CAS、等待后过期回滚和原结果重放。失败取消只释放测量元数据，不代表
+存储 I/O quiescence。单 Org 未结束 inventory 背压及 bounded cleanup 防止重试膨胀。
+定向 owned Docker **82 passed + 329 pgTAP**，包括混合 SHA-1 legacy / SHA-256
+native 冷测量、lost ACK、202-Project 分页和 populated migration rollback。
+早期 receipts 保留：SQL local-variable 错误、到期拒绝原因/跨 fixture cleanup 断言、
+psql boolean JSON 解码夹具错误，以及选中过 Auth 的 native-PG run 的 16 skips；
+修正后 strict native-PG 10 passed，再运行上述 82-case 实服 selection 全绿。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。

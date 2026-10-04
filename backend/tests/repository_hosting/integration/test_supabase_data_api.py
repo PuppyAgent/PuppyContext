@@ -164,6 +164,32 @@ def test_clients_cannot_read_logical_billing_policies_or_proofs(api, role, table
     assert response.json()['code'] == '42501'
 
 
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('function,extra', [
+    ('begin_version_storage_reconciliation', {}),
+    ('get_version_storage_reconciliation_page', {'p_after': '', 'p_limit': 200}),
+    ('record_version_storage_measurements', {'p_values': {}}),
+    ('finish_version_storage_reconciliation', {}),
+    ('cancel_version_storage_reconciliation', {}),
+    ('prune_version_storage_measurements', {'p_limit': 200}),
+])
+def test_auth_clients_cannot_call_storage_reconciliation(api, role, function, extra):
+    body = {'p_org_id': 'untrusted', 'p_id': str(uuid.uuid4()), **extra}
+    if function.startswith('prune_'):
+        body = extra
+    response = api.request('POST', f'/rest/v1/rpc/{function}', role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()['code'] in ('42501', 'PGRST202')
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('table', ['version_storage_reconciliations', 'version_storage_reconciliation_projects'])
+def test_auth_clients_cannot_read_storage_reconciliation(api, role, table):
+    response = api.request('GET', f'/rest/v1/{table}', role=role, params={'select': '*'})
+    assert response.status_code in (401, 403)
+    assert response.json()['code'] == '42501'
+
+
 def rpc(api, body, function="apply_version_ref_transaction"):
     response = api.request("POST", f"/rest/v1/rpc/{function}", json=body)
     assert response.status_code == 200
