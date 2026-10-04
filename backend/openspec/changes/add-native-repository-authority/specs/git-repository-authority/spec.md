@@ -86,6 +86,22 @@ Admitted native readers SHALL capture refs, generation, sequence and declared fo
 - **THEN** its tree identity is read from verified bytes under the captured format, without transport materialization
 - **AND** an unrelated stored or rejected-proposal object remains unreadable
 
+### Requirement: Current actor and lifecycle admission
+Admitted native publication SHALL revalidate current platform role or full-Project runtime credential facts and a matching live Project write lease in the publication transaction. Cached grants and copied lease contexts SHALL NOT replace these checks. Revocation SHALL serialize with publication, and validity SHALL be rechecked after queued locks. Backend admission RPCs SHALL NOT authenticate caller-supplied actor identities or grant Scope credentials full-repository access.
+
+#### Scenario: Revocation wins a race
+- **WHEN** membership, credential or Surface revocation commits before publication acquires the corresponding fact locks
+- **THEN** publication fails without changing refs, result, reflog or outbox
+
+#### Scenario: Validity expires while queued
+- **WHEN** a credential or lease expires after preflight while publication waits for a repository lock
+- **THEN** final admission rejects the mutation and all provisional SQL publication effects roll back
+
+#### Scenario: Recovering an acknowledged result
+- **WHEN** the original actor retains current read access but no longer has the original write lease or write mode
+- **THEN** the exact original result can be replayed without uploading or publishing again
+- **AND** changed request content still fails the original digest check
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

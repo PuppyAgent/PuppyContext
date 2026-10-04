@@ -53,3 +53,40 @@ class RefAuthorityRepository:
 
     def finish_gc(self, project_id: str, token: str):
         return self.call("finish_version_repository_gc", p_project_id=project_id, p_token=token)
+
+
+class AdmittedRefAuthorityRepository(RefAuthorityRepository):
+    """Current-actor/lifecycle guarded writes; not a quota or routing switch.
+
+    ``lease_provider(project_id)`` returns the caller's live ProjectWriteLease.
+    Its fields convey provenance only: SQL revalidates them at execution time.
+    The unguarded base class remains an internal primitive/testing boundary.
+    """
+
+    def __init__(self, client, *, lease_provider):
+        super().__init__(client)
+        self.lease_provider = lease_provider
+
+    def _lease(self, project_id):
+        lease = self.lease_provider(project_id)
+        if lease is None or not lease.is_active:
+            # A committed/rejected result can still be replayed by a current
+            # reader; SQL requires a lease only for a new mutation.
+            return None, None
+        if lease.project_id != project_id:
+            raise ValueError("write lease Project binding mismatch")
+        return lease.lease_id, lease.holder_id
+
+    def begin(self, project_id: str, actor: str, pin: str, generation: int, roots: dict):
+        lease, holder = self._lease(project_id)
+        self.call("check_version_repository_write_admission", p_project_id=project_id,
+                  p_actor=actor, p_lease_id=lease, p_holder_id=holder)
+        return super().begin(project_id, actor, pin, generation, roots)
+
+    def apply(self, project_id: str, actor: str, request_key: str, generation: int,
+              updates: list[dict], receipt: str | None, message: str):
+        lease, holder = self._lease(project_id)
+        return self.call("apply_admitted_version_ref_transaction", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key, p_generation=generation,
+                         p_updates=updates, p_receipt_id=receipt, p_message=message,
+                         p_lease_id=lease, p_holder_id=holder)

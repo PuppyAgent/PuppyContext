@@ -98,6 +98,19 @@ def test_current_auth_clients_cannot_call_storage_coordination(api, authority, r
     assert authority.state()["oid"] == A
 
 
+@pytest.mark.parametrize("role", ["anon", "authenticated"])
+@pytest.mark.parametrize("function", ["check_version_repository_write_admission", "apply_admitted_version_ref_transaction"])
+def test_current_auth_clients_cannot_call_native_write_admission(api, authority, role, function):
+    body = authority.parameters([update(old=oid(A), new=oid(B))])
+    if function.startswith("check_"):
+        body = {key: body[key] for key in ("p_project_id", "p_actor")}
+    body.update(p_lease_id=str(uuid.uuid4()), p_holder_id="untrusted")
+    response = api.request("POST", f"/rest/v1/rpc/{function}", role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()["code"] in ("42501", "PGRST202")
+    assert authority.state()["oid"] == A
+
+
 def rpc(api, body, function="apply_version_ref_transaction"):
     response = api.request("POST", f"/rest/v1/rpc/{function}", json=body)
     assert response.status_code == 200

@@ -107,7 +107,9 @@ class RefTransactionService:
         self, grant: ProjectGrant | RuntimeGrant, *, request_key: str, generation: int,
         edits: Sequence[RefEdit], roots: Mapping[str, str], prepare: Callable[[], None], message: str = "",
     ) -> dict:
-        actor = admitted_actor(grant, self.project_id, write=True)
+        # Recovering the original result is a read, not a new publication.
+        # The guarded control rechecks current facts and the original digest.
+        actor = admitted_actor(grant, self.project_id, write=False)
         request_key = str(uuid.UUID(request_key))
         if not 1 <= len(edits) <= 256 or generation < 1 or len(message.encode("utf-8")) > 8192:
             raise ValueError("invalid ref transaction")
@@ -130,6 +132,7 @@ class RefTransactionService:
         # this is the original request, including a previously rejected batch.
         if self.control.result(self.project_id, actor, request_key) is not None:
             return self.control.apply(*args)
+        admitted_actor(grant, self.project_id, write=True)
         snapshot = self.control.snapshot(self.project_id)
         if (not snapshot or snapshot["authority"] != "native" or snapshot["write_state"] != "active"
                 or snapshot["object_format"] != self.object_format or snapshot["generation"] != generation):

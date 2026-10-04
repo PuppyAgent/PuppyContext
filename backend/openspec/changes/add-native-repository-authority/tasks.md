@@ -162,6 +162,18 @@
   neither the chunk nor location-fence selections close these requirements.
 - [ ] Complete durable publication/GC restart, remote-I/O quiescence recovery,
   long-upload lease renewal and bounded-resource/performance acceptance.
+- [x] Add backend-only current-actor/Project-lease SQL admission and a guarded
+  control adapter. Revalidate platform roles and runtime restrictions, serialize
+  revocation, retain current-reader result replay, and reject missing capability.
+  Verify actual S3 old-ACK readability after final credential/lease denial,
+  actual Auth/REST client denial and populated expansion rollback/retry.
+- [x] Reproduce and fix credential/lease expiry after repository lock waits;
+  verify rollback of sequence/refs/result/reflog/outbox, and allow a freshly
+  read-only grant to replay while rejecting new writes and changed requests.
+  Selected actual-service regression: 54 passed plus 329 pgTAP; no skips/XFAIL.
+  This is not a full clean-revision target receipt or canonical authentication.
+- [ ] Complete canonical admission/ref-policy/quota/consumer integration; do
+  not activate this wrapper based on stored/admitted fixture credentials.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including
   ref policy, lifecycle leases, non-atomic orchestration and result-query consumers.
   The service/physical publication path now exists, but production admission,

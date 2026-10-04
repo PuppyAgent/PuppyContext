@@ -356,3 +356,39 @@ policy, quota, canonical ProductOperationAdapter/API/Scope integration or cutove
 Selected actual-service regression: 119 passed (97 S3-layer, including all 78
 native workflow recipes; 22 component), plus 329 pgTAP tests. This selection is
 not a clean full-revision receipt and does not remove the legacy route's 34 gaps.
+
+## Current actor and Project write-lease admission
+
+`20261004020000_expand_repository_write_admission.sql` adds backend-only
+preflight/final-publication wrappers. Organization -> Project locks fence tenant
+and lifecycle changes. Membership -> Surface -> credential locks serialize with
+revocation and deletion cascades; existing platform SQL resolvers, not a second
+role matrix, decide effective access. Scope credentials remain ineligible for
+full-repository writes. A matching live Project lease is required for a new
+mutation. These functions trust backend-supplied admitted identity; an actor ID
+or stored credential row is not bearer authentication.
+
+Credential/lease wall-clock expiry can occur while waiting for later repository
+or receipt locks, despite holding the credential/lease rows. Regression tests
+reproduced successful publication after such expiry. Final checks therefore run
+after the underlying ref primitive, within the same SQL transaction; failure
+rolls back refs, result, sequence, reflog, audit and outbox together. Preflight
+also rechecks after acquiring repository locks. Original-result replay requires
+current read access, preserves digest checks and does not require an old lease.
+The service accepts a newly resolved read-only grant for this recovery path;
+only a genuinely new request proceeds to the write-action check.
+
+`AdmittedRefAuthorityRepository` uses these RPCs at pin preflight and final
+publication. Its lease provider supplies the caller's active ProjectWriteLease;
+copied/released context is not authority, and missing capabilities do not fall
+back to raw publication. Tests use observed independent SQL-session lock waits,
+populated DDL rollback/retry, actual Auth/PostgREST client denial, and actual
+S3 publication followed by credential/lease invalidation and cold old-ACK reads.
+Stored/admitted fixture credentials do not prove end-user Git HTTP authentication.
+Selected actual-service regression: 54 passed plus 329 pgTAP, with no skipped or
+XFAIL cases. This is not a complete clean-revision acceptance receipt.
+
+The raw ref repository remains a backend internal primitive. This wrapper does
+not enable canonical routing, enforce ref policy or repository-wide quota,
+implement consumer integration, or close long-I/O/process-recovery gates. Those
+are required before native authority can be activated for existing repositories.
