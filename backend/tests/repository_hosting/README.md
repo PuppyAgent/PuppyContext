@@ -192,6 +192,24 @@ Docker **24 passed + 329 pgTAP**（Auth 3、PG 8、legacy 应用 1、S3 2、组�
 root/删除生命周期回归 strict native-PG **23 passed**，组件/billing/deep scenarios
 **412 passed**；先前误选 Auth 的 PG receipt 含 3 skips，保留并按 strict 失败记录。
 
+### Canonical native Git 源码接入（仅合成 enrollment）
+
+正式 Git router 现按 fresh PG authority 选择实现；native 强制 admitted control +
+capacity + logical billing + file policy，无缺能力 fallback。旧 cached root 不得
+作为 native 当前状态。既有项目不自动 enroll/activate；未映射 legacy locator / Scope
+不能扩大为 full repo。Product/Scope/自动写入及生命周期/消费者/迁移仍未完成。
+
+新增实际 `src.main` 测试：先 JWT 创建 Project/credential，测试 owner 显式设置空
+native authority 和 synthetic entitlement，不伪造 grant/物理 receipt。SHA-1/SHA-256
+验证非 main HEAD、多 ref/typed tag atomic push、单文件限制拒绝、冷进程重启、v2
+fetch/fsck、精确 refs/bytes，以及只读/匿名/跨 Project/撤销 credential 拒绝。首轮
+**16 passed + 329 pgTAP**，加强后 **41 passed + 329 pgTAP**（application 3、S3 2、
+Auth 3、PG 13、组件 20），无 skip/error/gap/资源耗尽；不是外部 PuppyPay 或 native
+产品 Save/API 验收。组件/router 回归 **503 passed**。补充 backend 首轮 2772 passed /
+1 failed / 27 skipped：mixed-protocol MagicMock 没声明 legacy selection；保持原断言，
+补齐夹具明确 legacy authority，不给生产 lookup 添加 fallback。随后 mixed-write /
+admission / selector 定向 **21 passed**，原并发、恢复和延迟断言未改；未冒充全量重跑。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。
@@ -206,7 +224,7 @@ stock Git 拒绝的问题。receive 广告/隔离仓库包含已有命名 refs�
 缓存删除后接收、冷读、旧 blob 复用、普通对象缺失、拒绝和恢复；不扩大 legacy
 Scope 合同，也不接通 dormant SQL authority。
 
-### Native 实服务 profile（尚未接入正式入口）
+### Native 内部实服务 profile（与上方正式入口证据分开）
 
 `integration/test_native_s3_transport.py` 对真实 S3/PostgREST 执行同一组 78 个
 recipe；另验证 SHA-1/SHA-256 HTTP 空库/首推、冷 clone、typed tags、rewrite 和
@@ -222,7 +240,8 @@ read-back 必须来自 canonical Project namespace，不接受跨 Project 的 ba
 指向其他 namespace 的 location；旧兼容读取不因此获得 native receipt。
 
 该 ASGI fixture 显式提供 grant，**没有**替代正式凭据解析、授权、配额或生命周期
-准入；正式 Git router、产品/Scope/自动写入及 Desktop 尚未选择新 adapter。
+准入；该历史 profile 没接正式 Git router。后续正式 Git 源码和独立 application
+证据见上节；产品/Scope/自动写入及 Desktop 仍未完成。
 原路由失败继续保留，不能因新 profile 转绿就称这些目标已修复。完整资源约束、
 长上传续租、多进程/重启/恢复、消费者、迁移和部署门禁仍未完成，不得激活真实仓库。
 

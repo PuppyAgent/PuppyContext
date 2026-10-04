@@ -186,6 +186,21 @@ Native canonical publication SHALL enforce the current acknowledged single-file 
 - **THEN** it rejects rather than using a stale grant
 - **AND** accepted metadata discovery remains object-I/O-free
 
+### Requirement: Canonical authenticated native Git selection
+Canonical Project-root Git routes SHALL select current PostgreSQL authority after authenticating the exact locator and credential. Native selection SHALL require the checked actor/lease, retained capacity, logical billing and file-policy publisher, preserve protocol negotiation, and never use legacy roots as a fallback.
+
+#### Scenario: Public native Git with a non-main HEAD
+- **WHEN** a separately enrolled native Project is accessed through its canonical credential-free URL
+- **THEN** advertisement and protocol-v2 discovery use its captured refs and declared object format
+- **AND** checked publication preserves exact branch/tag object identities and quota rejection leaves previous acknowledgements unchanged
+- **AND** a cold application process can fetch those bytes with current credentials
+
+#### Scenario: Legacy cache and credential boundaries
+- **WHEN** current authority is native or metadata lookup fails
+- **THEN** a cached legacy Project root cannot serve as current native state
+- **AND** a Scope grant, foreign credential, read-only writer or unmapped legacy locator cannot become full-repository access
+- **AND** legacy-authority test profiles retain their original conformance assertions rather than being routed through a different fixture
+
 ### Requirement: Initialization preserves acknowledged state
 Initialization SHALL NOT infer an unborn repository from failed or unavailable physical storage. Existing acknowledged metadata SHALL NOT be overwritten by implicit repair, stale reads or missing checked capabilities.
 
@@ -201,7 +216,7 @@ Initialization SHALL NOT infer an unborn repository from failed or unavailable p
 - **AND** native metadata and corrupt accepted state reject rather than becoming an empty legacy repository
 
 ### Requirement: Expand is not cutover
-Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
+Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 
 #### Scenario: Existing writer after expansion
 - **WHEN** a legacy repository has no native-authority metadata

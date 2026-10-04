@@ -104,6 +104,7 @@ def test_git_cli_and_frontend_native_writes_share_version_engine_under_concurren
     server_repo.history.set_scope_hash("docs", empty_tree)
 
     repo_manager = MagicMock(spec=VersionRepoManager)
+    repo_manager.get_native_service.return_value = None  # This fixture retains legacy Scope authority.
     repo_manager.get_server_repo.return_value = server_repo
 
     def fake_project_write_state(project_id, user_id):

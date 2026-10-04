@@ -124,6 +124,7 @@ def component_repo(tmp_path, monkeypatch):
         scopes=ScopeManager(Scopes()),
     )
     manager = MagicMock()
+    manager.get_native_service.return_value = None  # Preserve this legacy control-plane profile.
     manager.get_server_repo.return_value = repo
     empty = build_tree_from_files(store, {})
     repo.history.set_root_hash(empty)

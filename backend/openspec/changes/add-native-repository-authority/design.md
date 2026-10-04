@@ -558,3 +558,32 @@ race is returned unchanged. Native authority requires its own lifecycle operatio
 never a legacy empty-tree repair. The DDL initializes no Project and performs no
 storage access. Populated rollback/retry, real SDK/Auth ACLs and the legacy main
 application profile are tested separately from native activation.
+
+### Canonical native Git source routing (synthetic enrollment only)
+
+The canonical Git router now asks the manager for fresh PG authority after the
+existing credential/locator resolution. Explicit native rows select a fresh
+Project-bound S3 backend and the mandatory admitted/capacity/billing/file-policy
+service. Missing metadata RPCs or malformed metadata reject, never downgrade.
+Absent metadata and shadow rows retain legacy routing. The legacy repository
+cache also rechecks authority and cannot masquerade as a native read source.
+This is a source implementation, not enrollment or permission to activate any
+existing repository before the outstanding lifecycle/consumer/migration gates.
+
+Native HTTP preserves Git-Protocol, request spooling, fetch audit attribution,
+Project leases and read-only/foreign/revoked credential boundaries. Health is a
+pinned physical graph diagnostic; it does not repair missing objects or describe
+unavailability as an empty repository. Native caches are disposable, so checked
+rebuild validates the graph rather than installing another persistent authority.
+Unmapped legacy locators and Scope grants cannot become full-repository native
+access. Product/Scope/automatic-writer and compatibility mapping work is still
+unfinished; these paths fail closed rather than reading a stale legacy root.
+
+Real application-process tests create JWT-authorized Projects and Git credentials,
+then explicitly install synthetic empty native authority and policy/entitlements
+as the owned test database owner. No fabricated durability receipt or runtime
+grant is used. Both formats exercise non-main HEAD, atomic branch/typed-tag push,
+file-policy rejection before oversized allocation, cold restart/protocol-v2 fetch,
+exact refs/bytes, read-only/anonymous/foreign rejection and credential revocation.
+This proves canonical authenticated Git, not external PuppyPay, native product
+Save/API, existing-data cutover or complete activation readiness.

@@ -104,7 +104,58 @@ class VersionRepoManager:
         self._host_clients: dict[tuple[str, str], HostClientHandle] = {}
         self._host_clients_lock = threading.Lock()
 
+    def repository_metadata(self, project_id: str) -> dict | None:
+        """Fresh authority selection; absence is explicit, not an RPC fallback."""
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            RefAuthorityRepository,
+        )
+
+        metadata = RefAuthorityRepository(self._supabase.client).snapshot(project_id)
+        if metadata is not None and (
+            metadata.get("project_id") != project_id
+            or metadata.get("authority") not in {"shadow", "native"}
+            or metadata.get("object_format") not in {"sha1", "sha256"}
+        ):
+            raise RuntimeError("invalid repository authority metadata")
+        return metadata
+
+    def get_native_service(self, project_id: str):
+        """Select an explicitly native repository with mandatory checked admission.
+
+        This neither enrolls repositories nor initializes policy/usage. Missing
+        migration/RPC capability is an error, never permission to use old roots.
+        The service and physical backend are request-owned, not cached authority.
+        """
+        from src.platform.project.write_lease import active_project_write_lease
+        from src.version_engine.infrastructure.supabase.billing_repository import RepositoryBilling
+        from src.version_engine.infrastructure.supabase.capacity_repository import (
+            RepositoryCapacity,
+        )
+        from src.version_engine.infrastructure.supabase.file_policy_repository import (
+            RepositoryFilePolicy,
+        )
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            AdmittedRefAuthorityRepository,
+        )
+        from src.version_engine.write_engine.ref_transaction import RefTransactionService
+
+        metadata = self.repository_metadata(project_id)
+        if metadata is None or metadata["authority"] == "shadow":
+            return None
+        control = AdmittedRefAuthorityRepository(
+            self._supabase.client, lease_provider=active_project_write_lease,
+        )
+        return RefTransactionService(
+            control, S3StorageBackend(self._s3, project_id, supabase=self._supabase),
+            project_id=project_id, object_format=metadata["object_format"],
+            capacity=RepositoryCapacity(control), billing=RepositoryBilling(control),
+            policy=RepositoryFilePolicy(control),
+        )
+
     def get_repo(self, project_id: str) -> ProjectRepo:
+        metadata = self.repository_metadata(project_id)
+        if metadata is not None and metadata["authority"] == "native":
+            raise RuntimeError("native repository requires authority-aware access")
         if project_id in self._cache:
             return self._cache[project_id]
         with self._lock:
@@ -136,6 +187,10 @@ class VersionRepoManager:
             audit=proj.audit,
             scopes=ScopeManager(scope_backend),
         )
+
+    def get_audit(self, project_id: str) -> SupabaseAuditManager:
+        """Audit is independent of legacy root/history selection."""
+        return SupabaseAuditManager(self._supabase, project_id)
 
     def create_usage_reconciler(self):
         """Backend scheduler capability; never exposed to Runtime credentials."""

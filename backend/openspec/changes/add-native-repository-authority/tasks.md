@@ -120,6 +120,28 @@
 - [ ] Complete named-ref/file-policy admission, canonical caller integration and
   real authenticated native application acceptance. No billing activation.
 
+### Canonical native Git routing (M06, partial)
+
+- [x] Select fresh PG authority in canonical Git routes; require admitted control,
+  retained capacity, logical billing and file policy. Preserve Git-Protocol,
+  spooling, leases, fetch audit and physical health checks. Missing metadata/RPCs
+  fail closed; cached legacy roots cannot serve native reads. No enrollment.
+- [x] Exercise actual src.main, JWT-issued credentials and checked PG/S3 publication
+  in both formats: non-main HEAD, atomic branches/typed tags, oversized rejection,
+  cold restart/protocol-v2 fetch/fsck, read-only/foreign/anonymous/revoked denial.
+  Synthetic owner enrollment and entitlement projection are explicit. First
+  connected selection 16 passed + 329 pgTAP; guarded selection 41 passed + 329
+  pgTAP (application 3, S3 2, Auth 3, PG 13, component 20), no skips/errors/gaps.
+- [x] Preserve legacy fixture authority and original assertions; component/router
+  regression 503 passed. Supplementary backend initially 2772 passed / 1 failed /
+  27 skipped: one mixed-protocol MagicMock fixture lacked explicit legacy selection,
+  so its undefined result correctly could not become a legacy fallback. Explicit
+  fixture selection plus admission/selector regression: 21 passed, with unchanged
+  mixed-write/recovery/latency assertions; not a replacement full-backend receipt.
+- [ ] Complete native ProductOperationAdapter/API, Scope/legacy mappings and automatic
+  writers; complete lifecycle/consumer/resource/recovery/migration gates before
+  activating existing repositories. Original canonical target failures remain open.
+
 ### Git command conformance (M01/M18, partial)
 
 - [x] Add 78 native-bare-versus-production-HTTP recipes for history generation,

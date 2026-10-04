@@ -44,6 +44,7 @@ from src.version_engine.entrypoints.git.auth import (
 from src.version_engine.entrypoints.git.auth import (
     resolve_git_access_point as _resolve_git_access_point,
 )
+from src.version_engine.entrypoints.git.native import select_native_git_endpoint
 from src.version_engine.entrypoints.http.access_point import resolve_access_point
 from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
 
@@ -298,11 +299,35 @@ def _repo_and_facade(target: _ResolvedGitTarget, repo_manager: VersionRepoManage
     return repo, facade
 
 
+async def _native_call(function, *args, **kwargs):
+    try:
+        return await asyncio.to_thread(function, *args, **kwargs)
+    except HTTPException:
+        raise
+    except PermissionError as exc:
+        raise HTTPException(403, "Repository action denied") from exc
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid Git request") from exc
+    except Exception as exc:
+        raise HTTPException(503, "Repository is temporarily unavailable") from exc
+
+
+async def _native_endpoint(target, repo_manager):
+    return await _native_call(
+        select_native_git_endpoint, repo_manager, target.project_id, target.auth,
+        legacy_route=target.entry_point == "access_key_git_remote",
+    )
+
+
 async def _git_info_refs_for_target(
     target: _ResolvedGitTarget,
     service: str,
     repo_manager: VersionRepoManager,
+    protocol: str = "",
 ):
+    native = await _native_endpoint(target, repo_manager)
+    if native is not None:
+        return await _native_call(native.info_refs, service, protocol=protocol)
     repo, facade = _repo_and_facade(target, repo_manager)
     return await asyncio.to_thread(
         info_refs_response,
@@ -328,6 +353,7 @@ async def git_info_refs(
         await _resolve_canonical_target(project_id, scope_id, request),
         service,
         repo_manager,
+        protocol=request.headers.get("git-protocol", ""),
     )
 
 
@@ -344,13 +370,17 @@ async def git_ap_info_refs(
         await _resolve_access_point_target(access_key, request),
         service,
         repo_manager,
+        protocol=request.headers.get("git-protocol", ""),
     )
 
 
-def _git_health_for_target(
+async def _git_health_for_target(
     target: _ResolvedGitTarget,
     repo_manager: VersionRepoManager,
 ):
+    native = await _native_endpoint(target, repo_manager)
+    if native is not None:
+        return ApiResponse.success(data=await _native_call(native.health), message="Git view health loaded")
     repo, facade = _repo_and_facade(target, repo_manager)
     return ApiResponse.success(
         data=git_view_health_payload(
@@ -372,7 +402,7 @@ async def git_ap_health(
 ):
     """Return product-facing Git view health for an Access Point remote."""
 
-    return _git_health_for_target(
+    return await _git_health_for_target(
         await _resolve_access_point_target(access_key, request),
         repo_manager,
     )
@@ -396,7 +426,7 @@ async def git_project_health(
     access-key-bound Scope view.
     """
 
-    return _git_health_for_target(
+    return await _git_health_for_target(
         await _resolve_canonical_target(project_id, scope_id, request),
         repo_manager,
     )
@@ -435,6 +465,9 @@ async def _git_rebuild_for_target(
     request: Request,
     repo_manager: VersionRepoManager,
 ):
+    native = await _native_endpoint(target, repo_manager)
+    if native is not None:
+        return ApiResponse.success(data=await _native_call(native.rebuild), message="Native disposable caches require no persistent rebuild")
     repo, facade = _repo_and_facade(target, repo_manager)
     admit_target(
         target.auth,
@@ -495,7 +528,7 @@ async def _git_receive_pack_for_target(
     request: Request,
     repo_manager: VersionRepoManager,
 ):
-    repo, facade = _repo_and_facade(target, repo_manager)
+    native = await _native_endpoint(target, repo_manager)
     max_body_bytes = await asyncio.to_thread(_git_receive_max_body_bytes, target.project_id)
     request_path = await _spool_git_request_body(
         request,
@@ -503,6 +536,9 @@ async def _git_receive_pack_for_target(
     )
     actor = request_actor(request, target.auth)
     try:
+        if native is not None:
+            return await _native_call(native.receive, request_path)
+        repo, facade = _repo_and_facade(target, repo_manager)
         return await receive_pack_response_from_path(
             repo_manager=repo_manager,
             repo=repo,
@@ -560,20 +596,30 @@ async def _git_upload_pack_for_target(
     request: Request,
     repo_manager: VersionRepoManager,
 ):
-    repo, facade = _repo_and_facade(target, repo_manager)
+    native = await _native_endpoint(target, repo_manager)
+    repo, facade = _repo_and_facade(target, repo_manager) if native is None else (None, None)
     request_path = await _spool_git_request_body(
         request,
         max_body_bytes=settings.GIT_MAX_UPLOAD_PACK_BYTES or None,
     )
     actor = request_actor(request, target.auth)
-    await _record_git_fetch_audit(
-        repo=repo,
-        auth=target.auth,
-        actor=actor,
-        entry_point=target.entry_point,
-        project_id=target.project_id,
-    )
+    if native is not None:
+        try:
+            await _record_git_fetch_audit(
+                repo=native, auth=target.auth, actor=actor,
+                entry_point=target.entry_point, project_id=target.project_id,
+            )
+            return await _native_call(native.upload, request_path, protocol=request.headers.get("git-protocol", ""))
+        finally:
+            _unlink_temp(request_path)
     try:
+        await _record_git_fetch_audit(
+            repo=repo,
+            auth=target.auth,
+            actor=actor,
+            entry_point=target.entry_point,
+            project_id=target.project_id,
+        )
         return await upload_pack_streaming_response(
             repo,
             facade.scope_path,

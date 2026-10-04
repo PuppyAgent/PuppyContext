@@ -201,6 +201,7 @@ def server_repo(memory_store):
 @pytest.fixture
 def repo_manager(server_repo):
     manager = MagicMock(spec=VersionRepoManager)
+    manager.get_native_service.return_value = None  # Explicit legacy fixture authority.
     manager.get_server_repo.return_value = server_repo
     return manager
 
