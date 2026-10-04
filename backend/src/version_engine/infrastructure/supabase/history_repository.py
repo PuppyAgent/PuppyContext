@@ -135,6 +135,22 @@ class SupabaseHistoryManager:
         self._root_hash_cache = True
         return val
 
+    def initialize_root_hash(self) -> str:
+        from src.platform.project.write_lease import active_project_write_lease
+
+        lease = active_project_write_lease(self._project_id)
+        result = self._client.rpc('initialize_legacy_version_project_root', {
+            'p_project_id': self._project_id,
+            'p_lease_id': lease.lease_id if lease is not None else None,
+            'p_holder_id': lease.holder_id if lease is not None else None,
+        }).execute().data
+        if (not isinstance(result, str) or len(result) != 40 or result == '0'*40
+                or not set(result) <= set('0123456789abcdef')):
+            raise RuntimeError('invalid checked root initialization result')
+        if hasattr(self, '_root_hash_cache'):
+            del self._root_hash_cache
+        return result
+
     def set_root_hash(self, h: str) -> None:
         self._client.table("projects").update({PROJECT_ROOT_HASH_COLUMN: h}).eq(
             "id", self._project_id

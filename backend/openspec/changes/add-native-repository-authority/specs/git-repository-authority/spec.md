@@ -186,6 +186,20 @@ Native canonical publication SHALL enforce the current acknowledged single-file 
 - **THEN** it rejects rather than using a stale grant
 - **AND** accepted metadata discovery remains object-I/O-free
 
+### Requirement: Initialization preserves acknowledged state
+Initialization SHALL NOT infer an unborn repository from failed or unavailable physical storage. Existing acknowledged metadata SHALL NOT be overwritten by implicit repair, stale reads or missing checked capabilities.
+
+#### Scenario: Existing root with unavailable storage
+- **WHEN** initialization is retried for an existing valid root
+- **THEN** it returns the same root without probing or rewriting physical storage
+- **AND** a concurrent publication that wins the Project lock is preserved
+
+#### Scenario: Genuine first legacy initialization
+- **WHEN** a legacy SHA-1 Project has no root, accepted history, Scope state or refs
+- **THEN** checked initialization requires an initializing/ready lifecycle and a current Project write lease after lock waits
+- **AND** missing or expired authority leaves the root absent
+- **AND** native metadata and corrupt accepted state reject rather than becoming an empty legacy repository
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

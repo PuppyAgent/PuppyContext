@@ -7,6 +7,7 @@ visible version facts still enter through this facade.
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from src.version_engine.domain.intents import (
@@ -39,7 +40,7 @@ from src.version_engine.write_engine.trace import (
     trace_mark,
     use_version_trace,
 )
-from src.utils.logger import log_info, log_warning
+from src.utils.logger import log_info
 
 
 class VersionWriteEngine:
@@ -72,28 +73,17 @@ class VersionWriteEngine:
         )
 
     async def initialize_project_tree(self, project_id: str) -> str:
-        """Idempotently initialize an empty project root tree.
+        """Initialize only a genuinely unborn legacy root under checked SQL CAS.
 
-        L5 owns all ref writes, including the initial root_hash row that marks
-        a project as ready for writes.
+        Initialization is not repair. Existing roots survive missing/corrupt or
+        unavailable storage, and a publication winning a race must not be reset.
+        Native enrollment uses its separate reviewed authority path.
         """
-        from src.version_engine.write_engine.git_object_format import EMPTY_TREE_SHA1
-
         repo = self._repos.get_repo(project_id)
-        existing = repo.history.get_root_hash()
-        if existing:
-            if existing == EMPTY_TREE_SHA1:
-                return existing
-            backend = repo.store._backend
-            if hasattr(backend, "async_exists") and await backend.async_exists(existing):
-                return existing
-            log_warning(
-                f"[version_engine][init] project={project_id} root_hash={existing} "
-                f"present in DB but blob missing in storage; re-initializing",
-            )
-        repo.history.set_root_hash(EMPTY_TREE_SHA1)
-        log_info(f"[version_engine][init] project={project_id} initialized empty tree")
-        return EMPTY_TREE_SHA1
+        initialize = getattr(repo.history, "initialize_root_hash", None)
+        if not callable(initialize):
+            raise RuntimeError("checked root initialization unavailable")
+        return await asyncio.to_thread(initialize)
 
     async def apply_operation(
         self,

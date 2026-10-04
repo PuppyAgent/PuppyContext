@@ -540,3 +540,21 @@ scheduler's distinct backend-only control, not a fabricated user credential or
 an exception to the end-user reader's checks. These capabilities do not select
 native authority in the canonical router or finish Scope, consumer, recovery,
 retirement and migration gates.
+
+### Initialization is not repair
+
+The legacy initializer previously treated an unsuccessful object-existence probe
+as permission to replace an acknowledged root with the intrinsic empty tree.
+The regression reproduces that loss even without a concurrent writer. The new
+forward Expand adds a service-only checked initializer; the engine has no direct
+setter or missing-RPC fallback. Existing valid roots return unchanged without any
+object probe. Missing physical bytes remain corruption/unavailability, not unborn
+metadata. Missing roots alongside accepted commits, Scope state or refs reject.
+
+First initialization locks Organization, Project and existing repository metadata,
+requires legacy SHA-1 authority and initializing/ready lifecycle, and verifies a
+current Project lease before and after the update. A publication winning the lock
+race is returned unchanged. Native authority requires its own lifecycle operation,
+never a legacy empty-tree repair. The DDL initializes no Project and performs no
+storage access. Populated rollback/retry, real SDK/Auth ACLs and the legacy main
+application profile are tested separately from native activation.

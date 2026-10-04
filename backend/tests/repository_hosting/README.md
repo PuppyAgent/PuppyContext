@@ -174,7 +174,23 @@ File-policy 首轮实服 94 passed / 4 failed：两条零 delta event 计数夹�
 暴露对账测试错误复用 admitted user control；改为 application scheduler 同一个
 backend-only factory，未给 user reader 增加特权。该 broad run 期间有源码修改，
 不是 frozen acceptance。metadata guard 最终 strict native-PG **47 passed**，组件
-及 storage billing **365 passed**。清洁冻结全量结果另记，不把以上 selection 合并计数。
+及 storage billing **365 passed**，不把以上 selection 合并计数。
+
+随后清洁冻结 `b652330b` 全量 **1220 passed / 原 34 failed + 329 pgTAP**；相对
+`defff62e` 失败集合无增减，无 skip/error/资源耗尽（PID 峰值 46、内存峰值
+716460032 bytes）。补充 backend **2773 passed / 27 skipped**，2800 JUnit cases，
+无 failure/error；不是严格 hosting 验收。此结果不适用于后续 dirty 初始化修复。
+
+初始化修复先保留三条 red：已有 ACK 在 storage probe 失败时被置为 empty tree，
+缺 checked capability 仍调用旧 setter。新的空 Expand/checked RPC 在锁内识别真正
+未初始化的 legacy SHA-1 Project；已有合法 root 不探测对象、不改写；缺 root 但有
+accepted history/Scope state/refs 属于损坏，不是空库。首初始化要求有效生命周期和
+等待后仍有效的 Project lease；native authority 拒绝走旧初始化。真实 PostgREST、
+anon/JWT denial、populated rollback/retry、publication race/queued expiry 的定向
+Docker **24 passed + 329 pgTAP**（Auth 3、PG 8、legacy 应用 1、S3 2、组件 10）。
+该 selection 不证明 native 生命周期完成，也不自动恢复物理缺失的 ACK。后续损坏
+root/删除生命周期回归 strict native-PG **23 passed**，组件/billing/deep scenarios
+**412 passed**；先前误选 Auth 的 PG receipt 含 3 skips，保留并按 strict 失败记录。
 
 ### Git 命令符合性与测试驱动实施
 

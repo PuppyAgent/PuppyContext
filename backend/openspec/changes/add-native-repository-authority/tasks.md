@@ -58,6 +58,10 @@
 - [x] Repeat full order at clean frozen `8defc2cb`: 1089 passed / the original
   34 failures, 329 pgTAP, no skips/errors/exhaustion. The extra timeout did not
   recur; preserve the earlier failure, do not label diagnostics a product repair.
+- [x] Run clean frozen `b652330b`: 1220 passed / exactly the original 34 failures,
+  plus 329 pgTAP, no skips/errors/resource exhaustion. All application/Auth/S3/PG
+  layers pass; this does not close canonical routing or migration. Supplementary
+  backend: 2773 passed / 27 skipped (2800 cases, zero failures/errors).
 - [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
@@ -65,6 +69,24 @@
 - [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
+
+### Initialization preserves acknowledged roots (M07/M14 prerequisite)
+
+- [x] Reproduce initialization replacing a nonempty acknowledged root when its
+  object probe fails, and missing checked capability falling back to a setter.
+  Replace this with a backend-only SQL initializer: preserve existing valid roots
+  without storage probes; require genuine absence, legacy SHA-1 authority, valid
+  lifecycle and a current Project lease for first initialization. Check after
+  lock waits and reject corrupt accepted metadata, native authority and missing
+  RPC capability. No enrollment, repair or activation in DDL.
+- [x] Validate populated Expand rollback/retry, SDK/PostgREST and anon/JWT denial,
+  publication/initializer race and queued expiry. Connected owned Docker: 24
+  passed plus 329 pgTAP (Auth 3, PG 8, legacy application 1, S3 2, component 10).
+  Original three failing component regressions are retained separately. Additional
+  corrupt-root/lifecycle tests: strict native-PG 23 passed; component/billing/deep
+  scenarios 412 passed. The earlier native-PG selection's three Auth skips remain
+  a rejected strict receipt, not acceptance.
+- [ ] Complete native initialization together with lifecycle and migration gates.
 
 ### Logical billing integration (M15, in progress)
 
