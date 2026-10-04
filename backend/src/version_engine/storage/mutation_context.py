@@ -16,6 +16,7 @@ class PublicationStorageContext:
     project_id: str
     actor: str
     pin_id: str
+    require_capacity: bool = False
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,8 @@ collection_context: ContextVar[CollectionStorageContext | None] = ContextVar(
 
 
 @contextmanager
-def publication_storage(project_id: str, actor: str, pin_id: str):
-    token = publication_context.set(PublicationStorageContext(project_id, actor, pin_id))
+def publication_storage(project_id: str, actor: str, pin_id: str, *, require_capacity: bool = False):
+    token = publication_context.set(PublicationStorageContext(project_id, actor, pin_id, require_capacity))
     try:
         yield
     finally:

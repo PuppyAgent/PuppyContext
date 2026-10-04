@@ -39,6 +39,12 @@
   155 failed, late fork/resource errors despite all application/Auth/SQL/S3 cases
   passing). Add init child reaping and mandatory cgroup PID/memory evidence plus
   peak process/thread diagnostics; do not increase budgets to hide exhaustion.
+- [x] Run clean `e6271b9e` Linux Docker full target: 985 passed / the exact original
+  34 failures, plus 329 pgTAP. All native/SQL/Auth/S3/main-application cases pass.
+  PID/memory exhaustion counters stay zero; observed PID peak 40, memory peak
+  707457024 bytes. Controlled stock Git `maintenance --auto --detach` reproduces
+  40 orphan zombies without init versus zero with init, at the same budget.
+  This repairs the test environment, not the remaining canonical capabilities.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
   Billing, ETL and Scheduler are disabled in this core application test profile.
@@ -193,6 +199,26 @@
   read-only grant to replay while rejecting new writes and changed requests.
   Selected actual-service regression: 54 passed plus 329 pgTAP; no skips/XFAIL.
   This is not a full clean-revision target receipt or canonical authentication.
+- [x] Connect technical capacity to native publication/collection: explicit
+  Org/Project inventory, atomic unique-object reservations/ledger, pre-PUT
+  admission, verified-closure sealing, old-issuer fences and non-expiring
+  unsettled-I/O claims. Preserve separate customer logical billing and Project
+  cleanup identity. Test queued expiry, cross-Project races, populated expansion
+  rollback/retry, real Data API denial, cold old-ACK reads and post-DELETE SQL
+  recovery. Earlier selection: 98 passed plus 329 pgTAP; later same-pin I/O
+  settlement review reproduced two failures and required per-invocation claims.
+- [x] Fix per-invocation settlement: neither pin transition nor another retry
+  clears outstanding I/O. Retain cancellation/timeout claims; reconcile only
+  verified metadata without creating fake I/O. Same-pin red 2 -> green 6 selected.
+- [x] Require isolated single-attempt native PUT/DELETE; no implicit multipart,
+  ambiguous HEAD absence or accepted missing/retried mutation receipt. Actual S3
+  lost-ACK tests cover both formats. Bind clients to endpoint/credential source
+  without mutating shared retry/proxy configuration. Broad dirty selection 295
+  passed +329 pgTAP; final client-rebinding/I/O selection 18 passed +329 pgTAP.
+  Supplementary component/GC checks 75 passed. Keep native canonical dormant.
+- [ ] Complete canonical logical billing/entitlement settlement, ref policy,
+  lifecycle retirement and independent-process/remote-I/O recovery before treating
+  this as complete M11 acceptance. No repository is automatically enrolled.
 - [ ] Complete canonical admission/ref-policy/quota/consumer integration; do
   not activate this wrapper based on stored/admitted fixture credentials.
 - [ ] Integrate the SQL primitive into the admitted RefTransactionService, including

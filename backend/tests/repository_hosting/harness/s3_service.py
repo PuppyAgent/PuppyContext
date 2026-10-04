@@ -49,5 +49,5 @@ def owned_s3():
         yield service, api
     finally:
         if service is not None:
-            service.client.close()
+            service.close()
         api.close()

@@ -111,6 +111,38 @@ def test_current_auth_clients_cannot_call_native_write_admission(api, authority,
     assert authority.state()["oid"] == A
 
 
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('function', ['check_version_repository_capacity', 'reserve_version_object_capacity',
+                                     'seal_capacity_version_object_publication', 'collect_version_object_capacity',
+                                     'get_version_repository_capacity_inventory', 'settle_version_object_capacity_io'])
+def test_current_auth_clients_cannot_call_capacity_rpcs(api, authority, role, function):
+    body = {'p_project_id': authority.project}
+    if function == 'reserve_version_object_capacity':
+        body.update(p_actor='test:writer', p_pin_id=str(uuid.uuid4()), p_objects=[])
+    elif function == 'seal_capacity_version_object_publication':
+        body.update(p_actor='test:writer', p_pin_id=str(uuid.uuid4()), p_manifest_sha256='f' * 64, p_root_details={})
+    elif function == 'collect_version_object_capacity':
+        body.update(p_gc_token=str(uuid.uuid4()), p_object_ids=[A])
+    elif function == 'get_version_repository_capacity_inventory':
+        body.update(p_token=str(uuid.uuid4()))
+    elif function == 'settle_version_object_capacity_io':
+        body.update(p_actor='test:writer', p_pin_id=str(uuid.uuid4()), p_io_id=str(uuid.uuid4()))
+    response = api.request('POST', f'/rest/v1/rpc/{function}', role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()['code'] in ('42501', 'PGRST202')
+    assert authority.state()['oid'] == A
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('table', ['version_organization_capacity', 'version_repository_capacity',
+                                  'version_repository_object_capacity', 'version_repository_capacity_events',
+                                  'version_repository_capacity_proofs', 'version_repository_capacity_inflight'])
+def test_clients_cannot_read_capacity_inventory_or_ledger(api, role, table):
+    response = api.request('GET', f'/rest/v1/{table}', role=role, params={'select': '*'})
+    assert response.status_code in (401, 403)
+    assert response.json()['code'] == '42501'
+
+
 def rpc(api, body, function="apply_version_ref_transaction"):
     response = api.request("POST", f"/rest/v1/rpc/{function}", json=body)
     assert response.status_code == 200

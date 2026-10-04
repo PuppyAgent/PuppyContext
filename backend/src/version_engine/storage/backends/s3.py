@@ -492,7 +492,7 @@ def stage_object_writes(store_or_backend):
         yield batch
 
 
-def _verify_loose_hash(expected_hash: str, data: bytes) -> None:
+def _verify_loose_hash(expected_hash: str, data: bytes) -> tuple[str, int]:
     try:
         obj_type, content = decode_object(data)
         actual_hash = hash_object(obj_type, content, object_format="sha256" if len(expected_hash) == 64 else "sha1")
@@ -502,6 +502,7 @@ def _verify_loose_hash(expected_hash: str, data: bytes) -> None:
         raise StorageWriteError(
             f"content-addressed object mismatch: expected {expected_hash}, got {actual_hash}",
         )
+    return obj_type, len(content)
 
 
 # ═══════════════════════════════════════════════
@@ -593,6 +594,14 @@ class S3StorageBackend(StorageBackend):
         context = publication_context.get()
         if context is not None and context.project_id != self.publication_project_id:
             raise StorageWriteError("publication context belongs to another Project")
+
+    def _physical_s3(self) -> S3Service:
+        if publication_context.get() is None and collection_context.get() is None:
+            return self._s3
+        factory = getattr(self._s3, 'for_single_attempt_io', None)
+        if not callable(factory):
+            raise StorageWriteError('native single-attempt storage capability unavailable')
+        return factory()
 
     def _authorize_deletion(self) -> None:
         context = collection_context.get()
@@ -884,14 +893,17 @@ class S3StorageBackend(StorageBackend):
         return False
 
     def _delete_loose(self, h: str) -> bool:
+        deleted = True
         try:
-            _run_async(self._s3.delete_file(self._key_for(h)))
-            return True
+            _run_async(self._physical_s3().delete_file(self._key_for(h)))
         except Exception as e:
             if _is_not_found_error(e):
-                return False
-            log_error(f"[VersionS3] Failed to delete {h}: {e}")
-            raise
+                deleted = False
+            else:
+                log_error(f"[VersionS3] Failed to delete {h}: {e}")
+                raise
+        self._collect_capacity([h])
+        return deleted
 
     def _delete_chunked(self, h: str, location: "ObjectLocation") -> bool:
         manifest_key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
@@ -899,7 +911,7 @@ class S3StorageBackend(StorageBackend):
         deleted_any = False
         for key in keys:
             try:
-                _run_async(self._s3.delete_file(key))
+                _run_async(self._physical_s3().delete_file(key))
                 deleted_any = True
             except Exception as exc:  # noqa: BLE001
                 if not _is_not_found_error(exc):
@@ -989,7 +1001,7 @@ class S3StorageBackend(StorageBackend):
             raise StorageWriteError("bundle deletion is outside its Project namespace")
         self._authorize_deletion()
         try:
-            _run_async(self._s3.delete_file(pack_key))
+            _run_async(self._physical_s3().delete_file(pack_key))
         except Exception as exc:  # noqa: BLE001
             if not _is_not_found_error(exc):
                 log_error(f"[VersionS3] delete bundle {pack_key}: {exc}")
@@ -1022,6 +1034,21 @@ class S3StorageBackend(StorageBackend):
                 return ids
             start += page
 
+    def _collect_capacity(self, object_ids: list[str]) -> None:
+        context = collection_context.get()
+        if context is None:
+            return
+        if context.project_id != self._project_id or self._supabase is None:
+            raise StorageWriteError('native capacity collection unavailable')
+        response = self._supabase.client.rpc('collect_version_object_capacity', {
+            'p_project_id': self._project_id, 'p_gc_token': context.token, 'p_object_ids': object_ids,
+        }).execute()
+        if not isinstance(response.data, dict) or any(
+            type(response.data.get(key)) is not int or response.data[key] < 0
+            for key in ('removed_body_bytes', 'removed_objects')
+        ):
+            raise StorageWriteError('invalid capacity collection result')
+
     def _delete_object_location_rows(self, object_ids: list[str]) -> None:
         if self._supabase is None or not object_ids:
             return
@@ -1038,6 +1065,7 @@ class S3StorageBackend(StorageBackend):
                         "p_project_id": self._project_id, "p_gc_token": context.token,
                         "p_object_ids": chunk,
                     }).execute()
+                    self._collect_capacity(chunk)
                 else:
                     (self._supabase.client.table(OBJECT_LOCATIONS_TABLE).delete()
                      .eq("project_id", self._project_id).in_("object_id", chunk).execute())
@@ -1095,12 +1123,14 @@ class S3StorageBackend(StorageBackend):
 
     async def async_put(self, h: str, data: bytes) -> None:
         self._check_publication_context()
-        _verify_loose_hash(h, data)
+        kind, size = _verify_loose_hash(h, data)
+        io_id = await self._async_reserve_capacity([dict(object_id=h, object_kind=kind, body_bytes=size)])
         route = self._active_io_strategy().plan_single(h, len(data))
         if route.layout is ObjectWriteLayout.CHUNKED:
             await self._async_put_chunked_object(h, data)
-            return
-        await self._do_put(self._key_for(h), data, expected_hash=h)
+        else:
+            await self._do_put(self._key_for(h), data, expected_hash=h)
+        await self._async_settle_capacity(io_id)
 
     async def async_exists(self, h: str) -> bool:
         if self._lookup_object_location(h) is not None:
@@ -1151,13 +1181,17 @@ class S3StorageBackend(StorageBackend):
         """
         import asyncio
         self._check_publication_context()
+        facts = []
         for object_id, data in objects.items():
-            _verify_loose_hash(object_id, data)
+            kind, size = _verify_loose_hash(object_id, data)
+            facts.append(dict(object_id=object_id, object_kind=kind, body_bytes=size))
+        io_id = await self._async_reserve_capacity(facts)
         plan = self._active_io_strategy().plan_batch(
             {object_id: len(data) for object_id, data in objects.items()}
         )
         if plan.uses_location_index:
             await self._async_put_bundled_or_chunked(objects)
+            await self._async_settle_capacity(io_id)
             return
 
         sem = asyncio.Semaphore(concurrency)
@@ -1170,7 +1204,7 @@ class S3StorageBackend(StorageBackend):
                     return
                 key = self._key_for(h)
                 if skip_exists:
-                    await self._s3.upload_file(key, data, content_type="application/octet-stream")
+                    await self._physical_s3().upload_file(key, data, content_type="application/octet-stream")
                 else:
                     await self._do_put(key, data, expected_hash=h)
 
@@ -1184,9 +1218,63 @@ class S3StorageBackend(StorageBackend):
                 *[_upload(h, d) for h, d in objects.items()],
                 return_exceptions=True,
             )
-        errors = [item for item in results if isinstance(item, Exception)]
+        errors = [item for item in results if isinstance(item, BaseException)]
         if errors:
             raise errors[0]
+        await self._async_settle_capacity(io_id)
+
+    async def _async_reserve_capacity(self, facts: list[dict]) -> str | None:
+        import uuid
+        context = publication_context.get()
+        if context is None or not facts:
+            return None
+        io_id, claimed = str(uuid.uuid4()), False
+        if self._supabase is None:
+            raise StorageWriteError("native capacity admission unavailable")
+        # Before ANY loose, bundle, part or manifest PUT. Encoded bytes and
+        # compression/chunk boundaries never define logical object identity.
+        for offset in range(0, len(facts), 200):
+            batch = facts[offset:offset + 200]
+            try:
+                response = await asyncio.to_thread(
+                    lambda batch=batch: self._supabase.client.rpc('reserve_version_object_capacity', {
+                        'p_project_id': self._project_id, 'p_actor': context.actor,
+                        'p_pin_id': context.pin_id, 'p_objects': batch, 'p_required': context.require_capacity,
+                        'p_io_id': io_id,
+                    }).execute()
+                )
+                if not isinstance(response.data, dict) or any(
+                    type(response.data.get(key)) is not int or response.data[key] < 0
+                    for key in ('new_body_bytes', 'new_objects')
+                ):
+                    raise RuntimeError('invalid capacity admission result')
+                dormant = response.data.get('profile') == 'dormant'
+                if context.require_capacity and dormant:
+                    raise RuntimeError('invalid capacity admission result')
+                claimed = claimed or not dormant
+            except Exception as exc:
+                raise StorageWriteError(f"native capacity admission failed: {exc}") from exc
+        return io_id if claimed else None
+
+    async def _async_settle_capacity(self, io_id: str | None) -> None:
+        if io_id is None:
+            return
+        context = publication_context.get()
+        if context is None or self._supabase is None:
+            raise StorageWriteError('native capacity settlement unavailable')
+        # Only after ALL physical/index work returned successfully. No finally
+        # cleanup on cancellation/timeout: remote I/O may still be outstanding.
+        # Another invocation (even on this same pin) cannot settle this identity.
+        try:
+            response = await asyncio.to_thread(lambda: self._supabase.client.rpc('settle_version_object_capacity_io', {
+                'p_project_id': self._project_id, 'p_actor': context.actor,
+                'p_pin_id': context.pin_id, 'p_io_id': io_id,
+            }).execute())
+            if (not isinstance(response.data, dict) or type(response.data.get('settled_objects')) is not int
+                    or response.data['settled_objects'] < 0):
+                raise RuntimeError('invalid capacity settlement result')
+        except Exception as exc:
+            raise StorageWriteError(f'native capacity settlement failed: {exc}') from exc
 
     def _active_io_strategy(self) -> IOStorageStrategy:
         if self._supabase is not None:
@@ -1617,7 +1705,7 @@ class S3StorageBackend(StorageBackend):
 
         async def upload_one(key: str, data: bytes, content_type: str) -> None:
             async with sem:
-                await self._s3.upload_file(
+                await self._physical_s3().upload_file(
                     key,
                     data,
                     content_type=content_type,
@@ -1630,7 +1718,7 @@ class S3StorageBackend(StorageBackend):
             ],
             return_exceptions=True,
         )
-        errors = [item for item in results if isinstance(item, Exception)]
+        errors = [item for item in results if isinstance(item, BaseException)]
         if errors:
             raise errors[0]
 
@@ -1763,7 +1851,7 @@ class S3StorageBackend(StorageBackend):
                         f"[VersionS3] hash-on-write: could not verify resident "
                         f"bytes at {key} ({exc}); overwriting",
                     )
-        await self._s3.upload_file(key, data, content_type="application/octet-stream")
+        await self._physical_s3().upload_file(key, data, content_type="application/octet-stream")
 
     async def async_scan_primary_loose_integrity(
         self,
@@ -1837,7 +1925,7 @@ class S3StorageBackend(StorageBackend):
             if not heal:
                 return "corrupt"
             try:
-                await self._s3.delete_file(key)
+                await self._physical_s3().delete_file(key)
                 return "healed"
             except Exception as exc:  # noqa: BLE001
                 log_warning(f"[integrity-scan] heal delete failed for {key}: {exc}")

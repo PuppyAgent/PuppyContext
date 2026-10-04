@@ -130,14 +130,11 @@ def _run_git_object_gc(
     kept_young = 0
     kept_unknown_age = 0
     for object_id in unreachable:
-        if _object_is_old_enough(
-            object_id,
-            metadata,
-            retention_seconds=retention_seconds,
-            now=now,
-        ):
-            eligible.append(object_id)
-        elif retention_seconds <= 0:
+        # Native capacity inventory can retain a reservation after a failed PUT
+        # or post-DELETE SQL outage. Only a fresh canonical absence proof adds
+        # this marker; live/unsettled roots are still protected by the walk.
+        if ((metadata.get(object_id) or {}).get("capacity_missing") is True or retention_seconds <= 0
+                or _object_is_old_enough(object_id, metadata, retention_seconds=retention_seconds, now=now)):
             eligible.append(object_id)
         elif object_id not in metadata:
             kept_unknown_age += 1

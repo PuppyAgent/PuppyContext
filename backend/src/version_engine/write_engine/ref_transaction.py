@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from src.platform.authorization.models import ProjectAction, ProjectGrant, RuntimeGrant
 from src.platform.repository_target.models import ProjectRootTarget
+from src.version_engine.infrastructure.supabase.capacity_repository import RepositoryCapacity
 from src.version_engine.infrastructure.supabase.ref_authority_repository import (
     RefAuthorityRepository,
 )
@@ -92,10 +93,14 @@ def admitted_actor(grant: ProjectGrant | RuntimeGrant, project_id: str, *, write
 
 class RefTransactionService:
     def __init__(self, control: RefAuthorityRepository, backend: StorageBackend, *, project_id: str,
-                 object_format: str = "sha1", max_objects: int = 1_000_000, max_bytes: int = 8 * 1024**3):
+                 object_format: str = "sha1", max_objects: int = 1_000_000, max_bytes: int = 8 * 1024**3,
+                 capacity: RepositoryCapacity | None = None):
         bound_project = getattr(backend, "publication_project_id", None)
         if bound_project is not None and bound_project != project_id:
             raise ValueError("publication backend belongs to another Project")
+        if capacity is not None and capacity.control is not control:
+            raise ValueError("capacity admission/control binding mismatch")
+        self.capacity = capacity
         self.control = control
         self.backend = backend
         self.project_id = project_id
@@ -137,6 +142,8 @@ class RefTransactionService:
         if (not snapshot or snapshot["authority"] != "native" or snapshot["write_state"] != "active"
                 or snapshot["object_format"] != self.object_format or snapshot["generation"] != generation):
             raise RuntimeError("repository authority unavailable or generation mismatch")
+        if self.capacity is not None:
+            self.capacity.check(self.project_id)
         if pin is not None:
             admitted_pin = self.control.begin(self.project_id, actor, pin, generation, roots)
             # A sealed pin is immutable. A retry after seal but before the ref
@@ -145,7 +152,7 @@ class RefTransactionService:
                 # Retain the pin on failure/uncertain ACK. Storage mutations
                 # revalidate its current state/epoch in PG, even if a copied
                 # async context outlives this request or the pin's expiry.
-                with publication_storage(self.project_id, actor, pin):
+                with publication_storage(self.project_id, actor, pin, require_capacity=self.capacity is not None):
                     prepare()
                     empty_oid, empty_loose = encode_object("tree", b"", object_format=self.object_format)
                     self.backend.put_durable(empty_oid, empty_loose)
@@ -156,7 +163,10 @@ class RefTransactionService:
                             self.control.renew(self.project_id, actor, pin)
                             next_renewal = time.monotonic() + 30
                     manifest = self.verifier.verify(roots, progress=renew)
-                    self.control.seal(self.project_id, actor, pin, manifest.digest, manifest.root_details())
+                    if self.capacity is not None:
+                        self.capacity.seal(self.project_id, actor, pin, manifest)
+                    else:
+                        self.control.seal(self.project_id, actor, pin, manifest.digest, manifest.root_details())
         result = self.control.apply(*args)
         if pin is not None:
             # The result is already durable. A cleanup outage retains objects,

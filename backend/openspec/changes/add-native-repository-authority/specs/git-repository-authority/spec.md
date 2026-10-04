@@ -102,6 +102,35 @@ Admitted native publication SHALL revalidate current platform role or full-Proje
 - **THEN** the exact original result can be replayed without uploading or publishing again
 - **AND** changed request content still fails the original digest check
 
+### Requirement: Atomic retained-object capacity
+Native canonical writers SHALL reserve technical object-body bytes and object counts before physical uploads, deduplicating logical object identity within each Project and enforcing both repository and Organization ceilings atomically. The complete verified closure, including named refs and retained objects, SHALL be reconciled before publication. Missing required policy, inventory or checked RPC capability SHALL fail closed. Technical capacity SHALL NOT redefine the existing `storage.logical_bytes` billing metric; canonical publication still requires its applicable billing/entitlement settlement.
+
+#### Scenario: Concurrent sibling repositories
+- **WHEN** two repositories in one Organization concurrently request allocations whose sum exceeds the shared ceiling
+- **THEN** at most the fitting allocation succeeds and the rejected batch leaves counters and ledger unchanged
+- **AND** identical OIDs stored in different Project namespaces do not provide cross-tenant or cross-repository quota credit
+
+#### Scenario: Compressed blob on a non-default ref
+- **WHEN** a highly compressed blob would fit by encoded bytes but exceed the decoded-body ceiling on a tag or other named ref
+- **THEN** admission rejects before physical PUT and preserves every previously acknowledged root
+
+#### Scenario: Retry and uncertain physical I/O
+- **WHEN** the same object is allocated again or the original result is replayed
+- **THEN** no duplicate capacity charge is added
+- **WHEN** an uploading producer expires or dies without proving physical-I/O quiescence
+- **THEN** its in-flight claim does not expire and collection cannot refund that capacity
+- **AND** even a deduplicated reupload retains its own unsettled-I/O claim
+- **AND** retries sharing one operation/pin cannot settle another storage invocation; pin seal/release does not erase outstanding claims
+
+#### Scenario: Unknown SDK mutation outcome
+- **WHEN** a physical PUT or DELETE times out after it might have executed
+- **THEN** the native mutation boundary SHALL NOT automatically retry and reinterpret eventual success as quiescence
+- **AND** missing or nonzero retry evidence retains the invocation/collection fence until explicit worker and physical-I/O quiescence is established
+
+#### Scenario: Old issuer bypass
+- **WHEN** an enrolled repository is published through an older receipt issuer or a receipt without matching capacity attestation
+- **THEN** SQL rolls back the new publication rather than treating the missing capability as unmetered access
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

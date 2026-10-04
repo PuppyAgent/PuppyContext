@@ -101,7 +101,30 @@ SQL、S3 层通过，但后段出现 `fork failed: Resource temporarily unavaila
 不将其记成验收通过或直接推定为 Git 缺陷。补充 `--init` 子进程回收与
 cgroup v2 PID/内存计数、峰值进程/线程诊断（不记录 argv/凭据）；保持
 1024 PID、4 GiB 内存上限不变。缺失资源证据、PID/内存耗尽均使严格验收
-失败。新全量必须重新证明，短选择通过不能排除长时资源累积。
+失败。短选择通过不能排除长时资源累积。
+
+后续 clean `e6271b9e` 全量：**985 passed / 34 failed**，9 个 pgTAP 文件 /
+329 tests 全通过；失败名称与 `61cc117e` 的原始 34 项完全一致。各层：
+原生 Git 18、组件 595/34、PostgreSQL 176、Auth/PostgREST 62、S3 133、
+真实应用 1。PID/内存耗尽计数均为零，观察 PID 峰值 40、内存峰值
+707457024 bytes。控制实验 40 次 stock Git `maintenance --auto --detach`
+在无 init 时留下 40 个 zombie，有 init 时为零。配置/进程回收问题已修复；
+这不是 34 项产品能力、Native canonical 路由或 ISSUE-062 完成的证明。
+
+原生技术容量新增显式 Org/Project unique-object body bytes / object-count
+预留与账本：PUT 前拦截，整闭包计量后封存，SQL 拒绝旧 issuer 绕过。
+这不改变客户 `storage.logical_bytes` 计费语义。GC 不因 producer 到期或
+被杀便返还额度；重复对象上传也保留独立未结 I/O claim。真实 S3 用例
+验证非默认 tag 配额拒绝零 PUT、旧 ACK 冷读、已知 I/O 静止后的删除/
+SQL 故障恢复及无物理对象的预留回收。新增容量选择 98 passed + 329
+pgTAP（非 clean 全量），包括真实 Auth 客户端拒绝和 populated rollback。
+后续复核复现同 pin 误结算两个失败；现改为每次存储调用独立 I/O ID，
+pin 封存/释放不代替结算。原生 PUT/DELETE 使用隔离 single-attempt client，
+不改共享 retry/proxy 设置、不隐式 multipart，也不把模糊 HEAD 失败当不存在。
+真实 S3 丢失 PUT/DELETE ACK 后不自动重试，并保留额度/GC fence；恢复只基于
+测试中实际观察到的 I/O 完成。新 broad 选择 295 passed +329 pgTAP；客户端
+切换/最后 I/O 选择 18 passed +329 pgTAP，仍非 clean 全量。
+Canonical Git/API、计费结算、生命周期退役及独立进程恢复仍未交付。
 
 ### Git 命令符合性与测试驱动实施
 

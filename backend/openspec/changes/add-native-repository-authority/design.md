@@ -392,3 +392,63 @@ The raw ref repository remains a backend internal primitive. This wrapper does
 not enable canonical routing, enforce ref policy or repository-wide quota,
 implement consumer integration, or close long-I/O/process-recovery gates. Those
 are required before native authority can be activated for existing repositories.
+
+## Explicit technical capacity and uncertain-I/O accounting
+
+The forward capacity expansion adds no policies or inventory to existing
+repositories. An operator must establish the complete baseline before setting
+Org/Project inventory initialized. The metric is unique local Git object **body**
+bytes and object count per Project, aggregated across its Organization; it is not
+encoded S3 bytes, tree-path logical billing, or cross-Project deduplication.
+All commit/tree/blob/tag objects and retained allocations count. External gitlink
+edges do not invent local objects or storage charges.
+
+Org -> Project serialization and policy-row locks make whole reservation batches
+atomic. Pin actor/format/generation/epoch/state and wall-clock expiry are checked
+at execution, including after queued locks. Exact retry adds no duplicate charge
+or ledger entry. A copied context cannot opt out of an enrolled policy. Required
+missing policy/RPC capabilities fail closed; low-level dormant profiles without
+policy remain explicitly distinct from canonical admission.
+
+Native S3 admission runs before loose, bundle, part or manifest PUT. The admitted
+ref service reconciles the full physically verified closure before guarded seal;
+SQL receipt/transaction triggers fence older unmetered issuers for enrolled
+repositories. Original result replay bypasses neither digest nor current-read
+checks, but needs no new allocation, current write lease or active capacity policy.
+The existing `storage.logical_bytes` billing contract is not repurposed or silently
+settled by this subsystem; canonical billing/entitlement integration is still open.
+
+Each storage invocation has an independent I/O identity, even for deduplicated
+reuploads or retries sharing the SAME operation/pin. Two red regressions exposed
+that automatically clearing claims on pin seal/release let a retry settle another
+producer. Neither transition nor expiry/deletion now removes claims. Storage
+settles only its invocation after all physical/index calls succeed; cancellation
+and unknown outcomes retain claims. Closure-only reconciliation makes no I/O claim,
+and guarded seal rejects any outstanding invocation on that pin. Explicit recovery
+must establish that specific invocation's worker and remote-I/O quiescence.
+Collection protects unsettled claims and refunds only after physical/index cleanup
+under the current non-expiring sweep token. Allocation inventory also survives
+Project metadata deletion, retaining cleanup identity and charges until retirement.
+
+A post-DELETE SQL failure leaves the allocation as recovery inventory. The native
+collector uses bounded, token-bound pages and fresh canonical absence checks,
+not a listing miss or cache, to recover missing placements/reservations. Such
+entries cannot override incomplete live-root proof or unsettled-I/O protection.
+Tests establish controlled same-process recovery with explicitly known quiescence;
+they do not establish independent-process or unknown remote-I/O quiescence.
+The generic boto3 client retains its existing adaptive retry configuration.
+Native mutation contexts instead require an isolated single-attempt view, bound
+to the source client's endpoint, credentials and transport configuration. It uses
+`total_max_attempts=1`, forbids implicit multipart uploads, and treats missing or
+nonzero SDK retry evidence as uncertain. Native DELETE is idempotent and does not
+reinterpret an ambiguous HEAD failure as absence. Neither shared clients nor
+process proxy configuration are mutated. Client replacement/recovery is tested;
+old clients stay alive until explicit service shutdown, not a configuration swap.
+Controlled real S3 PUT/DELETE lost-ACK tests observe exactly one physical request,
+retained invocation/GC fences, explicit known-quiescence recovery and old-ACK reads.
+This does not make arbitrary external timeout/process-death recovery automatic.
+
+This connects technical capacity to the existing native service and collector,
+not to canonical Git/API/product routing. Ref policy, public operation identity,
+consumer migration, logical billing, lifecycle retirement and large-resource
+acceptance remain required before activation.

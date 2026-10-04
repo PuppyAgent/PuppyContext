@@ -1,8 +1,10 @@
 """S3 storage service core business logic"""
 
 import asyncio
+import copy
 import logging
 import re
+import threading
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Callable, TypeVar
 
@@ -94,6 +96,62 @@ class S3Service:
             client_kwargs["endpoint_url"] = self.endpoint_url
 
         self.client = boto3.client(**client_kwargs)
+        self._single_attempt_clients = []
+        self._single_attempt_lock = threading.Lock()
+        self._single_attempt_io = False
+
+    def for_single_attempt_io(self) -> "S3Service":
+        """Isolated mutation client; never change the shared retry configuration.
+
+        Callers fencing uncertain I/O cannot infer quiescence from an SDK retry's
+        eventual success. Single PUTs also avoid hidden multipart worker/retry
+        lifetimes. Read/connect budgets, endpoint and proxy isolation are retained.
+        """
+        from botocore.config import Config
+
+        source = self.client
+        with self._single_attempt_lock:
+            client = next((target for origin, target in self._single_attempt_clients if origin is source), None)
+            if client is None:
+                credentials = source._request_signer._credentials
+                frozen = credentials.get_frozen_credentials()
+                client = boto3.client(
+                    "s3", endpoint_url=source.meta.endpoint_url,
+                    region_name=source.meta.region_name,
+                    aws_access_key_id=frozen.access_key,
+                    aws_secret_access_key=frozen.secret_key,
+                    aws_session_token=frozen.token,
+                    config=source.meta.config.merge(Config(
+                        retries={"total_max_attempts": 1, "mode": "standard"},
+                    )),
+                )
+                # Preserve the source's refreshable/session credentials without
+                # re-resolving ambient environment or another endpoint's identity.
+                client._request_signer._credentials = credentials
+                # Bind to the source client, not merely the service instance.
+                # A replaced endpoint must not keep using the previous client;
+                # older in-flight clients remain alive until service shutdown.
+                self._single_attempt_clients.append((source, client))
+        view = copy.copy(self)
+        view.client = client
+        view._single_attempt_io = True
+        view.max_file_size = min(self.max_file_size, 5 * 1024**3)
+        view.multipart_threshold = view.max_file_size
+        return view
+
+    def close(self) -> None:
+        self.client.close()
+        for _source, client in self._single_attempt_clients:
+            client.close()
+
+    def _check_mutation_attempts(self, response: dict) -> None:
+        if not getattr(self, '_single_attempt_io', False):
+            return
+        attempts = response.get("ResponseMetadata", {}).get("RetryAttempts")
+        # Other SDK handlers (such as region redirects) can request a retry.
+        # Missing evidence or any retry retains the caller's uncertainty fence.
+        if type(attempts) is not int or attempts != 0:
+            raise S3OperationError("single-attempt mutation has uncertain retry history")
 
     async def _run_sync(self, func: Callable[..., T], *args, **kwargs) -> T:
         """
@@ -239,6 +297,7 @@ class S3Service:
                     **extra_args,
                 )
 
+            self._check_mutation_attempts(response)
             logger.info(f"File uploaded successfully: {key} ({file_size} bytes)")
 
             return FileUploadResponse(
@@ -506,14 +565,16 @@ class S3Service:
             S3FileNotFoundError: File not found
             S3OperationError: Delete failed
         """
-        # First check if file exists
-        if not await self.file_exists(key):
+        # Strict DELETE is idempotent and must not turn an ambiguous HEAD error
+        # into absence. The ordinary compatibility profile keeps its old contract.
+        if not getattr(self, '_single_attempt_io', False) and not await self.file_exists(key):
             raise S3FileNotFoundError(key)
 
         try:
-            await self._run_sync(
+            response = await self._run_sync(
                 self.client.delete_object, Bucket=self.bucket_name, Key=key
             )
+            self._check_mutation_attempts(response)
             logger.info(f"File deleted successfully: {key}")
 
         except ClientError as e:
