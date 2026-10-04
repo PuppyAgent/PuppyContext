@@ -1,0 +1,39 @@
+{
+  "base": "aac9aca02ef83d0ea807e179126dc1a1675ee944",
+  "eslint_before": {
+    "files": 146,
+    "entries": 231,
+    "violations": 446,
+    "rules": {
+      "complexity": 76,
+      "max-depth": 5,
+      "max-lines": 13,
+      "max-lines-per-function": 30,
+      "max-params": 8,
+      "no-nested-ternary": 313,
+      "react-hooks/rules-of-hooks": 1
+    }
+  },
+  "eslint_final": {
+    "files": 143,
+    "entries": 227,
+    "violations": 422,
+    "rules": {
+      "complexity": 74,
+      "max-depth": 5,
+      "max-lines": 13,
+      "max-lines-per-function": 30,
+      "max-params": 8,
+      "no-nested-ternary": 291,
+      "react-hooks/rules-of-hooks": 1
+    }
+  },
+  "dependency_final": {
+    "entries": 59,
+    "rules": {
+      "components-no-features": 40,
+      "lib-no-application": 17,
+      "no-circular": 2
+    }
+  }
+}

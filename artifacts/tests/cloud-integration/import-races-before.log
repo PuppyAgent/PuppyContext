@@ -1,0 +1,121 @@
+
+> context-base-ui@0.0.3 test:unit
+> vitest run --no-cache tests/workspace/task-lifetime.test.tsx
+
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ❯ tests/workspace/task-lifetime.test.tsx (4 tests | 4 failed) 342ms
+     × does not let a late creation callback write to the newly selected project 120ms
+     × rejects callbacks from a previous account lifetime even after switching back 109ms
+     × does not reuse a previous account lifetime's in-flight response on return 57ms
+     × cannot seed the cache after its query owner unmounts 55ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/workspace/task-lifetime.test.tsx > Import query identity lifetime > does not let a late creation callback write to the newly selected project
+AssertionError: expected [ { id: 'old-project', …(2) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "id": "old-project",
++     "project_id": "p",
++     "status": "running",
++   },
++ ]
+
+ ❯ tests/workspace/task-lifetime.test.tsx:48:38
+     46|     vi.mocked(getProjectImportJobs).mockReturnValue(deferred().promise…
+     47|     act(() => { void previous.upsertJob(job('old-project')); });
+     48|     expect(hook.result.current.jobs).toEqual([]);
+       |                                      ^
+     49|     expect(getProjectImportJobs).toHaveBeenCalledTimes(2);
+     50|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/workspace/task-lifetime.test.tsx > Import query identity lifetime > rejects callbacks from a previous account lifetime even after switching back
+AssertionError: expected [ { id: 'old-account', …(2) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "id": "old-account",
++     "project_id": "p",
++     "status": "running",
++   },
++ ]
+
+ ❯ tests/workspace/task-lifetime.test.tsx:65:38
+     63|     vi.mocked(getProjectImportJobs).mockReturnValue(deferred().promise…
+     64|     act(() => { void previous.upsertJob(job('old-account')); void prev…
+     65|     expect(hook.result.current.jobs).toEqual([]);
+       |                                      ^
+     66|     expect(getProjectImportJobs).toHaveBeenCalledTimes(reads);
+     67|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/workspace/task-lifetime.test.tsx > Import query identity lifetime > does not reuse a previous account lifetime's in-flight response on return
+AssertionError: expected [ { id: 'old-read', …(2) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "id": "old-read",
++     "project_id": "p",
++     "status": "running",
++   },
++ ]
+
+ ❯ tests/workspace/task-lifetime.test.tsx:80:38
+     78|     await act(async () => old.resolve({ jobs: [job('old-read')], total…
+     79|     await waitFor(() => expect(hook.result.current.isLoading).toBe(fal…
+     80|     expect(hook.result.current.jobs).toEqual([]);
+       |                                      ^
+     81|     expect(getProjectImportJobs).toHaveBeenCalledTimes(3);
+     82|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/workspace/task-lifetime.test.tsx > Import query identity lifetime > cannot seed the cache after its query owner unmounts
+AssertionError: expected [ { id: 'unmounted', …(2) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "id": "unmounted",
++     "project_id": "p",
++     "status": "running",
++   },
++ ]
+
+ ❯ tests/workspace/task-lifetime.test.tsx:92:38
+     90|     await act(async () => { await previous.upsertJob(job('unmounted'))…
+     91|     const next = renderHook(() => useProjectImportJobs('p', identity.u…
+     92|     expect(next.result.current.jobs).toEqual([]);
+       |                                      ^
+     93|   });
+     94| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  08:48:35
+   Duration  1.59s (transform 114ms, setup 136ms, import 175ms, tests 342ms, environment 513ms)

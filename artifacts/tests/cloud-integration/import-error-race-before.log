@@ -1,0 +1,39 @@
+
+> context-base-ui@0.0.3 test:unit
+> vitest run --no-cache tests/workspace/task-lifetime.test.tsx
+
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ❯ tests/workspace/task-lifetime.test.tsx (6 tests | 1 failed) 556ms
+     × ignores a late failed read after returning to the original account 110ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/workspace/task-lifetime.test.tsx > Import query identity lifetime > ignores a late failed read after returning to the original account
+AssertionError: expected Error: previous account request failed to be undefined
+
+- Expected:
+undefined
+
++ Received:
+Error {
+  "message": "previous account request failed",
+}
+
+ ❯ tests/workspace/task-lifetime.test.tsx:107:39
+    105|     await waitFor(() => expect(hook.result.current.isLoading).toBe(fal…
+    106|     await act(async () => old.reject(new Error('previous account reque…
+    107|     expect(hook.result.current.error).toBeUndefined();
+       |                                       ^
+    108|     expect(hook.result.current.jobs).toEqual([]);
+    109|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  08:50:34
+   Duration  1.27s (transform 122ms, setup 101ms, import 174ms, tests 556ms, environment 347ms)

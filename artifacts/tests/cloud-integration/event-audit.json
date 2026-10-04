@@ -1,0 +1,12 @@
+{
+  "command": "rg --files frontend; inspect every JS/TS source for all six exact names",
+  "scanned_source_files": 627,
+  "matches": {
+    "etl-tasks-updated": [],
+    "etl-task-progress": [],
+    "etl-task-completed": [],
+    "etl-task-failed": [],
+    "projects-refresh": [],
+    "import-job-completed": []
+  }
+}

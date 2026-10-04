@@ -1,0 +1,37 @@
+[
+  {
+    "name": "lint-prune",
+    "command": "npm run lint:prune",
+    "exit_code": 0
+  },
+  {
+    "name": "dependencies-prune",
+    "command": "npm run dependencies:prune",
+    "exit_code": 0
+  },
+  {
+    "name": "baseline-ratchet",
+    "command": "npm run lint:baselines -- aac9aca02ef83d0ea807e179126dc1a1675ee944",
+    "exit_code": 0
+  },
+  {
+    "name": "lint",
+    "command": "npm run lint",
+    "exit_code": 0
+  },
+  {
+    "name": "dependencies",
+    "command": "npm run lint:dependencies",
+    "exit_code": 0
+  },
+  {
+    "name": "unit",
+    "command": "npm run test:unit",
+    "exit_code": 0
+  },
+  {
+    "name": "build-ci-final",
+    "command": "npm run build",
+    "exit_code": 0
+  }
+]

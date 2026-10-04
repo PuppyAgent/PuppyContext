@@ -1,0 +1,5 @@
+
+> context-base-ui@0.0.3 dependencies:prune
+> node scripts/readability/run-dependencies.mjs --prune
+
+688 modules; 59 dependency violations; 0 new.
