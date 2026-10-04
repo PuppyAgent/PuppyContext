@@ -96,6 +96,13 @@ quota、异步 worker、长 I/O 与崩溃恢复仍须各自验收。此本地 pr
 关闭可选外部 AI、Billing、ETL 和 Scheduler，不把未配置的外部服务算作
 已验证环境。Git/应用/环境修复选择：13 passed plus 329 pgTAP，非全量。
 
+`4e9887e4` 冻结全量再次真实失败：855 passed / 155 failed；应用、Auth、
+SQL、S3 层通过，但后段出现 `fork failed: Resource temporarily unavailable`。
+不将其记成验收通过或直接推定为 Git 缺陷。补充 `--init` 子进程回收与
+cgroup v2 PID/内存计数、峰值进程/线程诊断（不记录 argv/凭据）；保持
+1024 PID、4 GiB 内存上限不变。缺失资源证据、PID/内存耗尽均使严格验收
+失败。新全量必须重新证明，短选择通过不能排除长时资源累积。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。

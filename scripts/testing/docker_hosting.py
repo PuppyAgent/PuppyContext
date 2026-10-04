@@ -115,6 +115,8 @@ def run_tests(root, output, command, environ, cli_env, image, result):
     name = 'issue-062-tests-' + values['HOSTING_TEST_STACK'].removeprefix('puppy-baseline-')
     environment_receipt = output / 'container-environment.json'
     environment_receipt.unlink(missing_ok=True)
+    resource_receipt = output / 'container-resources.json'
+    resource_receipt.unlink(missing_ok=True)
     redis_name = 'issue-062-redis-' + values['HOSTING_TEST_STACK'].removeprefix('puppy-baseline-')
     values.update(AUTH_SECURITY_REDIS_URL=f'redis://{redis_name}:6379/1',
                   NOTIFICATIONS_REDIS_URL=f'redis://{redis_name}:6379/2',
@@ -123,7 +125,7 @@ def run_tests(root, output, command, environ, cli_env, image, result):
         path = Path(directory) / 'test.env'
         path.write_text(''.join(f'{key}={value}\n' for key, value in sorted(values.items())))
         path.chmod(0o600)
-        run = ['docker', 'run', '--rm', '--name', name, '--label', 'puppyone.owner=issue-062',
+        run = ['docker', 'run', '--rm', '--init', '--name', name, '--label', 'puppyone.owner=issue-062',
                '--network', network, '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
                '--memory=4g', '--cpus=4', '--pids-limit=1024', '--tmpfs', '/tmp:rw,nosuid,exec,size=2g',
                '--mount', f'type=bind,src={root},dst=/source,readonly',
@@ -145,6 +147,12 @@ def run_tests(root, output, command, environ, cli_env, image, result):
                 result['python_version'] = metadata['python']
             else:
                 result['infrastructure_error'] = 'Docker environment receipt missing'
+            if resource_receipt.exists():
+                result['container_resources'] = json.loads(resource_receipt.read_text())
+                if result['container_resources']['failures']:
+                    result['infrastructure_error'] = 'Docker resource exhaustion'
+            else:
+                result['infrastructure_error'] = 'Docker resource receipt missing'
             return completed.returncode
         finally:
             # One exact owned name, never daemon restart, compose down, or prune.

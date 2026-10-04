@@ -90,9 +90,12 @@ def result_exit_code(result):
         return max(1, code)
     if result.get("execution_environment") == "docker":
         container = result.get("container_environment") or {}
+        resources = result.get("container_resources") or {}
         if (not result.get("docker_image") or not container
                 or container.get("skip_auth") is not False
-                or container.get("dotenv_inherited") is not False):
+                or container.get("dotenv_inherited") is not False
+                or not resources.get("init_process") or not resources.get("before") or not resources.get("after")
+                or resources.get("failures") != []):
             return max(1, code)
     layers = result.get("layers", {})
     if result.get("s3") and not layers.get("hosting_s3", {}).get("passed", 0):

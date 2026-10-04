@@ -82,12 +82,41 @@ class Forward(socketserver.BaseRequestHandler):
             return
 
 
+def resources(root=Path('/sys/fs/cgroup')):
+    """Linux cgroup v2 counters: no arguments, credentials or host inventory."""
+    result = {key: (root / key).read_text().strip()
+              for key in ('pids.current', 'pids.max', 'memory.peak', 'memory.max')}
+    for key in ('pids.events', 'memory.events'):
+        result[key] = {name: int(value) for name, value in
+                       (line.split() for line in (root / key).read_text().splitlines())}
+    return result
+
+
+def resource_failures(before, after):
+    return [f'{file}:{name}' for file, names in
+            (('pids.events', ('max',)), ('memory.events', ('oom', 'oom_kill', 'oom_group_kill')))
+            for name in names if after[file].get(name, 0) > before[file].get(name, 0)]
+
+
+def process_summary(root=Path('/proc')):
+    summary = []
+    for path in root.glob('[0-9]*/status'):
+        try:
+            fields = dict(line.split(':', 1) for line in path.read_text().splitlines() if ':' in line)
+            summary.append({key: fields[key].strip() for key in ('Name', 'Pid', 'PPid', 'State', 'Threads')})
+        except (FileNotFoundError, ProcessLookupError):  # A subprocess can exit during the observation.
+            continue
+    return summary
+
+
 def main():
     args = sys.argv[1:]
     if args[:2] != ['-m', 'pytest']:
         raise ValueError('container entrypoint accepts pytest only')
     if os.environ.get('SKIP_AUTH') != 'false' or os.environ.get('APP_ENV') != 'test':
         raise ValueError('container acceptance requires authenticated test settings')
+    if os.getpid() == 1:
+        raise ValueError('container acceptance requires an init process to reap Git children')
     Path('/tmp/home').mkdir(exist_ok=True)
     hook = Path('/tmp/hosting-hook-probe')
     hook.write_text('#!/bin/sh\nexit 0\n')
@@ -120,7 +149,39 @@ def main():
             'services': ['owned_postgres', 'owned_auth_postgrest', 'owned_s3'],
         }
         Path('/evidence/container-environment.json').write_text(json.dumps(receipt, indent=2) + '\n')
-        return subprocess.call([sys.executable, *args, '-o', 'cache_dir=/tmp/pytest-cache'])
+        before = resources()
+        peak = {'pids': 0, 'processes': []}
+        monitor_errors = []
+        stop = threading.Event()
+
+        def monitor():
+            try:
+                while not stop.wait(.5):
+                    count = int(Path('/sys/fs/cgroup/pids.current').read_text())
+                    if count > peak['pids']:
+                        peak.update(pids=count, processes=process_summary())
+            except Exception as exc:
+                monitor_errors.append(type(exc).__name__)
+
+        watcher = threading.Thread(target=monitor, daemon=True)
+        watcher.start()
+        try:
+            code = subprocess.call([sys.executable, *args, '-o', 'cache_dir=/tmp/pytest-cache'])
+        finally:
+            stop.set()
+            watcher.join(timeout=5)
+        after = resources()
+        failures = resource_failures(before, after) + monitor_errors
+        if watcher.is_alive():
+            failures.append('resource_monitor_shutdown_timeout')
+        Path('/evidence/container-resources.json').write_text(json.dumps({
+            'init_process': Path('/proc/1/comm').read_text().strip(),
+            'before': before, 'after': after, 'failures': failures, 'observed_peak': peak,
+        }, indent=2) + '\n')
+        if failures:
+            print('Container resource exhaustion: ' + ', '.join(failures), file=sys.stderr)
+            return 1
+        return code
 
 
 if __name__ == '__main__':

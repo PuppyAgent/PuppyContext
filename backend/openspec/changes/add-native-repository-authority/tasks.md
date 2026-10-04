@@ -35,6 +35,10 @@
   Git/API read/write, stale-base rejection, foreign-user denial, cold process
   restart and credential revocation. Correct writable log/cache configuration.
   Selected Linux Docker regression: 13 passed plus 329 pgTAP; no auth doubles.
+- [x] Preserve the second frozen full Docker failure (4e9887e4: 855 passed,
+  155 failed, late fork/resource errors despite all application/Auth/SQL/S3 cases
+  passing). Add init child reaping and mandatory cgroup PID/memory evidence plus
+  peak process/thread diagnostics; do not increase budgets to hide exhaustion.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
   Billing, ETL and Scheduler are disabled in this core application test profile.
