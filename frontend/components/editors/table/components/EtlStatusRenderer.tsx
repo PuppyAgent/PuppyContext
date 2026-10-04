@@ -1,119 +1,25 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import type { PendingTask } from '../../../BackgroundTaskNotifier';
+import React from 'react';
+import { useParams } from 'next/navigation';
+import { usePendingTasks } from '@/features/tasks/TaskProvider';
+import { isTaskTerminal } from '@/features/tasks/model';
 import { PulseGrid } from '@/components/loading';
 
-// ============================================
-// Types
-// ============================================
-
-interface PendingTaskRendererProps {
-  /** 任务信息 */
-  task: PendingTask;
-  /** 显示的文件名 */
-  filename: string;
+/** A same-named upload in another project/table cannot mark this cell pending. */
+export function usePendingNullValue(value: unknown, filename?: string, tableId?: string) {
+  const params = useParams<{ projectId?: string }>();
+  const tasks = usePendingTasks(params?.projectId ?? null);
+  if (value !== null || !filename) return undefined;
+  return tasks.find(task => !isTaskTerminal(task.status) && task.filename === filename &&
+    (!tableId || task.tableId === tableId));
 }
 
-// ============================================
-// Utility Functions
-// ============================================
-
-/**
- * 从 sessionStorage 获取所有 pending tasks
- */
-export function getAllPendingTasks(): PendingTask[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = sessionStorage.getItem('etl_pending_tasks');
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * 根据文件名查找对应的 pending task
- * 用于在渲染 null 值时判断是否应该显示处理中状态
- *
- * 注意：只返回非终态的任务，终态任务（completed/failed/cancelled）不显示占位符
- */
-export function findPendingTaskByFilename(
-  filename: string,
-  tableId?: string
-): PendingTask | undefined {
-  const tasks = getAllPendingTasks();
-
-  // 终态任务不应该显示占位符
-  const isTerminal = (status?: string) =>
-    status === 'completed' || status === 'failed' || status === 'cancelled';
-
-  return tasks.find(t => {
-    // 跳过终态任务
-    if (isTerminal(t.status)) return false;
-
-    // 如果提供了 tableId，优先匹配 tableId + filename
-    if (tableId && t.tableId === tableId && t.filename === filename) {
-      return true;
-    }
-    // 否则只匹配 filename
-    return t.filename === filename;
-  });
-}
-
-/**
- * 判断值是否为 null 且对应一个 pending ETL task
- * 用于在 ValueRenderer 中决定是否显示处理中状态
- */
-export function isPendingNullValue(
-  value: any,
-  nodeKey: string,
-  tableId?: string
-): PendingTask | undefined {
-  if (value !== null) return undefined;
-
-  // nodeKey 通常是文件名，如 "document.pdf"
-  return findPendingTaskByFilename(nodeKey, tableId);
-}
-
-// ============================================
-// Components
-// ============================================
-
-/**
- * 渲染 ETL 处理中状态
- * 简洁的旋转加载符 + 文件名
- */
-export function PendingTaskRenderer({
-  task,
-  filename,
-}: PendingTaskRendererProps) {
-  // 监听 ETL 任务状态更新
-  const [, forceUpdate] = useState(0);
-
-  useEffect(() => {
-    const handleTaskUpdate = () => forceUpdate(n => n + 1);
-    window.addEventListener('etl-tasks-updated', handleTaskUpdate);
-    return () =>
-      window.removeEventListener('etl-tasks-updated', handleTaskUpdate);
-  }, []);
-
+export function PendingTaskRenderer() {
   return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-      }}
-    >
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <PulseGrid size='sm' tone='info' />
-      <span
-        style={{
-          fontSize: 13,
-          color: 'var(--po-text-subtle)',
-          fontStyle: 'italic',
-        }}
-      >
+      <span style={{ fontSize: 13, color: 'var(--po-text-subtle)', fontStyle: 'italic' }}>
         Processing…
       </span>
     </div>

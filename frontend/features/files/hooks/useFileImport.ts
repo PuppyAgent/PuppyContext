@@ -1,13 +1,7 @@
 'use client';
 
-import {
-  addPendingTasks,
-  replaceTaskId,
-  updateTaskProgress,
-  updateTaskStatusById,
-} from '@/components/BackgroundTaskNotifier';
+import { useTaskActions } from '@/features/tasks/TaskProvider';
 import { pickDirectoryFiles } from '@/lib/directoryPicker';
-import { refreshFolderNodes, refreshProjectHistory } from '@/lib/hooks/useData';
 import { uploadFiles } from '@/lib/uploadApi';
 import {
   applyPolicy,
@@ -27,6 +21,7 @@ const ROOT_IMPORT_TARGET: FileImportTarget = { path: null, name: 'Root' };
 type ImportToastType = 'success' | 'error' | 'loading';
 
 interface UseFileImportOptions {
+  orgId?: string;
   showToast?: (
     message: string,
     type?: ImportToastType,
@@ -111,6 +106,7 @@ export function useFileImport(
   options: UseFileImportOptions = {},
 ) {
   const { showToast } = options;
+  const { addPendingTasks, replaceTaskId, updateTaskProgress, updateTaskStatusById } = useTaskActions(projectId, options.orgId);
   const [fileImportDialogOpen, setFileImportDialogOpen] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
   const [fileImportTarget, setFileImportTarget] = useState<FileImportTarget>(ROOT_IMPORT_TARGET);
@@ -161,6 +157,7 @@ export function useFileImport(
               files.map((f) => ({
                 taskId: placeholderIds[f.fileIndex],
                 projectId,
+                folderPaths: affectedFolders,
                 tableName: f.filename,
                 filename: f.filename,
                 status: 'uploading',
@@ -200,11 +197,6 @@ export function useFileImport(
       const failedCount = results.filter((r) => r.status === 'failed').length;
       const abortedCount = results.filter((r) => r.status === 'aborted').length;
 
-      if (completedCount > 0) {
-        void refreshFolderNodes(projectId, ...affectedFolders);
-        void refreshProjectHistory(projectId);
-      }
-
       if (failedCount > 0 || abortedCount > 0) {
         showToast?.(
           completedCount > 0
@@ -228,7 +220,7 @@ export function useFileImport(
       console.error('File import failed:', err);
       showToast?.(`Import failed: ${errMsg}`, 'error');
     }
-  }, [projectId, accessToken, showToast]);
+  }, [projectId, accessToken, showToast, addPendingTasks, replaceTaskId, updateTaskProgress, updateTaskStatusById]);
 
   const openFileImportDialogForTarget = useCallback((target: FileImportTarget) => {
     const path = normalizePath(target.path);

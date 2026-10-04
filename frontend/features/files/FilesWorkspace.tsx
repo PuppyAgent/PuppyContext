@@ -48,7 +48,6 @@ import {
 } from '@/lib/hooks/useEditorSaveSession';
 import { useExternalFileDropCatcher } from '@/lib/hooks/useExternalFileDropCatcher';
 import { useProjectImportJobs } from '@/lib/hooks/useImportJobs';
-import { isImportJobTerminal } from '@/lib/importApi';
 
 // Extracted components
 import { ProjectPageLoadingShell, SkeletonBlock } from '@/components/loading';
@@ -181,7 +180,6 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
     refresh: refreshImportJobs,
     upsertJob: upsertImportJob,
   } = useProjectImportJobs(projectId);
-  const seenTerminalImportJobsRef = useRef<Set<string>>(new Set());
 
   const activeFormat = useMemo(() => {
     if (!activeNodeId || activeNodeType === 'github') return null;
@@ -224,6 +222,7 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
   const nodeActions = useNodeActions(projectId, currentFolderId);
   const fileImport = useFileImport(projectId, session?.access_token, {
     showToast: nodeActions.showToast,
+    orgId: currentOrg?.id,
   });
 
   // Page-wide safety net for external file drops. Without this, a
@@ -437,17 +436,15 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
     }
   }, [panelState.type, panelState.agentId, currentAgentId, selectAgent]);
 
-  // Refresh on external events (SaaS sync, ETL, etc.)
+  // Retained SaaS notification; Upload/Import refresh through their SWR queries.
   useEffect(() => {
     const handler = () => {
       refreshAllContentNodes(projectId);
       refreshProjects(currentOrg?.id ?? null);
     };
     window.addEventListener('saas-task-completed', handler);
-    window.addEventListener('etl-task-completed', handler);
     return () => {
       window.removeEventListener('saas-task-completed', handler);
-      window.removeEventListener('etl-task-completed', handler);
     };
   }, [currentOrg?.id, projectId]);
 
@@ -655,29 +652,6 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
       (items.length === 0 && !projectHasContentCommit && !emptyProjectOpened));
   const suppressExplorerSidebar =
     showEmptyWorkspace;
-
-  useEffect(() => {
-    const job = latestImportJob;
-    if (!job || !isImportJobTerminal(job.status)) return;
-    if (seenTerminalImportJobsRef.current.has(job.id)) return;
-    seenTerminalImportJobsRef.current.add(job.id);
-    if (job.status === 'completed') {
-      void mutateSyncStatus();
-      void mutateRepo();
-      refreshCurrentNodes();
-      window.dispatchEvent(
-        new CustomEvent('import-job-completed', {
-          detail: { jobId: job.id, projectId },
-        })
-      );
-    }
-  }, [
-    latestImportJob,
-    mutateRepo,
-    mutateSyncStatus,
-    projectId,
-    refreshCurrentNodes,
-  ]);
 
   // ───── Render ─────
 
