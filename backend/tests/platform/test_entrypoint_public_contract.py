@@ -70,6 +70,16 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
     change = bulk["schemas"]["BulkWriteRequest"]
     assert expected["contract"]["schemas"]["BulkWriteRequest"] == change["before"]
     expected["contract"]["schemas"]["BulkWriteRequest"] = change["after"]
+    product = json.loads(Path(__file__).with_name("native_product_write_contract_delta.json").read_text())
+    assert product["paths"] == {}
+    assert set(product["schemas"]) == {"WriteFileRequest", "BulkWriteRequest", "MkdirRequest", "MoveRequest", "RemoveRequest"}
+    assert set(product["added_schemas"]) == {"NativeProductWrite"}
+    for name, change in product["schemas"].items():
+        assert expected["contract"]["schemas"][name] == change["before"]
+        expected["contract"]["schemas"][name] = change["after"]
+    for name, digest in product["added_schemas"].items():
+        assert name not in expected["contract"]["schemas"]
+        expected["contract"]["schemas"][name] = digest
     assert contract(app.openapi()) == expected["contract"]
 
 

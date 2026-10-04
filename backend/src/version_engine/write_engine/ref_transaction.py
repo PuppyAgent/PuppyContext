@@ -41,6 +41,12 @@ def validate_ref_name(name: bytes) -> None:
         raise ValueError("invalid ref name")
 
 
+def publication_pin_id(project_id: str, actor: str, request_key: str) -> str:
+    """Stable publication identity shared by preparation and final publication."""
+    key = str(uuid.UUID(request_key))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, "puppyone:publication\0" + project_id + "\0" + actor + "\0" + key))
+
+
 @dataclass(frozen=True)
 class RefState:
     oid: str | None = None
@@ -141,7 +147,7 @@ class RefTransactionService:
                     and (edit.name == b"HEAD" or edit.name.startswith(b"refs/heads/"))
                     and roots[edit.new.oid] != "commit"):
                 raise ValueError("branch and HEAD targets must be commits")
-        pin = str(uuid.uuid5(uuid.NAMESPACE_URL, "puppyone:publication\0" + self.project_id + "\0" + actor + "\0" + request_key)) if roots else None
+        pin = publication_pin_id(self.project_id, actor, request_key) if roots else None
         args = (self.project_id, actor, request_key, generation, updates, pin, message)
         # Replay still calls apply: only the SQL request digest can prove that
         # this is the original request, including a previously rejected batch.

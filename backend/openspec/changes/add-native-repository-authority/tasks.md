@@ -1,3 +1,39 @@
+## Delivery checkpoints (user-approved cadence, 2026-10-05)
+
+Implement coherent cross-layer batches before running connected suites. Keep
+only small safety checks in the implementation loop. Run the full frozen target
+at integration checkpoints, not after each local change. The original M01–M20
+and G01–G66 scope is unchanged; the historical evidence below is not completion.
+
+| Checkpoint | Original scope | Closure criterion | State |
+| --- | --- | --- | --- |
+| Repository contract | M01–M04, M06–M08 | Typed repository/ref/base/operation identity; complete protocol/API families; no second authority | OPEN |
+| All producers and compatibility | M09, M16; M05 mapping contract | Product/automatic/scoped producers share publication, original bases and recoverable results; old bindings remain stable | OPEN |
+| Complete client workflows | M10, M17 | First publication, ordinary sync, Workspace and failed/incomplete work preservation against actual Cloud | OPEN |
+| Operational closure | M11–M15, M18 | Storage, GC, lifecycle, derived effects, independent-worker recovery, export/paired restore and bounded resources | OPEN |
+| Migration and retirement | M05, M19–M20 | Reentrant inventory/replay/cutover/recovery, all consumers retired safely, integrated version and final evidence | OPEN |
+
+Global contracts precede caller edits: read selection and old-entrypoint binding
+are distinct; a logical operation ID is distinct from its physical attempts and
+per-invocation I/O IDs; metadata preparation is not publication; result replay is
+a current read. No client is forced to invent a base or silently follow a changed
+HEAD. Code complete, batch verified and environment rollout are separate states.
+A discovered TODO is assigned to its owning checkpoint unless it blocks the
+current end-to-end path. No production activation or remote action is authorized.
+
+Consumer dependency map (all rows must close before cutover):
+
+| Consumer family | Shared boundary / prerequisite | Remaining acceptance |
+| --- | --- | --- |
+| `content_write` Product routes | Versioned normalized intent → native writer → ref transaction | Finish actual JWT/cold/replay checkpoint; preserve old omitted-base semantics via explicit old-entrypoint mapping, never guessed HEAD |
+| `access_point_fs`, `internal/mcp_runtime`, content tables | Scope/view grant and stable old binding | No widening into full repository grants; base/result/audit compatibility |
+| Upload jobs/handlers, imports runner/database, synchronize write port | Persist request/base/actor before delayed work; staged-content identity | Independent attempts, current admission, pause/drain, no orphan-as-published proof |
+| Project seed/templates and template registry | Initializing lifecycle, explicit authority/profile | No automatic enrollment or quota initialization; interrupted initialization recovery |
+| Content history/signed reads, shadow snapshots, dashboard/git view/exporter | Admitted historical/view snapshots and response-lifetime pins | Complete bounded reads; metadata outage is not absence or repair permission |
+| Desktop and Workspace router/sync worker | Explicit destination/profile/HEAD plus initialization journal | Actual Cloud first publication, failure preservation, branch and UI flows |
+| Integrity/hooks/derived workers, billing/GC/deletion | Native events and complete maintenance/lifecycle contracts | Current-tree vs retention distinction; settlement and paired restore |
+| Inventory/backfill/cutover/retirement | Every consumer above and M18 evidence | Synthetic migration/rollback rehearsal, old-user continuity, then authorized rollout |
+
 ## 1. Baseline and objects (M01/M03/M18, partial)
 
 - [x] Create isolated Cloud/Desktop worktrees from the integration baselines.
@@ -241,6 +277,31 @@
   52 deselected. Neither selection is full actual-service acceptance.
 - [ ] Resolve A04/B11/C01 catalog-versus-current-policy discrepancies without
   weakening acceptance or silently changing the existing LWW compatibility profile.
+
+### Native Product preparation and explicit ingress (M09, partial)
+
+- [x] Reproduce absent retry-stable preparation (22 PG reds) and the additional
+  four mismatched/unprepared publication reds in both object formats.
+- [x] Add empty, private intent/candidate metadata with stable server time,
+  original input digest, exact native ref-request digest and atomic result fence.
+  Current actor/lease is rechecked after waits; matching result recovery is a
+  current read without a new write lease. Add checked SDK methods without fallback.
+- [x] Verify the initial journal metadata ACL/queued-expiry/upgrade and real
+  Supabase API boundary (dirty selected 82 plus 329 SQL). Stored-actor proof is
+  distinct from end-user authentication and S3 durability.
+- [ ] Close native revision/grant/request identity through Product operations,
+  staging, commit construction, replay and HTTP producers. Implementation now
+  reaches five explicit native routes; first connected batch proved S3-produced
+  commits/replay but caught stale-base error construction returning HTTP 500.
+  Preserve that failure. Subsequent batches exercise all five writes, quota
+  rejection, raw byte names, cold stock Git, sealed resume and lost-ACK replay.
+  The whole application test remains pending final regression: retained fixture
+  failures incorrectly downgraded a creator, omitted member org_id, then counted
+  its own explicit read pin against replay. Fix the fixtures without weakening
+  those safety assertions or calling these failed receipts acceptance.
+- [ ] Complete independent-attempt/expired-upload recovery without settling another
+  invocation's I/O. The fixed prepared identity is not that recovery capability.
+- [ ] Complete other consumers, legacy/Scope mappings and migration before activation.
 
 ### Product object/tree interoperability (M03/M14/M16, partial)
 

@@ -261,6 +261,50 @@ Product bulk entrypoints SHALL preserve an explicitly supplied starting-base pre
 - **AND** one supplied base cannot be split into separately acknowledged Scope transactions
 - **AND** requests omitting a legacy precondition retain the existing policy
 
+### Requirement: Native Product writes bind an explicit starting revision
+Product write, bulk-write, mkdir, move and remove SHALL accept an optional native
+operation envelope with caller UUID and the complete admitted starting revision.
+The write engine SHALL construct objects without Git transport materialization
+and publish only through the existing admitted ref transaction. The envelope
+SHALL NOT enroll a repository, grant permission, infer an omitted legacy base,
+or widen a scoped credential. A default selection SHALL guard both the captured
+HEAD symref and target OID. Same-tree operations SHALL still check their base.
+
+#### Scenario: Native Product bytes survive a cold Git fetch
+- **WHEN** an explicitly enrolled SHA-1 or SHA-256 repository accepts a Product write
+- **THEN** a fresh stock Git client observes its exact committed objects and history
+- **AND** refs, result, usage, audit and outbox are atomically acknowledged
+
+#### Scenario: A completed Product request is retried as a current reader
+- **WHEN** the same actor retries the exact acknowledged normalized input
+- **THEN** current read authority returns the original result without a new lease,
+  splice, object upload, entitlement or usage charge
+- **AND** changed input or revoked read permission is denied
+
+#### Scenario: Literal byte names are not display paths
+- **WHEN** a native operation uses a canonical base64 path slot with an empty text slot
+- **THEN** normalization, Git objects, change metadata and readback preserve those bytes
+- **AND** JSON display text does not replace the separate lossless identity
+
+### Requirement: Native Product intent preparation is retry stable
+Native Product operations SHALL bind a caller-stable request identity to the complete normalized input and genuine starting revision. Server-generated commit identity inputs and the prepared ref request SHALL remain stable across retries. Prepared metadata SHALL NOT constitute publication, read authority, acknowledged object retention or settlement of uncertain I/O. Canonical results SHALL remain the atomic native ref transaction results.
+
+#### Scenario: A producer changes a prepared request
+- **WHEN** a producer reuses a Product request identity with different input or a different prepared ref request
+- **THEN** it rejects without changing previously acknowledged refs, history, audit, outbox or logical usage
+- **AND** an unprepared journal identity cannot be used to publish an unrelated native ref transaction
+
+#### Scenario: Recover an acknowledged Product result
+- **WHEN** the original actor retries an exactly matching committed request after its write lease or write permission has ended
+- **THEN** current read authority and the original input/ref digests allow recovery of the original result
+- **AND** the replay allocates no new publication, entitlement charge, write lease or object I/O
+- **AND** loss of current read authority denies recovery
+
+#### Scenario: Admission expires while preparation waits
+- **WHEN** a new or uncommitted Product operation waits on metadata locks until its credential or write lease expires
+- **THEN** the operation fails after the wait and rolls back its preparation changes
+- **AND** a stored grant or journal row cannot substitute for current authority
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

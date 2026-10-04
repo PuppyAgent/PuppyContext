@@ -110,6 +110,26 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
         return self.call("renew_admitted_version_object_pin", p_project_id=project_id,
                          p_actor=actor, p_pin_id=pin)
 
+    def read_product_operation(self, project_id: str, actor: str, request_key: str,
+                               input_sha256: str, generation: int):
+        return self.call("read_admitted_version_product_operation", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
+                         p_generation=generation)
+
+    def begin_product_operation(self, project_id: str, actor: str, request_key: str,
+                                input_sha256: str, generation: int):
+        lease, holder = self._lease(project_id)
+        return self.call("begin_admitted_version_product_operation", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
+                         p_generation=generation, p_lease_id=lease, p_holder_id=holder)
+
+    def prepare_product_operation(self, project_id: str, actor: str, request_key: str,
+                                  input_sha256: str, proposal: dict):
+        lease, holder = self._lease(project_id)
+        return self.call("prepare_admitted_version_product_operation", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
+                         p_proposal=proposal, p_lease_id=lease, p_holder_id=holder)
+
     def check_write(self, project_id: str, actor: str):
         lease, holder = self._lease(project_id)
         return self.call("check_version_repository_write_admission", p_project_id=project_id,

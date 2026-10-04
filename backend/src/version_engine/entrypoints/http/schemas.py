@@ -12,8 +12,9 @@ Identity model:
     the content. Display paths are not byte identities; native clients use
     path_bytes_b64 for lossless paths. Legacy write requests continue to use
     an empty base_commit_id for no prior state. Native read revisions use
-    expected_oid=null for an unborn selected branch; this does not enable
-    native Product writes or enrollment.
+    expected_oid=null for an unborn selected branch. Explicit native write
+    envelopes bind that captured revision and a durable caller request UUID;
+    they never enroll a repository or replace an omitted legacy base.
 """
 
 from __future__ import annotations
@@ -35,6 +36,18 @@ from pydantic import BaseModel, Field
 # Tree API request schemas
 # ============================================================
 
+class NativeProductWrite(BaseModel):
+    """Retry identity and genuine read revision; not an authorization grant."""
+    model_config = {"extra": "forbid"}
+    input_version: Literal[1] = 1
+    request_key: str = Field(min_length=36, max_length=36)
+    repository_revision: dict[str, Any]
+    byte_paths: dict[str, str] = Field(default_factory=dict, description=(
+        "Lossless path slots: path/old_path/new_path, paths/N, files/N/path. "
+        "The corresponding text field must be empty. Values are canonical base64."
+    ))
+
+
 class WriteFileRequest(BaseModel):
     """Write file request.
 
@@ -50,6 +63,7 @@ class WriteFileRequest(BaseModel):
     message: str = ""
     base_commit_id: str | None = None
     node_type: str = "json"  # json | markdown | file
+    native: NativeProductWrite | None = None
 
 
 class MkdirRequest(BaseModel):
@@ -57,6 +71,7 @@ class MkdirRequest(BaseModel):
     path: str
     base_commit_id: str | None = None
     parents: bool = False
+    native: NativeProductWrite | None = None
 
 
 class MoveRequest(BaseModel):
@@ -68,6 +83,7 @@ class MoveRequest(BaseModel):
     no_clobber: bool = False
     target_directory: bool = False
     no_target_directory: bool = False
+    native: NativeProductWrite | None = None
 
 
 class CopyRequest(BaseModel):
@@ -101,6 +117,7 @@ class RemoveRequest(BaseModel):
     force: bool = False
     recursive: bool = False
     base_commit_id: str | None = None
+    native: NativeProductWrite | None = None
 
 
 class RmdirRequest(BaseModel):
@@ -123,6 +140,7 @@ class BulkWriteRequest(BaseModel):
     files: list[BulkWriteItem]
     message: str = ""
     base_commit_id: str | None = None
+    native: NativeProductWrite | None = None
 
 
 # ============================================================

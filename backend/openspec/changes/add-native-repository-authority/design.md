@@ -660,3 +660,57 @@ acknowledged metadata and recover by restoring only physical bytes. Authority
 errors in legacy Project/Scope reads now propagate as unavailable rather than
 empty roots/heads or missing paths. The older empty-root Scope compatibility
 path is unchanged and is not claimed as native read or repair authority.
+
+### Native Product preparation and explicit write ingress (M09, partial)
+
+A Product request needs a caller-stable UUID and a digest of its complete
+normalized intent, including its genuine starting base, selected ref, expected
+OID and captured HEAD guard. Capturing a newer head during a retry is not a
+substitute. `version_product_operations` reserves a stable server creation time
+and immutable candidate ref request under `(Project, actor, request UUID)`.
+This is metadata only: it neither saves file bytes nor publishes a version.
+The result authority remains `version_ref_transactions`, not a second journal
+result or a legacy root/history setter.
+
+The empty Expand exposes only checked read/begin/prepare RPCs to service_role. They
+lock Org/Project, revalidate current actor and lease after waits, and require
+active native format/generation for new work. Existing result recovery requires
+current read authority and the original input digest, not a write lease or new
+quota/object allocation. The prepared request hash uses the exact existing ref
+transaction digest. A ref-result insertion fence atomically rejects an
+unprepared or mismatched request before any ref/audit/outbox/usage ACK can escape.
+An unrelated earlier ref transaction cannot be claimed retroactively. Direct
+journal DML and helper execution are denied to application roles.
+
+There is no Project cascade on this cleanup identity. A pending journal row is
+not an acknowledged root, read grant, grandfathering proof or GC/I/O settlement.
+The journal never expires uncertainty or releases another invocation's claim.
+`NativeOperationWriter` constructs Product commits directly from one admitted
+starting snapshot, with private disk-backed draft objects and the journal's
+stable clock. It does not invoke Git or materialize transport. Both hash formats
+and literal byte names/modes use the existing tree primitives. Product edits
+select a branch or detached HEAD; tag/custom-ref management remains the native
+Git/ref interface rather than silently converting a typed ref into a commit. Publication still
+uses RefTransactionService and its current capacity, file, logical billing and
+physical closure checks. Same-tree operations submit check-only preconditions;
+changing HEAD to another branch invalidates the captured selector even if its
+OID is unchanged. Prepared, still-valid verified receipts resume without another
+splice/PUT; exact acknowledged responses are recovered before a new lease.
+
+The five Product write routes accept an optional `native` envelope containing a
+caller UUID, versioned normalized input (`input_version=1`), captured
+`repository_revision` and lossless byte-path alternatives. Omitted HTTP fields
+are normalized by the frozen v1 command contract, not future schema defaults.
+Absence preserves the legacy path, not a guessed native base. Native requests
+never select a legacy facade. Only already explicitly enrolled repositories can
+use this path; route availability is not activation/cutover authority. The wire
+change is an exact five-schema delta plus the new envelope schema; paths and
+security contracts are unchanged. Copy/touch normalization is shared code, not
+an advertised completed HTTP/producer integration.
+
+Candidate metadata includes the tree/commit identity and ordered byte-path
+changes; a matching changed-ref outbox event includes that immutable metadata.
+It is not a second publication authority or a completed derived-event consumer.
+Independent-attempt recovery, interrupted upload/expired pin handling, automatic
+producers, legacy/Scope mappings, rollback/conflict submission, other consumers
+and compatibility migration remain unfinished. Native activation stays fenced.
