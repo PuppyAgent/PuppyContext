@@ -1,0 +1,290 @@
+{
+  "target": "FileTypeIcon and lookup table",
+  "violations": [
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 21,
+      "column": 8,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 41,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 61,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 74,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 92,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 104,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 128,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 145,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 167,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 194,
+      "column": 11,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 249,
+      "endColumn": 8
+    }
+  ],
+  "metrics": [
+    {
+      "line": 1,
+      "message": "Function 'FileTypeIcon' has too many lines (250). Maximum allowed is 0."
+    },
+    {
+      "line": 1,
+      "message": "Function 'FileTypeIcon' has a complexity of 13. Maximum allowed is 0."
+    }
+  ]
+}
+{
+  "target": "paneLayout.ts (all functions including extracted helpers)",
+  "violations": [
+    {
+      "ruleId": "complexity",
+      "severity": 2,
+      "message": "Function 'resolveWorkspaceLayout' has a complexity of 52. Maximum allowed is 20.",
+      "line": 46,
+      "column": 8,
+      "nodeType": "FunctionDeclaration",
+      "messageId": "complex",
+      "endLine": 46,
+      "endColumn": 39
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 101,
+      "column": 29,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 103,
+      "endColumn": 58
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 101,
+      "column": 60,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 103,
+      "endColumn": 58
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 102,
+      "column": 7,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 103,
+      "endColumn": 58
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 109,
+      "column": 21,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 109,
+      "endColumn": 82
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 110,
+      "column": 14,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 110,
+      "endColumn": 101
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 114,
+      "column": 21,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 114,
+      "endColumn": 79
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 115,
+      "column": 14,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 115,
+      "endColumn": 107
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 125,
+      "column": 14,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 125,
+      "endColumn": 137
+    },
+    {
+      "ruleId": "no-nested-ternary",
+      "severity": 2,
+      "message": "Do not nest ternary expressions.",
+      "line": 128,
+      "column": 19,
+      "nodeType": "ConditionalExpression",
+      "messageId": "noNestedTernary",
+      "endLine": 128,
+      "endColumn": 123
+    }
+  ],
+  "metrics": [
+    {
+      "line": 43,
+      "message": "Arrow function has too many lines (1). Maximum allowed is 0."
+    },
+    {
+      "line": 43,
+      "message": "Arrow function has a complexity of 2. Maximum allowed is 0."
+    },
+    {
+      "line": 44,
+      "message": "Arrow function has too many lines (1). Maximum allowed is 0."
+    },
+    {
+      "line": 44,
+      "message": "Arrow function has a complexity of 1. Maximum allowed is 0."
+    },
+    {
+      "line": 46,
+      "message": "Function 'resolveWorkspaceLayout' has too many lines (80). Maximum allowed is 0."
+    },
+    {
+      "line": 46,
+      "message": "Function 'resolveWorkspaceLayout' has a complexity of 52. Maximum allowed is 0."
+    },
+    {
+      "line": 68,
+      "message": "Arrow function has too many lines (1). Maximum allowed is 0."
+    },
+    {
+      "line": 68,
+      "message": "Arrow function has a complexity of 3. Maximum allowed is 0."
+    },
+    {
+      "line": 69,
+      "message": "Arrow function has too many lines (1). Maximum allowed is 0."
+    },
+    {
+      "line": 69,
+      "message": "Arrow function has a complexity of 2. Maximum allowed is 0."
+    },
+    {
+      "line": 70,
+      "message": "Arrow function has too many lines (2). Maximum allowed is 0."
+    },
+    {
+      "line": 70,
+      "message": "Arrow function has a complexity of 3. Maximum allowed is 0."
+    }
+  ]
+}

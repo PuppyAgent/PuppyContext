@@ -1,0 +1,139 @@
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-readability-101/frontend
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at LocationImpl._locationObjectNavigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:30:5)
+    at LocationImpl.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:206:10)
+    at Location.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/generated/Location.js:72:36)
+    at /Users/supersayajin/project/puppyone-cloud-readability-101/frontend/app/login/page.tsx:225:58 undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at LocationImpl._locationObjectNavigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:30:5)
+    at LocationImpl.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:206:10)
+    at Location.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/generated/Location.js:72:36)
+    at /Users/supersayajin/project/puppyone-cloud-readability-101/frontend/app/login/page.tsx:225:58 undefined
+Browserslist: browsers data (caniuse-lite) is 11 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+warn - The `content` option in your Tailwind CSS configuration is missing or empty.
+warn - Configure your content sources or your generated CSS will be missing styles.
+warn - https://tailwindcss.com/docs/content-configuration
+ ❯ tests/workspace/access-surfaces-client.test.ts (12 tests | 1 failed) 10ms
+     × retires legacy resource DTOs, runs and generic transport URLs from consumers 2ms
+ ❯ tests/workspace/synchronize-client.test.ts (6 tests | 1 failed) 8ms
+     × removes the duplicate legacy leaf clients and rejects reintroduced generic URLs 2ms
+ ❯ tests/workspace/boundaries.test.ts (4 tests | 4 failed) 4ms
+   × extracted business domains cannot depend on Next route entry modules 2ms
+   × the project layout is the single persistent auxiliary-sidebar owner 0ms
+   × the avatar opens global settings without a duplicate rail settings button 0ms
+   × workspace features delegate navigation instead of maintaining a second history router 0ms
+stderr | tests/workspace/styles-build.test.ts > builds the empty workspace layout from its feature source with the production Tailwind configuration
+
+warn - No utility classes were detected in your source files. If this is unexpected, double-check the `content` option in your Tailwind CSS configuration.
+warn - https://tailwindcss.com/docs/content-configuration
+
+ ❯ tests/workspace/styles-build.test.ts (1 test | 1 failed) 61ms
+   × builds the empty workspace layout from its feature source with the production Tailwind configuration 60ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/workspace/access-surfaces-client.test.ts > canonical Access surface client > retires legacy resource DTOs, runs and generic transport URLs from consumers
+Error: ENOENT: no such file or directory, scandir 'app'
+ ❯ scan tests/workspace/access-surfaces-client.test.ts:104:27
+    102|     expect(existsSync('packages/cloud-core/src/endpoints/connectors.ts…
+    103|     function scan(dir: string) {
+    104|       for (const entry of readdirSync(dir, { withFileTypes: true })) {
+       |                           ^
+    105|         const file = join(dir, entry.name);
+    106|         if (entry.isDirectory()) scan(file);
+ ❯ tests/workspace/access-surfaces-client.test.ts:115:104
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/workspace/boundaries.test.ts > extracted business domains cannot depend on Next route entry modules
+Error: ENOENT: no such file or directory, scandir '/Users/supersayajin/project/puppyone-cloud-readability-101/features'
+ ❯ files tests/workspace/boundaries.test.ts:7:10
+      5|
+      6| function files(directory: string): string[] {
+      7|   return readdirSync(directory, { withFileTypes: true }).flatMap(entry…
+       |          ^
+      8|     ? files(resolve(directory, entry.name)) : /\.tsx?$/.test(entry.nam…
+      9| }
+ ❯ tests/workspace/boundaries.test.ts:11:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/workspace/boundaries.test.ts > the project layout is the single persistent auxiliary-sidebar owner
+Error: ENOENT: no such file or directory, open '/Users/supersayajin/project/puppyone-cloud-readability-101/app/(main)/projects/[projectId]/layout.tsx'
+ ❯ tests/workspace/boundaries.test.ts:18:18
+     16| it('the project layout is the single persistent auxiliary-sidebar owne…
+     17|   const project = resolve('app/(main)/projects/[projectId]');
+     18|   const layout = readFileSync(resolve(project, 'layout.tsx'), 'utf8');
+       |                  ^
+     19|   expect(layout).toContain('<ProjectAuxiliarySidebar');
+     20|   expect(layout).toContain('<ProjectWorkspaceShell');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/workspace/boundaries.test.ts > the avatar opens global settings without a duplicate rail settings button
+Error: ENOENT: no such file or directory, open '/Users/supersayajin/project/puppyone-cloud-readability-101/components/sidebar/WorkspaceProjectRail.tsx'
+ ❯ tests/workspace/boundaries.test.ts:38:23
+     36|
+     37| it('the avatar opens global settings without a duplicate rail settings…
+     38|   const projectRail = readFileSync(resolve('components/sidebar/Workspa…
+       |                       ^
+     39|   expect(projectRail).toContain('onClick={() => setUserMenuOpen(true)}…
+     40|   expect(projectRail).toContain("initialTab='account'");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/workspace/boundaries.test.ts > workspace features delegate navigation instead of maintaining a second history router
+Error: ENOENT: no such file or directory, scandir '/Users/supersayajin/project/puppyone-cloud-readability-101/features'
+ ❯ files tests/workspace/boundaries.test.ts:7:10
+      5|
+      6| function files(directory: string): string[] {
+      7|   return readdirSync(directory, { withFileTypes: true }).flatMap(entry…
+       |          ^
+      8|     ? files(resolve(directory, entry.name)) : /\.tsx?$/.test(entry.nam…
+      9| }
+ ❯ tests/workspace/boundaries.test.ts:50:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/workspace/styles-build.test.ts > builds the empty workspace layout from its feature source with the production Tailwind configuration
+AssertionError: desktop card columns must be emitted: expected undefined to be defined
+ ❯ tests/workspace/styles-build.test.ts:27:59
+     25|   // column because the two-column rule only applies from the md break…
+     26|   const columns = rules.get('.md\\:grid-cols-2');
+     27|   expect(columns, 'desktop card columns must be emitted').toBeDefined(…
+       |                                                           ^
+     28|   expect(columns?.parent).toMatchObject({ type: 'atrule', name: 'media…
+     29|   expect(declaration('.md\\:grid-cols-2', 'grid-template-columns')).to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/workspace/synchronize-client.test.ts > canonical Synchronize client > removes the duplicate legacy leaf clients and rejects reintroduced generic URLs
+Error: ENOENT: no such file or directory, scandir 'app'
+ ❯ scan tests/workspace/synchronize-client.test.ts:108:27
+    106|     expect(existsSync('lib/workflowApi.ts')).toBe(false);
+    107|     function scan(dir: string) {
+    108|       for (const entry of readdirSync(dir, { withFileTypes: true })) {
+       |                           ^
+    109|         const path = join(dir, entry.name);
+    110|         if (entry.isDirectory()) scan(path);
+ ❯ tests/workspace/synchronize-client.test.ts:117:104
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  4 failed | 40 passed (44)
+      Tests  7 failed | 261 passed (268)
+   Start at  08:27:52
+   Duration  9.94s (transform 991ms, setup 2.59s, import 2.64s, tests 3.18s, environment 7.73s)
