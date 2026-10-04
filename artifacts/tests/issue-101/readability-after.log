@@ -1,0 +1,124 @@
+{
+  "target": "FileTypeIcon and lookup table",
+  "violations": [],
+  "metrics": [
+    {
+      "line": 243,
+      "message": "Function 'FileTypeIcon' has too many lines (20). Maximum allowed is 0."
+    },
+    {
+      "line": 243,
+      "message": "Function 'FileTypeIcon' has a complexity of 3. Maximum allowed is 0."
+    }
+  ]
+}
+{
+  "target": "paneLayout.ts (all functions including extracted helpers)",
+  "violations": [],
+  "metrics": [
+    {
+      "line": 43,
+      "message": "Arrow function has too many lines (1). Maximum allowed is 0."
+    },
+    {
+      "line": 43,
+      "message": "Arrow function has a complexity of 2. Maximum allowed is 0."
+    },
+    {
+      "line": 44,
+      "message": "Arrow function has too many lines (1). Maximum allowed is 0."
+    },
+    {
+      "line": 44,
+      "message": "Arrow function has a complexity of 1. Maximum allowed is 0."
+    },
+    {
+      "line": 55,
+      "message": "Function 'activeSegments' has too many lines (6). Maximum allowed is 0."
+    },
+    {
+      "line": 55,
+      "message": "Function 'activeSegments' has a complexity of 6. Maximum allowed is 0."
+    },
+    {
+      "line": 62,
+      "message": "Function 'preferredPaneWidths' has too many lines (9). Maximum allowed is 0."
+    },
+    {
+      "line": 62,
+      "message": "Function 'preferredPaneWidths' has a complexity of 2. Maximum allowed is 0."
+    },
+    {
+      "line": 72,
+      "message": "Function 'reservedPaneWidths' has too many lines (13). Maximum allowed is 0."
+    },
+    {
+      "line": 72,
+      "message": "Function 'reservedPaneWidths' has a complexity of 6. Maximum allowed is 0."
+    },
+    {
+      "line": 86,
+      "message": "Function 'resolveDockedPanes' has too many lines (22). Maximum allowed is 0."
+    },
+    {
+      "line": 86,
+      "message": "Function 'resolveDockedPanes' has a complexity of 9. Maximum allowed is 0."
+    },
+    {
+      "line": 98,
+      "message": "Arrow function has too many lines (4). Maximum allowed is 0."
+    },
+    {
+      "line": 98,
+      "message": "Arrow function has a complexity of 1. Maximum allowed is 0."
+    },
+    {
+      "line": 112,
+      "message": "Function 'allocatePaneWidths' has too many lines (27). Maximum allowed is 0."
+    },
+    {
+      "line": 112,
+      "message": "Function 'allocatePaneWidths' has a complexity of 10. Maximum allowed is 0."
+    },
+    {
+      "line": 141,
+      "message": "Function 'resolveNavigationPane' has too many lines (11). Maximum allowed is 0."
+    },
+    {
+      "line": 141,
+      "message": "Function 'resolveNavigationPane' has a complexity of 3. Maximum allowed is 0."
+    },
+    {
+      "line": 153,
+      "message": "Function 'auxiliaryRenderedWidth' has too many lines (13). Maximum allowed is 0."
+    },
+    {
+      "line": 153,
+      "message": "Function 'auxiliaryRenderedWidth' has a complexity of 7. Maximum allowed is 0."
+    },
+    {
+      "line": 168,
+      "message": "Function 'inspectorRenderedWidth' has too many lines (10). Maximum allowed is 0."
+    },
+    {
+      "line": 168,
+      "message": "Function 'inspectorRenderedWidth' has a complexity of 3. Maximum allowed is 0."
+    },
+    {
+      "line": 179,
+      "message": "Function 'resolveOverlayOwner' has too many lines (10). Maximum allowed is 0."
+    },
+    {
+      "line": 179,
+      "message": "Function 'resolveOverlayOwner' has a complexity of 5. Maximum allowed is 0."
+    },
+    {
+      "line": 190,
+      "message": "Function 'resolveWorkspaceLayout' has too many lines (48). Maximum allowed is 0."
+    },
+    {
+      "line": 190,
+      "message": "Function 'resolveWorkspaceLayout' has a complexity of 12. Maximum allowed is 0."
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Layout differs from 622e485d at seeded case 2
++ actual - expected
+
+  {
+    auxiliary: {
++     presentation: 'docked',
+-     presentation: 'overlay',
+      resizeMax: Infinity,
++     width: Infinity
+-     width: 0
+    },
+    availableWidth: 0,
+    files: {
++     presentation: 'docked',
+-     presentation: 'overlay',
+      resizeMax: -20,
++     width: NaN
+-     width: 0
+    },
+    inspector: {
++     presentation: 'docked',
+-     presentation: 'overlay',
+      resizeMax: -20,
++     width: NaN
+-     width: 0
+    },
++   mainWidth: NaN,
++   overlayOwner: null,
+-   mainWidth: 0,
+-   overlayOwner: 'auxiliary',
+    projects: {
+      presentation: 'absent',
+      resizeMax: 620,
+      width: 0
+    },
++   segments: {
++     first: NaN,
++     gap: Infinity,
++     orientation: 'horizontal',
++     second: Infinity
++   },
+-   segments: null,
+    sharedHeader: true
+  }
+
+    at file:///Users/supersayajin/project/puppyone-cloud-readability-101/artifacts/tests/issue-101/compare-layout.mjs:46:10
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: {
+    availableWidth: 0,
+    mainWidth: NaN,
+    projects: { presentation: 'absent', width: 0, resizeMax: 620 },
+    files: { presentation: 'docked', width: NaN, resizeMax: -20 },
+    auxiliary: { presentation: 'docked', width: Infinity, resizeMax: Infinity },
+    inspector: { presentation: 'docked', width: NaN, resizeMax: -20 },
+    overlayOwner: null,
+    sharedHeader: true,
+    segments: {
+      orientation: 'horizontal',
+      first: NaN,
+      second: Infinity,
+      gap: Infinity
+    }
+  },
+  expected: {
+    availableWidth: 0,
+    mainWidth: 0,
+    projects: { presentation: 'absent', width: 0, resizeMax: 620 },
+    files: { presentation: 'overlay', width: 0, resizeMax: -20 },
+    auxiliary: { presentation: 'overlay', width: 0, resizeMax: Infinity },
+    inspector: { presentation: 'overlay', width: 0, resizeMax: -20 },
+    overlayOwner: 'auxiliary',
+    sharedHeader: true,
+    segments: null
+  },
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.22.3

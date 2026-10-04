@@ -54,6 +54,13 @@ describe('workspace layout pre-refactor outputs', () => {
     }
   });
 
+  it.each(['first', 'second'] as const)('ignores segments with a NaN %s dimension', dimension => {
+    const input = workspace({
+      segments: { orientation: 'horizontal', first: 620, second: 420, gap: 20, [dimension]: NaN },
+    });
+    expect(resolveWorkspaceLayout(input)).toEqual(resolveWorkspaceLayout({ ...input, segments: null }));
+  });
+
   // Freeze complete outputs over all seven presence/open/collapse flags, both
   // preference extremes, and the docking boundaries. The readable snapshots
   // above explain representative results; these digests cover the full matrix.

@@ -1,0 +1,1 @@
+PASS: 20000 seeded edge cases match 622e485d, including non-finite dimensions and segments.
