@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/SupabaseAuthProvider';
 import { canonicalProjectGitUrl } from '@/lib/gitRemote';
 import { uploadFiles as uploadFilesApi } from '@/lib/uploadApi';
-import { useTaskActions } from '@/features/tasks/TaskProvider';
+import { useTaskActions } from '@/contexts/TaskProvider';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import {
   resolveDataTransferSnapshot,

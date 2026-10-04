@@ -1,6 +1,6 @@
 'use client';
 
-import { useTaskActions } from '@/features/tasks/TaskProvider';
+import { useTaskActions } from '@/contexts/TaskProvider';
 import { pickDirectoryFiles } from '@/lib/directoryPicker';
 import { uploadFiles } from '@/lib/uploadApi';
 import {

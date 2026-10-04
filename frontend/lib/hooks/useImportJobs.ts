@@ -1,7 +1,7 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useEffect, useRef } from 'react';
-import { useAuth } from '@/contexts/SupabaseAuthProvider';
-import { invalidateTaskCompletion } from '@/features/tasks/invalidation';
+import { importJobKeys } from '@/lib/queryKeys';
+import { invalidateTaskCompletion } from '@/lib/tasks/invalidation';
 import {
   getProjectImportJobs,
   isImportJobTerminal,
@@ -11,15 +11,14 @@ import {
 const DEFAULT_IMPORT_JOB_POLL_MS = 3000;
 const EMPTY_JOBS: ImportJob[] = [];
 
-export function useProjectImportJobs(projectId?: string | null) {
-  const { userId } = useAuth();
+export function useProjectImportJobs(projectId: string | null | undefined, userId: string | null) {
   const {
     data,
     error,
     isLoading,
     mutate,
   } = useSWR(
-    projectId && userId ? ['import-jobs', userId, projectId] : null,
+    projectId && userId ? importJobKeys.list(userId, projectId) : null,
     () => getProjectImportJobs(projectId!, { limit: 20 }),
     {
       revalidateOnFocus: false,

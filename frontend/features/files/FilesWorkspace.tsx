@@ -71,7 +71,7 @@ import { projectAllows } from '@/lib/projectsApi';
 export function FilesWorkspace({ projectId }: { projectId: string }) {
   const router = useWorkspaceRouter();
   const searchParams = useSearchParams();
-  const { session, isAuthReady } = useAuth();
+  const { session, isAuthReady, userId } = useAuth();
   const { currentOrg } = useOrganization();
 
   // Data fetching
@@ -179,7 +179,7 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
     latestJob: latestImportJob,
     refresh: refreshImportJobs,
     upsertJob: upsertImportJob,
-  } = useProjectImportJobs(projectId);
+  } = useProjectImportJobs(projectId, userId);
 
   const activeFormat = useMemo(() => {
     if (!activeNodeId || activeNodeType === 'github') return null;

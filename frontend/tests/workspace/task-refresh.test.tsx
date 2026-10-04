@@ -5,8 +5,9 @@ import { SWRConfig, useSWRConfig } from 'swr';
 import { BackgroundTaskNotifier } from '@/components/BackgroundTaskNotifier';
 import { TaskStatusWidget } from '@/components/TaskStatusWidget';
 import { ValueRenderer } from '@/components/editors/table/components/ValueRenderer';
-import { TaskProvider, usePendingTasks, useTaskActions } from '@/features/tasks/TaskProvider';
-import { etlTaskKeys, taskStorageKey } from '@/features/tasks/model';
+import { TaskProvider, usePendingTasks, useTaskActions } from '@/contexts/TaskProvider';
+import { taskStorageKey } from '@/lib/tasks/model';
+import { etlTaskKeys } from '@/lib/queryKeys';
 import { batchGetETLTaskStatus, type ETLTaskStatus } from '@/lib/etlApi';
 import { listDir } from '@/lib/contentTreeApi';
 import { getProjects, getTable } from '@/lib/projectsApi';
@@ -15,7 +16,7 @@ import { getProjectImportJobs, type ImportJob } from '@/lib/importApi';
 import { useProjectImportJobs } from '@/lib/hooks/useImportJobs';
 import { useFileImport } from '@/features/files/hooks/useFileImport';
 import { uploadFiles } from '@/lib/uploadApi';
-import { isTaskCompletionKey } from '@/features/tasks/invalidation';
+import { isTaskCompletionKey } from '@/lib/tasks/invalidation';
 
 const identity = vi.hoisted(() => ({ userId: 'account-a' as string | null, projectId: 'p' }));
 vi.mock('@/contexts/SupabaseAuthProvider', () => ({ useAuth: () => ({ userId: identity.userId, session: identity.userId ? { access_token: `token-${identity.userId}` } : null }) }));
@@ -314,7 +315,7 @@ describe('Import completion', () => {
   it('refreshes Files through SWR, keeps the snapshot during reads and ignores repeated completion', async () => {
     const job = { id: 'import-1', project_id: 'p', org_id: 'org-a', status: 'running' } as ImportJob;
     vi.mocked(getProjectImportJobs).mockResolvedValue({ jobs: [job], total: 1 });
-    const hook = renderHook(() => ({ imports: useProjectImportJobs('p'), root: useTreeDir('p', ''), expanded: useTreeDir('p', 'docs') }), { wrapper: wrapper() });
+    const hook = renderHook(() => ({ imports: useProjectImportJobs('p', identity.userId), root: useTreeDir('p', ''), expanded: useTreeDir('p', 'docs') }), { wrapper: wrapper() });
     await waitFor(() => expect(hook.result.current.imports.latestJob?.status).toBe('running'));
     vi.mocked(listDir).mockImplementation(async (_project, path) => listing('imported.md', path));
     vi.mocked(getProjectImportJobs).mockResolvedValue({ jobs: [{ ...job, status: 'completed' }], total: 1 });
@@ -331,7 +332,7 @@ describe('Import completion', () => {
     vi.useFakeTimers();
     const job = { id: 'import-1', project_id: 'p', status: 'running' } as ImportJob;
     vi.mocked(getProjectImportJobs).mockResolvedValue({ jobs: [job], total: 1 });
-    const hook = renderHook(() => ({ imports: useProjectImportJobs('p'), root: useTreeDir('p', '') }), { wrapper: wrapper() });
+    const hook = renderHook(() => ({ imports: useProjectImportJobs('p', identity.userId), root: useTreeDir('p', '') }), { wrapper: wrapper() });
     await act(async () => {});
     expect(getProjectImportJobs).toHaveBeenCalledTimes(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(2999); });
@@ -348,7 +349,7 @@ describe('Import completion', () => {
   it('never adopts a late import list from another account or project', async () => {
     const response = deferred<{ jobs: ImportJob[]; total: number }>();
     vi.mocked(getProjectImportJobs).mockReturnValueOnce(response.promise).mockResolvedValue({ jobs: [], total: 0 });
-    const hook = renderHook(({ project }) => useProjectImportJobs(project), { initialProps: { project: 'p' }, wrapper: wrapper() });
+    const hook = renderHook(({ project }) => useProjectImportJobs(project, identity.userId), { initialProps: { project: 'p' }, wrapper: wrapper() });
     identity.userId = 'account-b';
     hook.rerender({ project: 'q' });
     await act(async () => response.resolve({ jobs: [{ id: 'old', project_id: 'p', status: 'completed' } as ImportJob], total: 1 }));

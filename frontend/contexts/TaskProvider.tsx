@@ -3,8 +3,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useAuth } from '@/contexts/SupabaseAuthProvider';
-import { createTaskActions } from './actions';
-import { EMPTY_PROGRESS, EMPTY_TASKS, etlTaskKeys, readStoredTasks, taskStorageKey, type PendingTask } from './model';
+import { createTaskActions } from '@/lib/tasks/actions';
+import { EMPTY_PROGRESS, EMPTY_TASKS, readStoredTasks, taskStorageKey, type PendingTask } from '@/lib/tasks/model';
+
+import { etlTaskKeys } from '@/lib/queryKeys';
 
 const TaskContext = createContext<ReturnType<typeof createTaskActions> | null>(null);
 

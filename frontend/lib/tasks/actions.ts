@@ -1,7 +1,9 @@
 import { unstable_serialize, type Cache, type ScopedMutator } from 'swr';
 import type { ETLTaskStatus } from '@/lib/etlApi';
 import { invalidateTaskCompletion } from './invalidation';
-import { etlTaskKeys, isPollable, persistTasks, readStoredTasks, STALE_UPLOADING_MS, type PendingTask } from './model';
+import { isPollable, persistTasks, readStoredTasks, STALE_UPLOADING_MS, type PendingTask } from './model';
+
+import { etlTaskKeys } from '@/lib/queryKeys';
 
 type NewTask = Omit<PendingTask, 'timestamp'>;
 type TaskPatch = Partial<Pick<PendingTask, 'progress' | 'error'>>;

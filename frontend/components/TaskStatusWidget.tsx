@@ -7,8 +7,8 @@ import {
   cancelETLTask,
   ETLTaskStatus,
 } from '../lib/etlApi';
-import { usePendingTasks, useTaskActions, useTaskProgress } from '@/features/tasks/TaskProvider';
-import type { PendingTask, TaskType } from '@/features/tasks/model';
+import { usePendingTasks, useTaskActions, useTaskProgress } from '@/contexts/TaskProvider';
+import type { PendingTask, TaskType } from '@/lib/tasks/model';
 import {
   ACTIVITY_BG,
   ACTIVITY_BORDER,

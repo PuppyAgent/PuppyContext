@@ -18,7 +18,7 @@ import { ModalPortal } from './ui/ModalPortal';
 import { ActionButton } from './ui/ActionButton';
 import { BUTTON_HEIGHT } from './ui/buttonTokens';
 import { APP_Z_INDEX } from '@/lib/zIndex';
-import { useTaskActions } from '@/features/tasks/TaskProvider';
+import { useTaskActions } from '@/contexts/TaskProvider';
 import {
   detectImportType,
   supportsCrawlOptions,

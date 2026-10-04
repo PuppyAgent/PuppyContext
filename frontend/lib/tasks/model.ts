@@ -73,11 +73,6 @@ export function isPollable(task: PendingTask): boolean {
     task.status !== 'uploading' && task.status !== 'finalizing' && !isTaskTerminal(task.status);
 }
 
-export const etlTaskKeys = {
-  list: (accountId: string) => ['etl-tasks', accountId] as const,
-  progress: (accountId: string) => ['etl-progress', accountId] as const,
-};
-
 export function taskStorageKey(accountId: string) {
   return `etl_pending_tasks:${accountId}`;
 }

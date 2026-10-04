@@ -3,8 +3,8 @@
 import { useEffect } from 'react';
 import { useAuth } from '@/contexts/SupabaseAuthProvider';
 import { batchGetETLTaskStatus } from '@/lib/etlApi';
-import { usePendingTasks, useTaskActions } from '@/features/tasks/TaskProvider';
-import { isPollable } from '@/features/tasks/model';
+import { usePendingTasks, useTaskActions } from '@/contexts/TaskProvider';
+import { isPollable } from '@/lib/tasks/model';
 
 /** The single backend task poller: immediately, then every three seconds while
  * real file tasks are pending/processing. Upload/finalize remain client-owned. */

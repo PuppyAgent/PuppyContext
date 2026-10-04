@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { useParams } from 'next/navigation';
-import { usePendingTasks } from '@/features/tasks/TaskProvider';
-import { isTaskTerminal } from '@/features/tasks/model';
+import { usePendingTasks } from '@/contexts/TaskProvider';
+import { isTaskTerminal } from '@/lib/tasks/model';
 import { PulseGrid } from '@/components/loading';
 
 /** A same-named upload in another project/table cannot mark this cell pending. */
