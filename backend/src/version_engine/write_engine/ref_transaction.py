@@ -1,8 +1,9 @@
 """Admitted native ref publication over durable objects and the PG authority.
 
-This service cannot enroll/activate a repository. Scope projection, lifecycle
-leases and billing admission belong to the caller; a bounded Scope credential
-cannot use this full-repository interface. No transport graph materialization
+This service cannot enroll/activate a repository. The caller selects checked
+actor/lease, capacity and logical-billing capabilities; optional low-level
+profiles are not canonical admission. Scope projection and full ref/file policy
+remain separate gates; a bounded Scope credential cannot use this interface. No transport graph materialization
 is imported by this write-engine service.
 """
 
@@ -16,6 +17,7 @@ from dataclasses import dataclass
 
 from src.platform.authorization.models import ProjectAction, ProjectGrant, RuntimeGrant
 from src.platform.repository_target.models import ProjectRootTarget
+from src.version_engine.infrastructure.supabase.billing_repository import RepositoryBilling
 from src.version_engine.infrastructure.supabase.capacity_repository import RepositoryCapacity
 from src.version_engine.infrastructure.supabase.ref_authority_repository import (
     RefAuthorityRepository,
@@ -94,12 +96,15 @@ def admitted_actor(grant: ProjectGrant | RuntimeGrant, project_id: str, *, write
 class RefTransactionService:
     def __init__(self, control: RefAuthorityRepository, backend: StorageBackend, *, project_id: str,
                  object_format: str = "sha1", max_objects: int = 1_000_000, max_bytes: int = 8 * 1024**3,
-                 capacity: RepositoryCapacity | None = None):
+                 capacity: RepositoryCapacity | None = None, billing: RepositoryBilling | None = None):
         bound_project = getattr(backend, "publication_project_id", None)
         if bound_project is not None and bound_project != project_id:
             raise ValueError("publication backend belongs to another Project")
         if capacity is not None and capacity.control is not control:
             raise ValueError("capacity admission/control binding mismatch")
+        if billing is not None and (billing.control is not control or capacity is None):
+            raise ValueError("billing requires matching control and retained capacity admission")
+        self.billing = billing
         self.capacity = capacity
         self.control = control
         self.backend = backend
@@ -136,7 +141,7 @@ class RefTransactionService:
         # Replay still calls apply: only the SQL request digest can prove that
         # this is the original request, including a previously rejected batch.
         if self.control.result(self.project_id, actor, request_key) is not None:
-            return self.control.apply(*args)
+            return self.billing.apply(*args) if self.billing is not None else self.control.apply(*args)
         admitted_actor(grant, self.project_id, write=True)
         snapshot = self.control.snapshot(self.project_id)
         if (not snapshot or snapshot["authority"] != "native" or snapshot["write_state"] != "active"
@@ -144,6 +149,8 @@ class RefTransactionService:
             raise RuntimeError("repository authority unavailable or generation mismatch")
         if self.capacity is not None:
             self.capacity.check(self.project_id)
+        billing_context = self.billing.check(self.project_id) if self.billing is not None else None
+        manifest = None
         if pin is not None:
             admitted_pin = self.control.begin(self.project_id, actor, pin, generation, roots)
             # A sealed pin is immutable. A retry after seal but before the ref
@@ -167,7 +174,11 @@ class RefTransactionService:
                         self.capacity.seal(self.project_id, actor, pin, manifest)
                     else:
                         self.control.seal(self.project_id, actor, pin, manifest.digest, manifest.root_details())
-        result = self.control.apply(*args)
+        if self.billing is not None:
+            usage = self.billing.measure(self, grant, edits, billing_context, manifest)
+            result = self.billing.apply(*args, usage=usage)
+        else:
+            result = self.control.apply(*args)
         if pin is not None:
             # The result is already durable. A cleanup outage retains objects,
             # and must not turn a committed publication into a false rejection.

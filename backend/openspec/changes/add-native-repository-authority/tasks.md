@@ -51,6 +51,9 @@
   4 passed is not a repair. Capture all worker stacks on future Git deadlines
   without changing the 30-second budget. Supplementary backend: 2773 passed,
   27 skipped, 76 deselected; not strict target acceptance.
+- [x] Repeat full order at clean frozen `8defc2cb`: 1089 passed / the original
+  34 failures, 329 pgTAP, no skips/errors/exhaustion. The extra timeout did not
+  recur; preserve the earlier failure, do not label diagnostics a product repair.
 - [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
@@ -58,6 +61,31 @@
 - [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
+
+### Logical billing integration (M15, in progress)
+
+- [x] Add verified-tree logical byte measurement without Git materialization,
+  blob re-reads or exponential path expansion. Preserve path multiplicity,
+  file modes/gitlink exclusion and current-tree rather than history semantics.
+  Focused component/legacy billing selection: 18 passed; not SQL settlement.
+- [x] Bind actual before/after default-ref selection to current-tree measurement;
+  atomically settle the existing Organization usage counter with current
+  entitlement revision, actor/lease checks and ref/audit/outbox publication.
+  Match the existing Organization advisory-lock ordering, fence old issuers,
+  preserve read-only exact replay, and fail closed on missing initialized usage.
+- [x] Connect optional checked logical billing to native publication and verify
+  SQL atomic quota/entitlement rejection, sibling races, queued expiry, replay,
+  HEAD switches/deletion, old-issuer ACL fences and populated Expand rollback.
+  Real S3 SHA-1/SHA-256 tests preserve old ACKs through quota rejection and reuse
+  sealed proof during recovery. Guarded selection: 43 passed plus 329 pgTAP;
+  combined billing/admission/capacity/snapshot/transaction regression: 161 passed
+  plus 329 pgTAP, no skips/errors/resource exhaustion. Component suite: 337 passed.
+- [x] Reproduce the old full reconciler overwriting native usage (one real PG
+  regression failed), then fence its event/counter transaction for enrolled Orgs.
+- [ ] Implement native-aware full reconciliation and lifecycle settlement; the
+  old reconciler now fails closed rather than resetting native usage.
+- [ ] Complete named-ref/file-policy admission, canonical caller integration and
+  real authenticated native application acceptance. No billing activation.
 
 ### Git command conformance (M01/M18, partial)
 

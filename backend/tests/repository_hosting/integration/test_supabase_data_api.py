@@ -143,6 +143,27 @@ def test_clients_cannot_read_capacity_inventory_or_ledger(api, role, table):
     assert response.json()['code'] == '42501'
 
 
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('function', ['check_version_repository_billing', 'apply_billed_version_ref_transaction'])
+def test_current_auth_clients_cannot_call_logical_billing_rpcs(api, authority, role, function):
+    body = {'p_project_id': authority.project}
+    if function.startswith('apply_'):
+        body = authority.parameters([update(old=oid(A), new=oid(B))])
+        body.update(p_lease_id=str(uuid.uuid4()), p_holder_id='untrusted', p_usage={})
+    response = api.request('POST', f'/rest/v1/rpc/{function}', role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()['code'] in ('42501', 'PGRST202')
+    assert authority.state()['oid'] == A
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('table', ['version_repository_billing', 'version_repository_billing_authorizations'])
+def test_clients_cannot_read_logical_billing_policies_or_proofs(api, role, table):
+    response = api.request('GET', f'/rest/v1/{table}', role=role, params={'select': '*'})
+    assert response.status_code in (401, 403)
+    assert response.json()['code'] == '42501'
+
+
 def rpc(api, body, function="apply_version_ref_transaction"):
     response = api.request("POST", f"/rest/v1/rpc/{function}", json=body)
     assert response.status_code == 200

@@ -131,6 +131,29 @@ Native canonical writers SHALL reserve technical object-body bytes and object co
 - **WHEN** an enrolled repository is published through an older receipt issuer or a receipt without matching capacity attestation
 - **THEN** SQL rolls back the new publication rather than treating the missing capability as unmetered access
 
+### Requirement: Preserve logical billing during native publication
+Native canonical publication SHALL preserve the existing `storage.logical_bytes` contract for the selected current tree, including per-path multiplicity and excluding external gitlinks. Retained-object admission is separate. Ref publication, logical usage settlement, audit and outbox SHALL be atomic and idempotent, using the current acknowledged entitlement projection and its revision. Missing initialized usage or checked settlement capabilities SHALL fail closed. No invoice semantics are changed by repository migration.
+
+#### Scenario: Shared subtrees and named refs
+- **WHEN** two paths share the same subtree or blob
+- **THEN** logical current-tree bytes count each path even though physical objects deduplicate
+- **WHEN** a named-ref update leaves the selected current tree unchanged
+- **THEN** it adds no logical current-tree charge but still requires repository-wide retained-object admission
+
+#### Scenario: Concurrent current-tree writes and entitlement changes
+- **WHEN** sibling Projects concurrently change their current trees or an entitlement changes during publication
+- **THEN** settlement serializes with the existing Organization usage/entitlement boundary and cannot spend a stale quota projection
+- **AND** rejection rolls back refs, usage, audit and outbox together
+
+#### Scenario: Original-result recovery
+- **WHEN** a currently authorized reader recovers the exact original ref result
+- **THEN** logical usage is not charged again and recovery does not depend on the old write lease or entitlement revision
+
+#### Scenario: Legacy full reconciliation after enrollment
+- **WHEN** the legacy root-only reconciler attempts to replace usage for an Organization containing a billing-enrolled repository
+- **THEN** its counter and event changes are rejected atomically until a checked native-aware reconciliation path exists
+- **AND** the previously settled usage and acknowledged refs remain unchanged
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native publication SHALL remain disconnected from product/transport entrypoints until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

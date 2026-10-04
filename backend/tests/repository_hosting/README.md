@@ -132,6 +132,21 @@ pgTAP 329 通过。原始 34 项仍在，另有 `workspace-stash` 真实 S3 冷 
 同 revision 的隔离复测 4 passed，但这不是修复或全量通过。Git 超时现在追加
 worker 线程栈（不含 argv/locals），仍保留原 30 秒预算和失败。补充 backend
 回归 2773 passed / 27 skipped / 76 deselected，也不替代 strict Docker 验收。
+后续干净冻结 `8defc2cb` 全序复验 **1089 passed / 原 34 failed**、pgTAP 329：
+额外超时未复现，但诊断代码不算修复。原生 18、组件 625/34、PG 214、Auth 86、
+S3 145、真实应用 1；PID 峰值 47、内存峰值 703975424 bytes，耗尽计数为零。
+
+逻辑计费正在单独接入：原生发布的可选 checked wrapper 将实际默认 ref 的
+before/after OID、`storage.logical_bytes`、当前 entitlement revision、actor/lease、
+ref/audit/outbox 放进同一事务。失败不改 refs 或账单，rewind 按新事务计量，
+原结果只读重放不重复计费。一次真实 PG red case 复现旧全量对账器把 native 用量
+归零，现阻止该旧路径覆盖；native-aware 对账/生命周期结算仍待实现。
+定向 Docker **43 passed + 329 pgTAP**（PG 17、Auth 8、S3 2、组件 15、legacy
+应用 1），包含 populated Expand rollback、等待过期、同 Org 竞争及 S3 冷读/恢复。
+随后组合 admission/capacity/snapshot/transaction 回归 **161 passed + 329 pgTAP**，
+无 skip/error/资源耗尽（PID 峰值 22、内存峰值 413999104 bytes）；组件集 337 通过。
+这不是完整 file/ref policy、真实 Native HTTP 或外部 Billing 集成验收；原 34
+项失败、完整 canonical/消费者/迁移门禁仍在。
 
 ### Git 命令符合性与测试驱动实施
 

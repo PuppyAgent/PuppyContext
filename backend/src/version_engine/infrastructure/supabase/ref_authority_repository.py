@@ -90,3 +90,11 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
                          p_actor=actor, p_request_key=request_key, p_generation=generation,
                          p_updates=updates, p_receipt_id=receipt, p_message=message,
                          p_lease_id=lease, p_holder_id=holder)
+
+    def apply_billed(self, project_id: str, actor: str, request_key: str, generation: int,
+                     updates: list[dict], receipt: str | None, message: str, *, usage=None):
+        lease, holder = self._lease(project_id)
+        return self.call("apply_billed_version_ref_transaction", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key, p_generation=generation,
+                         p_updates=updates, p_receipt_id=receipt, p_message=message,
+                         p_lease_id=lease, p_holder_id=holder, p_usage=usage)

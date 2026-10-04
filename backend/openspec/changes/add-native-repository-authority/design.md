@@ -452,3 +452,32 @@ This connects technical capacity to the existing native service and collector,
 not to canonical Git/API/product routing. Ref policy, public operation identity,
 consumer migration, logical billing, lifecycle retirement and large-resource
 acceptance remain required before activation.
+
+### Checked logical settlement (M15, partial; no activation)
+
+An additional empty Expand enrolls no repositories and initializes no usage.
+The optional `RepositoryBilling` connection requires admitted control and retained
+capacity. It checks the existing `storage.logical_bytes` counter and acknowledged
+PuppyPay projection, then binds measured old/new default OIDs to the actual refs
+inside the publication transaction. Tree sizes preserve path multiplicity while
+memoizing shared subtrees; blobs are not re-read or paths exponentially expanded
+when the complete physical manifest already exists. Commit history/gitlinks do
+not become current-tree charges. A named-ref-only change has zero logical delta.
+
+The SQL wrapper takes the existing Organization/metric advisory locks before
+Project locks. Current entitlement revision and wall-clock expiry, actor and
+lease are checked after billing waits as well as ref waits. Usage, ref result,
+reflog, audit and outbox roll back together. Events use ref-transaction identity,
+not commit OID, so later rewinds/HEAD changes can revisit a commit correctly.
+A private transaction-bound attestation fences older publishers after explicit
+billing enrollment; exact original-result replay still needs only current read
+access and the matching original request digest, not a new billing projection.
+No caller-provided quota limit or uninitialized-usage fallback is accepted.
+
+A red regression demonstrated that the legacy full reconciler could reset a
+native incremental counter to its stale legacy-root total. A new event fence
+rolls back that old reconciliation for enrolled Organizations. This deliberately
+fails closed: native-aware full reconciliation, lifecycle settlement, complete
+file/named-ref policy and canonical authenticated routing remain unfinished.
+Actual S3/PG tests use synthetic entitlement rows and explicit admitted grants;
+they are not evidence of the external billing service or native public HTTP.
