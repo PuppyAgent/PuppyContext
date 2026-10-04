@@ -14,6 +14,7 @@ import { useWorkspaceRouter } from '@/features/workspace/navigation';
 import type { BreadcrumbSegment } from '@/components/ProjectsHeader';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useAuth } from '@/contexts/SupabaseAuthProvider';
+import { useTaskActions } from '@/contexts/TaskProvider';
 import { useDataLayout } from '@/features/files/DataLayoutContext';
 import {
   refreshAllContentNodes,
@@ -72,6 +73,7 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
   const router = useWorkspaceRouter();
   const searchParams = useSearchParams();
   const { session, isAuthReady, userId } = useAuth();
+  const { isActive: isTaskAccountActive } = useTaskActions();
   const { currentOrg } = useOrganization();
 
   // Data fetching
@@ -179,7 +181,7 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
     latestJob: latestImportJob,
     refresh: refreshImportJobs,
     upsertJob: upsertImportJob,
-  } = useProjectImportJobs(projectId, userId);
+  } = useProjectImportJobs(projectId, userId, isTaskAccountActive);
 
   const activeFormat = useMemo(() => {
     if (!activeNodeId || activeNodeType === 'github') return null;

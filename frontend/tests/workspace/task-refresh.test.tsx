@@ -104,6 +104,26 @@ describe('task refresh behavior', () => {
     expect(JSON.parse(sessionStorage.getItem(taskStorageKey('account-a'))!)[0].progress).toBe(50);
   });
 
+  it('keeps progress off list subscriptions and does not restart an active poll', async () => {
+    vi.useFakeTimers();
+    let listRenders = 0;
+    function ListSubscriber() { usePendingTasks(); listRenders++; return null; }
+    mount(<ListSubscriber />);
+    await act(async () => commands.addPendingTasks([task, { ...task, taskId: 'real-1', status: 'pending' }]));
+    expect(batchGetETLTaskStatus).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTitle('Collapse'));
+    const renders = listRenders;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => {
+      for (let progress = 1; progress <= 100; progress++) commands.updateTaskProgress(task.taskId, progress);
+    });
+    expect(listRenders).toBe(renders);
+    expect(screen.queryByTitle('Collapse')).toBeNull();
+    expect(batchGetETLTaskStatus).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(batchGetETLTaskStatus).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['polled', 'inline'] as const)('%s completion refreshes root, expanded folders, table and owning project list in the current provider', async mode => {
     const completion = deferred<{ tasks: ETLTaskStatus[]; total: number }>();
     vi.mocked(batchGetETLTaskStatus).mockReturnValue(completion.promise);
@@ -315,7 +335,7 @@ describe('Import completion', () => {
   it('refreshes Files through SWR, keeps the snapshot during reads and ignores repeated completion', async () => {
     const job = { id: 'import-1', project_id: 'p', org_id: 'org-a', status: 'running' } as ImportJob;
     vi.mocked(getProjectImportJobs).mockResolvedValue({ jobs: [job], total: 1 });
-    const hook = renderHook(() => ({ imports: useProjectImportJobs('p', identity.userId), root: useTreeDir('p', ''), expanded: useTreeDir('p', 'docs') }), { wrapper: wrapper() });
+    const hook = renderHook(() => ({ imports: useProjectImportJobs('p', identity.userId, useTaskActions().isActive), root: useTreeDir('p', ''), expanded: useTreeDir('p', 'docs') }), { wrapper: wrapper() });
     await waitFor(() => expect(hook.result.current.imports.latestJob?.status).toBe('running'));
     vi.mocked(listDir).mockImplementation(async (_project, path) => listing('imported.md', path));
     vi.mocked(getProjectImportJobs).mockResolvedValue({ jobs: [{ ...job, status: 'completed' }], total: 1 });
@@ -332,7 +352,7 @@ describe('Import completion', () => {
     vi.useFakeTimers();
     const job = { id: 'import-1', project_id: 'p', status: 'running' } as ImportJob;
     vi.mocked(getProjectImportJobs).mockResolvedValue({ jobs: [job], total: 1 });
-    const hook = renderHook(() => ({ imports: useProjectImportJobs('p', identity.userId), root: useTreeDir('p', '') }), { wrapper: wrapper() });
+    const hook = renderHook(() => ({ imports: useProjectImportJobs('p', identity.userId, useTaskActions().isActive), root: useTreeDir('p', '') }), { wrapper: wrapper() });
     await act(async () => {});
     expect(getProjectImportJobs).toHaveBeenCalledTimes(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(2999); });
@@ -349,7 +369,7 @@ describe('Import completion', () => {
   it('never adopts a late import list from another account or project', async () => {
     const response = deferred<{ jobs: ImportJob[]; total: number }>();
     vi.mocked(getProjectImportJobs).mockReturnValueOnce(response.promise).mockResolvedValue({ jobs: [], total: 0 });
-    const hook = renderHook(({ project }) => useProjectImportJobs(project, identity.userId), { initialProps: { project: 'p' }, wrapper: wrapper() });
+    const hook = renderHook(({ project }) => useProjectImportJobs(project, identity.userId, useTaskActions().isActive), { initialProps: { project: 'p' }, wrapper: wrapper() });
     identity.userId = 'account-b';
     hook.rerender({ project: 'q' });
     await act(async () => response.resolve({ jobs: [{ id: 'old', project_id: 'p', status: 'completed' } as ImportJob], total: 1 }));

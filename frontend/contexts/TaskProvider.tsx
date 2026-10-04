@@ -32,6 +32,9 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     try { sessionStorage.removeItem(taskStorageKey(old)); } catch { /* Live cache is still cleared. */ }
     void mutate(etlTaskKeys.list(old), undefined, { revalidate: false });
     void mutate(etlTaskKeys.progress(old), undefined, { revalidate: false });
+    // Old subscribers have detached. Revalidation also discards SWR's pending
+    // request/dedupe marker so returning to this account starts a fresh read.
+    void mutate(key => Array.isArray(key) && key[0] === 'import-jobs' && key[1] === old, undefined);
   }, [mutate, userId]);
   const actions = useMemo(() => createTaskActions({
     accountId: userId ?? '', cache, mutate,

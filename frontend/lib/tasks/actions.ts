@@ -39,6 +39,7 @@ export function createTaskActions(scope: TaskScope) {
   ));
 
   return {
+    isActive,
     snapshot,
     addPendingTasks: (tasks: NewTask[]) => write(current => [...current, ...tasks.map(task => ({ ...task, timestamp: Date.now() }))]),
     updateTaskStatusById: (projectId: string, taskId: string, status: PendingTask['status'], patch: TaskPatch = {}) => updateTask(projectId, taskId, { status, ...patch }),
