@@ -1,7 +1,8 @@
 """Real credential -> canonical router -> checked native PG/S3 publication.
 
 Enrollment and entitlement projection are synthetic owner-installed facts; this
-is neither migration acceptance nor external PuppyPay/product-API acceptance.
+is neither migration acceptance nor external PuppyPay/product-write acceptance.
+Selected Product read APIs use real JWT admission and the same native refs.
 """
 import base64
 import secrets
@@ -22,7 +23,7 @@ pytestmark = pytest.mark.hosting_application
 
 @pytest.fixture
 def application(tmp_path):
-    app = Application(tmp_path, profile='native canonical Git; synthetic enrollment/entitlements; product API not accepted')
+    app = Application(tmp_path, profile='native Git and selected Product reads; synthetic enrollment/entitlements; Product writes/Scope not accepted')
     try:
         app.start()
         yield app
@@ -45,6 +46,29 @@ def enroll_empty_native(pg, project, org, format):
     a = enroll_billing(SimpleNamespace(pg=pg, project=project, org=org))
     enroll_file_policy(a, maximum=64)
     pg.sql(f"UPDATE public.organization_entitlements SET entitlements=jsonb_set(entitlements,'{{limits,storage.max_bytes}}','4096'::jsonb) WHERE org_id={literal(org)}")
+
+
+def assert_native_product_reads(app, pg, project, commit, format):
+    legacy = pg.value(f'SELECT version_root_hash FROM public.projects WHERE id={literal(project)}')
+    sequence = pg.value(f'SELECT ref_sequence FROM public.version_repositories WHERE project_id={literal(project)}')
+    for action in ('ls', 'tree'):
+        listing = app.api('GET', f'/content/{project}/{action}')
+        assert [e['name'] for e in listing['entries']] == ['readme']
+        assert listing['entries'][0]['git_mode'] == '100644'
+        assert listing['head_commit_id'] == commit
+        assert listing['repository_revision']['target_ref'] == 'refs/heads/trunk'
+        assert listing['repository_revision']['expected_oid'] == commit
+        assert listing['repository_revision']['object_format'] == format
+    cat = app.api('GET', f'/content/{project}/cat', params={'path': 'readme'})
+    assert cat['content_text'] == 'hello\n' and cat['head_commit_id'] == commit
+    stat = app.api('GET', f'/content/{project}/stat', params={'path': 'readme'})
+    assert stat['exists'] and stat['head_commit_id'] == commit and stat['git_mode'] == '100644'
+    raw = app.request('GET', f'/api/v1/content/{project}/raw', params={'path_bytes_b64': base64.b64encode(b'readme').decode()})
+    assert raw.content == b'hello\n'
+    app.request('GET', f'/api/v1/content/{project}/ls', token=False, expected=401)
+    assert pg.value(f'SELECT version_root_hash FROM public.projects WHERE id={literal(project)}') == legacy
+    assert pg.value(f'SELECT ref_sequence FROM public.version_repositories WHERE project_id={literal(project)}') == sequence
+    assert pg.value(f'SELECT count(*) FROM public.version_commits WHERE project_id={literal(project)}') == '0'
 
 
 @pytest.mark.parametrize('format', ['sha1', 'sha256'])
@@ -84,6 +108,7 @@ def test_docker_native_git_canonical_auth_refs_policy_cold_restart(application, 
     client.run('push', '--atomic', 'origin', 'topic', 'refs/tags/annotated', 'refs/tags/blob')
     before = client.run('ls-remote', '--symref', 'origin').stdout
     assert b'ref: refs/heads/trunk\tHEAD' in before and b'refs/heads/main' not in before
+    assert_native_product_reads(app, pg, project, first, format)
     rejected = client.commit({'too-large': b'x'*65})
     oversized = client.text('rev-parse', rejected+':too-large')
     assert client.run('push', 'origin', 'trunk', check=False).returncode != 0
@@ -101,6 +126,7 @@ def test_docker_native_git_canonical_auth_refs_policy_cold_restart(application, 
     assert cold.run('show', first+':readme').stdout == b'hello\n'
     cold.run('fsck', '--full', '--strict')
     assert len(set(app.starts)) == 2
+    assert_native_product_reads(app, pg, project, first, format)
     assert app.client.get(health_path, headers=headers).json()['data']['health'] == 'healthy'
     # A newly issued read credential can discover/fetch but cannot advertise a
     # receive service or mutate. Foreign locators do not retarget this grant.

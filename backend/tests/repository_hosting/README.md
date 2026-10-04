@@ -233,6 +233,29 @@ shadow roots 仍是保守 retention 输入，不冒充 native 当前状态。met
 inventory 接口收窄后 **103+329**（无 skips/errors/gaps/耗尽），组件/GC/system **432 passed**。
 这些是选择证据，不替代冻结完整验收，也不修复原 34 项或完成其它消费者/迁移。
 
+### Native Product 读取子集与 ACK 保护（M08 未完成）
+
+`ProductOperationAdapter.open_read` 经 Project grant、实时 PG authority 和 admitted
+read pin 选择同一份 refs/HEAD/format snapshot。已接 `ls/cat/raw/stat/tree`，内容与
+返回的 `repository_revision` 来自同一快照，不走 legacy root 或 Git materialization。
+新增 base64 路径身份和 Git mode；显示名称不是字节身份，symlink 不跟随、gitlink 不当
+本仓库 blob 下载。native tree walk 超出 entry budget 明确失败，不截断为完整成功。
+HTTP 历史契约 fixture 不变，单独 forward delta 限定五条读取路径和五个 response schema。
+
+同时复现两种读时 ACK 丢失：缺 subtree 或 blob 会触发 `list_dir` 以不完整 Scope inventory
+改写已有 root，连健康 sibling 也被删除。已移除此非空根重建；真实 owned S3/PG 验证仅恢复
+物理字节即可读回全部 ACK，metadata 不变。16 项 authority 错误不能冒充空 root/head 或
+路径不存在。旧 empty-root Scope compatibility 没被当作 native authority，也未宣称完成 repair。
+
+初选 **25+329**；加入读取/续租/快照/selector 回归后 **103+329**（component78、PG9、
+Auth3、application3、S310），无 skips/errors/资源缺口；组件/契约/legacy 选择 **534→535 passed**
+（最后补充 text/base64 Unicode 路径长度上限一致性）。
+两种格式的真实 src.main/JWT 读取覆盖应用重启前后；enrollment/entitlements 仍由测试 owner
+合成安装。此前 backend **2772 passed / 1 failed / 27 skipped** 的失败是新增公开 wire 未登记
+forward contract delta，原失败保留；补充精确 delta 后定向契约已通过，不等于完整 backend 重跑。
+Signed inline/download、历史/Scope、native Save/其它写入、自动生产者和完整资源/恢复/迁移仍待完成。
+不自动激活任何现有仓库，不把读取子集或测试增量称为 M08/M09/A6–A11 完成。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。

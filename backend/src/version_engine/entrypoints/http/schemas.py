@@ -6,15 +6,14 @@ All data types used by the PuppyOne platform layer:
 2. Commit history, diff, and rollback schemas
 
 Identity model:
-    Commits are identified by a 40-hex SHA-1 commit_id — the SHA-1
-    over the git ``commit`` object body produced by ``encode_commit``
-    (tree + parent + author/committer lines + message). On disk the
-    commit body is stored as a zlib-compressed loose object whose
-    SHA-1 is exactly this commit_id, so PuppyOne and any standard git
-    tool agree byte-for-byte.
-    The old integer `version` columns / fields are gone.
-    Clients that need to represent "no prior state" send an
-    empty string "" as the base_commit_id.
+    Commits retain the declared repository object format: legacy SHA-1
+    (40 hex) or native SHA-1/SHA-256 (40/64 hex). Native read responses
+    capture their target ref, expected OID and HEAD selector together with
+    the content. Display paths are not byte identities; native clients use
+    path_bytes_b64 for lossless paths. Legacy write requests continue to use
+    an empty base_commit_id for no prior state. Native read revisions use
+    expected_oid=null for an unborn selected branch; this does not enable
+    native Product writes or enrollment.
 """
 
 from __future__ import annotations
@@ -130,7 +129,7 @@ class BulkWriteRequest(BaseModel):
 # ============================================================
 
 class VersionEntryResponse(BaseModel):
-    """A single entry in the version tree."""
+    """A single tree entry. Native byte-path fields, not display text, identify names."""
     name: str
     path: str
     type: str  # "folder" | "json" | "markdown" | "file"
@@ -139,16 +138,25 @@ class VersionEntryResponse(BaseModel):
     mime_type: str | None = None
     children_count: int | None = None
     integrity_status: Literal["ok", "damaged", "unknown"] = "ok"
+    git_mode: str | None = None
+    name_bytes_b64: str | None = None
+    path_bytes_b64: str | None = None
 
 
-class ListDirResponse(BaseModel):
+class RepositoryReadResponse(BaseModel):
+    """Captured native ref/base; absent for the preserved legacy profile."""
+    repository_revision: dict[str, Any] | None = None
+    path_bytes_b64: str | None = None
+
+
+class ListDirResponse(RepositoryReadResponse):
     """Response for listing directory contents"""
     path: str
     entries: list[VersionEntryResponse]
     head_commit_id: str = ""
 
 
-class ReadFileResponse(BaseModel):
+class ReadFileResponse(RepositoryReadResponse):
     """Response for reading file contents"""
     path: str
     type: str
@@ -158,7 +166,7 @@ class ReadFileResponse(BaseModel):
     head_commit_id: str = ""
 
 
-class StatResponse(BaseModel):
+class StatResponse(RepositoryReadResponse):
     """File/directory information"""
     path: str
     type: str
@@ -168,12 +176,14 @@ class StatResponse(BaseModel):
     mime_type: str | None = None
     children_count: int | None = None
     integrity_status: Literal["ok", "damaged", "unknown"] = "ok"
+    git_mode: str | None = None
+    name_bytes_b64: str | None = None
     exists: bool = True
     head_commit_id: str = ""
     scope_head_commit_id: str = ""
 
 
-class TreeResponse(BaseModel):
+class TreeResponse(RepositoryReadResponse):
     """Full directory tree response"""
     path: str
     entries: list[VersionEntryResponse]

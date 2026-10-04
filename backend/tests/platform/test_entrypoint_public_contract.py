@@ -51,6 +51,18 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
         for name, digest in delta["added"].items():
             assert name not in expected["contract"][category]
             expected["contract"][category][name] = digest
+    # ISSUE-062 adds ref/base metadata and byte-path alternatives only to these
+    # content reads. Match exact before/after digests; do not rewrite any
+    # historical publication/retirement fixture or exempt other APIs.
+    native = json.loads(Path(__file__).with_name("native_content_read_contract_delta.json").read_text())
+    assert set(native["paths"]) == {
+        f"/api/v1/content/{{project_id}}/{action}" for action in ("ls", "cat", "raw", "stat", "tree")
+    }
+    assert set(native["schemas"]) == {"ListDirResponse", "ReadFileResponse", "StatResponse", "TreeResponse", "VersionEntryResponse"}
+    for category in ("paths", "schemas"):
+        for name, change in native[category].items():
+            assert expected["contract"][category][name] == change["before"]
+            expected["contract"][category][name] = change["after"]
     assert contract(app.openapi()) == expected["contract"]
 
 

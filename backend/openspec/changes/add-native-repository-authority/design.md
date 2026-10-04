@@ -611,3 +611,41 @@ quarantine, per-invocation uncertainty and destructive token rules are unchanged
 Two actual S3/PG worker cases prove selection, preserved refs and persisted run
 records for both formats; legacy-facade reads remain rejected. Other consumers,
 lifecycle, migration and complete resource/recovery gates remain unfinished.
+
+### Selected native Product reads (M08, not Product writes or activation)
+
+`ProductOperationAdapter.open_read` validates the Project grant before fresh
+mandatory authority selection. Explicit native authority opens an admitted read
+pin and a typed, format-checked `NativeTreeReader`; absent/shadow authority retains
+the legacy adapter. Metadata/capability failures never select the legacy path.
+The native view has no publish, repair or transport-materialization capability.
+
+Authenticated content `ls`, `cat`, `raw`, `stat` and `tree` use this context for
+both bytes and base metadata. `repository_revision` reports format, generation,
+ref sequence, target ref (text when representable and base64), expected OID,
+tree OID and captured HEAD guard. This describes the actual read, not write
+permission. Scope-head aliases are not invented from legacy historical rows.
+Native entry DTOs include Git mode and lossless base64 name/path fields; display
+text is JSON-safe and is not byte identity. The five routes accept the additive
+`path_bytes_b64` alternative (not alongside a nonempty text path), with the
+existing path-length ceiling and no traversal/NUL/empty segments. Symlinks remain
+blob bytes and gitlinks remain external. The native tree walk is iterative and
+rejects its entry-budget overflow rather than returning a truncated success.
+This is not complete RAM/network/deadline or long-single-I/O acceptance.
+
+The HTTP schema change has a forward contract delta for exactly five paths and
+five response schemas, checking both prior and new digests; historical entrypoint
+fixtures and security schemes are unchanged. Actual src.main/JWT/PG/S3 cases now
+read both formats before/after cold application restart without changing refs or
+legacy roots. Enrollment/entitlements remain owner-installed synthetic facts.
+Signed inline/download streaming, historical/Scope readers, native Product
+writes, automatic producers, lifecycle and migration are still separate gates.
+
+The investigation also reproduced destructive legacy read-time healing: either
+a missing subtree or a missing blob caused `list_dir` to replace a valid root
+with an incomplete Scope-derived tree, removing healthy siblings too. That
+nonempty-root mutation is removed; component and actual S3/PG tests preserve the
+acknowledged metadata and recover by restoring only physical bytes. Authority
+errors in legacy Project/Scope reads now propagate as unavailable rather than
+empty roots/heads or missing paths. The older empty-root Scope compatibility
+path is unchanged and is not claimed as native read or repair authority.

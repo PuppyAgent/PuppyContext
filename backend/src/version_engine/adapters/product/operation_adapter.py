@@ -28,6 +28,7 @@ Usage:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from src.version_engine.write_engine.engine import VersionWriteEngine
@@ -102,6 +103,39 @@ class ProductOperationAdapter:
         self._repos = repo_manager
         self._reader = VersionTreeReader(repo_manager)
         self._engine = VersionWriteEngine(repo_manager)
+
+    @contextmanager
+    def open_read(self, project_id: str, grant, *, selector: bytes = b"HEAD"):
+        """Keep native bytes and their starting ref/base in one admitted snapshot.
+
+        Authority selection is fresh and mandatory. Legacy callers retain their
+        existing adapter only after an explicit absent/shadow result; errors are
+        never a reason to consult cached legacy roots or materialize Git.
+        """
+        from src.version_engine.read.native_tree_reader import NativeTreeReader
+        from src.version_engine.read.repository_snapshot import repository_snapshot
+        from src.version_engine.write_engine.ref_transaction import admitted_actor
+
+        admitted_actor(grant, project_id, write=False)
+        service = self._repos.get_native_service(project_id)
+        if service is None:
+            if selector != b"HEAD":
+                raise ValueError("legacy repository ref selection unavailable")
+            yield self
+            return
+        from src.version_engine.domain.errors import NativeObjectNotFoundError, ObjectNotFoundError
+
+        try:
+            with repository_snapshot(service.control, service.backend, grant, project_id=project_id) as snapshot:
+                if snapshot.object_format != service.object_format:
+                    raise ValueError("repository object format mismatch")
+                yield NativeTreeReader(snapshot, selector=selector)
+        except ObjectNotFoundError as exc:
+            raise NativeObjectNotFoundError("Canonical repository object unavailable") from exc
+
+    def get_read_revision(self, project_id: str):
+        """Only an admitted native read view exposes native ref/base metadata."""
+        return None
 
     def get_project_write_state(
         self,

@@ -21,6 +21,12 @@ class ObjectNotFoundError(VersionEngineError):
     http_status = 404
 
 
+class NativeObjectNotFoundError(ObjectNotFoundError):
+    """Canonical native bytes are unavailable; legacy incidents cannot classify it."""
+
+    http_status = 500
+
+
 class PathNotFoundError(VersionEngineError):
     http_status = 404
 

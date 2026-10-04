@@ -76,6 +76,10 @@
   Connected selections: 77+329, expanded 181+329 (all 18 regressions pass), then
   final narrowed-inventory 103+329. Components/GC/system: 432 passed. These
   dirty selections are not a frozen full repair result or original-34 resolution.
+- [x] Run clean frozen `9b060399`: 1289 passed / exactly the original 34 failures,
+  plus 329 pgTAP, no skips/errors/resource exhaustion. All 18 native GC consumer
+  regressions are repaired; supplementary backend 2773 passed / 27 skipped /
+  76 deselected. This remains failed full acceptance, not activation readiness.
 - [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
@@ -155,6 +159,32 @@
 - [ ] Complete native ProductOperationAdapter/API, Scope/legacy mappings and automatic
   writers; complete lifecycle/consumer/resource/recovery/migration gates before
   activating existing repositories. Original canonical target failures remain open.
+
+### Selected native Product reads (M08, partial)
+
+- [x] Reproduce native Product reader/route fallback failures (8 adapter and 10
+  route cases); use a single admitted ref snapshot for selected content reads
+  and their real base, without transport materialization or legacy aliases.
+- [x] Wire authenticated `ls`, `cat`, `raw`, `stat`, `tree`; expose captured
+  ref/OID/HEAD guard, byte-path alternatives and modes without following symlinks
+  or fetching external gitlinks. Preserve historical HTTP contract fixtures and
+  add an exact five-path/five-schema forward delta, not a wildcard exemption.
+- [x] Reproduce destructive read-time root healing (2 failures) and authority
+  failures disguised as absence (16 failures). Preserve nonempty acknowledged
+  roots, healthy siblings and physical-only recovery in component/owned S3/PG
+  tests. Do not reinterpret legacy incident rows as native root authority.
+- [x] Exercise actual JWT/application/PG/S3 reads in both formats before/after
+  restart; synthetic enrollment remains explicit. Guarded connected selection:
+  103 passed + 329 pgTAP (component 78, PG 9, Auth 3, application 3, S3 10), no
+  skips/errors/resource gaps. Components/contract/legacy regression: 534, then
+  535 passed including equal text/base64 Unicode path-length behavior.
+  Preserve the earlier backend 2772/1 contract-delta failure and the accidentally
+  selected Desktop-window test's missing-environment failure; neither is a full
+  native Product acceptance result.
+- [ ] Complete signed inline/download streaming, historical/Scope readers and
+  all remaining authority-aware consumers; complete long-I/O/resource bounds.
+- [ ] Complete native Product writes, actual starting-base/target propagation,
+  automatic producers, lifecycle, recovery and migration before activation.
 
 ### Git command conformance (M01/M18, partial)
 

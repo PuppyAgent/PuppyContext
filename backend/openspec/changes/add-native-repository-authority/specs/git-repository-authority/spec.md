@@ -86,6 +86,21 @@ Admitted native readers SHALL capture refs, generation, sequence and declared fo
 - **THEN** its tree identity is read from verified bytes under the captured format, without transport materialization
 - **AND** an unrelated stored or rejected-proposal object remains unreadable
 
+#### Scenario: Product reads retain their actual base
+- **WHEN** an authenticated native Project content request reads through HEAD while another transaction changes refs
+- **THEN** file/tree bytes and returned ref, expected OID and HEAD-selector metadata come from the same admitted snapshot
+- **AND** the read uses no legacy root or Git transport materialization, and releases its pin on success or failure
+
+#### Scenario: Native byte paths and modes
+- **WHEN** native entries contain non-UTF8 names, executables, symlinks or gitlinks
+- **THEN** read responses preserve byte identities in base64 fields and expose Git modes separately from JSON-safe display paths
+- **AND** byte-path requests reject traversal, symlinks are read as blobs rather than followed, and external gitlinks are not fetched as local blobs
+
+#### Scenario: Observing damage does not publish a repair
+- **WHEN** listing an acknowledged root encounters an unavailable subtree or blob
+- **THEN** the read does not replace that root from an incomplete Scope inventory
+- **AND** metadata failure or an unadapted native consumer is unavailable, not an empty root or nonexistent file
+
 ### Requirement: Current actor and lifecycle admission
 Admitted native publication SHALL revalidate current platform role or full-Project runtime credential facts and a matching live Project write lease in the publication transaction. Cached grants and copied lease contexts SHALL NOT replace these checks. Revocation SHALL serialize with publication, and validity SHALL be rechecked after queued locks. Backend admission RPCs SHALL NOT authenticate caller-supplied actor identities or grant Scope credentials full-repository access.
 

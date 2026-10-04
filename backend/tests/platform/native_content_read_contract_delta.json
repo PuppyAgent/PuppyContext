@@ -1,0 +1,48 @@
+{
+  "baseline_product_commit": "9b060399380fe1dfe03c531ce7a876052013a5b7",
+  "scope": "ISSUE-062: additive captured native read metadata, Git modes and byte-path alternatives; historical entrypoint fixtures unchanged",
+  "paths": {
+    "/api/v1/content/{project_id}/cat": {
+      "before": "49892c2857c4b801de4c69c56aad7485a4eb45a4565d031524d3044e1226b8e8",
+      "after": "a0987313eec0196673b94b1748e262311a9972d3a7dd3b2113bda15bfe3054a0"
+    },
+    "/api/v1/content/{project_id}/ls": {
+      "before": "3f6a62bcfd5ba4345aac2c3bb84365704f14a1f855e0e46244fdd8deb89b865d",
+      "after": "f7d76d7f035582d669fe33324362474d39173b0197b2936509f42403b72ffa89"
+    },
+    "/api/v1/content/{project_id}/raw": {
+      "before": "fd151a31842ff94149640186a7f26a87ceb2a99b119c8929ddbec2ee0db377a2",
+      "after": "7b4bb20134092298173b60fd93c1a42980e7ac613b598860cc9bd17b0c0cee54"
+    },
+    "/api/v1/content/{project_id}/stat": {
+      "before": "e09b1a83ed1ad2669067a39d2838fe64971e6594828d49e5ef60c8c985130561",
+      "after": "1d200b26dc7217dc8d19c497707bd2a5fc7686ec4dbf246cc8f13b32d0b0c43c"
+    },
+    "/api/v1/content/{project_id}/tree": {
+      "before": "c2dd6d2928d74aeca167377f078649da75a51b1995783157bc15c7f88648aabd",
+      "after": "f83ff99f96dda7512bb20cbabb5827fe259e6920e6773ccb3ba37a14b6197c3e"
+    }
+  },
+  "schemas": {
+    "ListDirResponse": {
+      "before": "b095e739cfe3bafc552b9d8fe3c07cc806edeee0f4cb912a304be7d8751c997e",
+      "after": "2d66acbeae60bf9b81467efd28fdc9b2705260f410e6acf6e1e6fd38c4d7b2b8"
+    },
+    "ReadFileResponse": {
+      "before": "eb3134757254b85dc8817bfc9112a83d8983f9b1a4d83f6ef1093a43f8c0c556",
+      "after": "9bc071b3b6d77a38d56f9ff82b880ea18fc08b4db42733eab527a7f373997c84"
+    },
+    "StatResponse": {
+      "before": "57096259a045a998b221268bf833c756f010c97320ccbbd0df056d5e4377da1c",
+      "after": "153b127b335144e4c2527baaec9def4251282f10fc872998fbaf9288d9845ab7"
+    },
+    "TreeResponse": {
+      "before": "e8c685da9c8accb73d6d18ba5bb66be9f7c5ff5718c588e847836db2fc9a3b19",
+      "after": "c79ddc4888ec765555fa1a4cc7aff4911b69a208000bc58ff749181b982396d5"
+    },
+    "VersionEntryResponse": {
+      "before": "7dd145446796daef1f472b490be5db4aeee71351122f884ab3d6ccafa6fb43a9",
+      "after": "fe9493ce2a5e57863b28c5e914fef43b8214f372bd3c5eec5bafeed2456d329d"
+    }
+  }
+}

@@ -1,8 +1,9 @@
 """
 VersionTreeReader — direct read interface for Git-native project trees.
 
-Reads file trees directly from canonical Git tree objects in the project
-ObjectStore. This is the sole entry point for tree browsing and file reads.
+Reads legacy root-first trees directly from canonical Git tree objects in the
+project ObjectStore. Admitted native reads use NativeTreeReader instead; they
+must not enter this class's historical Scope compatibility paths.
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ class VersionEntry:
     integrity_status: str = "ok"
     created_at: str | None = None
     modified_at: str | None = None
+    git_mode: str | None = None
 
 
 def _entry_sort_key(entry: VersionEntry) -> tuple[int, str]:
@@ -76,10 +78,9 @@ class VersionBlobRead:
 
 
 class VersionTreeReader:
-    """Read the version tree directly, bypassing PG.
+    """Read legacy trees from the acknowledged PG root and object store.
 
-    The sole entry point for all file browsing and content reading.
-    Replaces all read operations of ContentNodeRepository + ContentNodeService.
+    Native authority or metadata failure must not turn into empty content.
     """
 
     def __init__(self, repo_manager: VersionRepoManager):
@@ -142,7 +143,7 @@ class VersionTreeReader:
         try:
             repo, root_hash = self._scope_root_for_read(project_id, scope_path)
         except Exception as e:
-            raise FileNotFoundError(f"Project {project_id} is not initialized: {e}")
+            raise VersionReadError(f"failed to read scope head for project {project_id}") from e
         if not root_hash:
             raise FileNotFoundError(f"Scope {scope_path!r} has no content")
 
@@ -165,7 +166,7 @@ class VersionTreeReader:
         try:
             repo, root_hash = self._scope_root_for_read(project_id, scope_path)
         except Exception as e:
-            raise FileNotFoundError(f"Project {project_id} is not initialized: {e}")
+            raise VersionReadError(f"failed to read scope head for project {project_id}") from e
         if not root_hash:
             raise FileNotFoundError(f"Scope {scope_path!r} has no content")
 
@@ -206,7 +207,7 @@ class VersionTreeReader:
             repo, root_hash = self._scope_root_for_read(project_id, scope_norm)
         except Exception as e:
             log_error(f"[VersionTreeReader] Failed to get scope hash for stat: {e}")
-            return None
+            raise VersionReadError(f"failed to read scope head for project {project_id}") from e
 
         if not rel_path:
             return VersionEntry(
@@ -349,22 +350,9 @@ class VersionTreeReader:
         ]
         result.sort(key=_entry_sort_key)
 
-        # Self-heal: a "damaged" folder means its subtree object is missing from
-        # the store while a parent tree still references it — a dangling entry
-        # the view should not keep surfacing. Re-derive the project root from
-        # the canonical scope rows (best-effort). For a healthy project this is
-        # a no-op (the rebuild reproduces the same root); for a damaged
-        # SUB-SCOPE it either re-grafts the recovered subtree or drops the dead
-        # entry, so the next read is clean instead of showing a phantom
-        # "damaged" folder. Never let healing break the read it piggybacks on.
-        if any(entry.integrity_status == "damaged" for entry in result):
-            try:
-                self._repair_project_root_from_scope_state(project_id, root_hash)
-            except Exception as exc:  # noqa: BLE001 - heal is best-effort.
-                log_warning(
-                    f"[VersionTreeReader] best-effort root heal failed for "
-                    f"{project_id} at {path or 'root'!r}: {exc}",
-                )
+        # A missing object is an integrity incident, not permission to rewrite
+        # acknowledged metadata. Scope rows are not a complete inventory of a
+        # root-first Project; rebuilding here can erase healthy siblings too.
         return result
 
     def _build_entry(
@@ -405,7 +393,7 @@ class VersionTreeReader:
         try:
             repo, root_hash = self._project_root_for_read(project_id)
         except Exception as e:
-            raise FileNotFoundError(f"Project {project_id} is not initialized: {e}")
+            raise VersionReadError(f"failed to read project root for project {project_id}") from e
         if not root_hash:
             raise FileNotFoundError(f"Project {project_id} has no content")
 
@@ -432,7 +420,7 @@ class VersionTreeReader:
         try:
             repo, root_hash = self._project_root_for_read(project_id)
         except Exception as e:
-            raise FileNotFoundError(f"Project {project_id} is not initialized: {e}")
+            raise VersionReadError(f"failed to read project root for project {project_id}") from e
         if not root_hash:
             raise FileNotFoundError(f"Project {project_id} has no content")
 
@@ -467,7 +455,7 @@ class VersionTreeReader:
             repo, root_hash = self._project_root_for_read(project_id)
         except Exception as e:
             log_error(f"[VersionTreeReader] Failed to get root hash for stat: {e}")
-            return None
+            raise VersionReadError(f"failed to read project root for project {project_id}") from e
         if not root_hash:
             return None
 
@@ -573,7 +561,7 @@ class VersionTreeReader:
             return root_hash or ""
         except Exception as e:
             log_error(f"[VersionTreeReader] Failed to get root hash: {e}")
-            return ""
+            raise VersionReadError(f"failed to read project root for project {project_id}") from e
 
     def get_head_commit_id(self, project_id: str) -> str:
         """Get the project's current global head commit_id (may be empty).
@@ -585,7 +573,7 @@ class VersionTreeReader:
             return repo.history.get_head_commit_id() or ""
         except Exception as e:
             log_error(f"[VersionTreeReader] Failed to get head commit_id: {e}")
-            return ""
+            raise VersionReadError(f"failed to read project head for project {project_id}") from e
 
     # ── Internal helpers ──
 
