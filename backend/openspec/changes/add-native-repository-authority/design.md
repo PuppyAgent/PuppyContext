@@ -587,3 +587,27 @@ file-policy rejection before oversized allocation, cold restart/protocol-v2 fetc
 exact refs/bytes, read-only/anonymous/foreign rejection and credential revocation.
 This proves canonical authenticated Git, not external PuppyPay, native product
 Save/API, existing-data cutover or complete activation readiness.
+
+### Ongoing pin authority and maintenance inventory
+
+Canonical admission must remain current during renewal, not only pin creation.
+`renew_admitted_version_object_pin` rechecks current actor before and after the
+primitive's repository/pin lock waits. Publication pins additionally require the
+stored admitted Project lease; read pins need neither write permission nor a write
+lease. Expiry/revocation rolls back renewal. The admitted adapter never falls back
+to primitive renewal; backend-only GC/reconciliation keep their separate primitive
+capability. This adds no I/O settlement authority and does not solve long single-I/O
+heartbeat/resource bounds by itself.
+
+The frozen a8dd06c7 run exposed 18 native GC consumer regressions because the new
+legacy-facade guard also rejected maintenance callers. The scheduled GC worker now
+uses a dedicated Project-bound inventory, with no legacy current-tree/head or
+publication interface. Existing legacy history, Scope heads, view mappings, pending
+outbox/conflicts, named refs and shadow snapshots remain conservative retention
+inputs. They are not native current content. The collector requires either an
+explicit complete inventory or the old scoped-root interface; absent capability
+is not an empty repository. Metadata lookup still fails closed. Physical verification,
+quarantine, per-invocation uncertainty and destructive token rules are unchanged.
+Two actual S3/PG worker cases prove selection, preserved refs and persisted run
+records for both formats; legacy-facade reads remain rejected. Other consumers,
+lifecycle, migration and complete resource/recovery gates remain unfinished.

@@ -66,7 +66,7 @@ def test_native_gc_removes_immutable_chunk_orphan_and_keeps_published_closure(pu
     )
     assert all(_run_async(s3.file_exists(key)) for key in keys)
     before = service.control.snapshot(auth.project)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="Chunk GC")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
     assert not result.errors and not result.sweep_skipped_for_safety
     assert result.deleted_count == 1 and result.deleted_sample == [orphan]
@@ -109,7 +109,7 @@ def test_native_gc_retains_fence_without_any_delete_for_invalid_manifest(publica
 
     monkeypatch.setattr(s3, "delete_file", observe_delete)
     before = service.control.snapshot(auth.project)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="Invalid chunk GC")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
     assert result.errors and result.deleted_count == 0
     assert not deletions

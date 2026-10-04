@@ -106,6 +106,10 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
                          p_updates=updates, p_receipt_id=receipt, p_message=message,
                          p_lease_id=lease, p_holder_id=holder)
 
+    def renew(self, project_id: str, actor: str, pin: str):
+        return self.call("renew_admitted_version_object_pin", p_project_id=project_id,
+                         p_actor=actor, p_pin_id=pin)
+
     def check_write(self, project_id: str, actor: str):
         lease, holder = self._lease(project_id)
         return self.call("check_version_repository_write_admission", p_project_id=project_id,

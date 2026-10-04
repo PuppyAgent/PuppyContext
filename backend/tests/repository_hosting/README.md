@@ -210,6 +210,29 @@ Auth 3、PG 13、组件 20），无 skip/error/gap/资源耗尽；不是外部 P
 补齐夹具明确 legacy authority，不给生产 lookup 添加 fallback。随后 mixed-write /
 admission / selector 定向 **21 passed**，原并发、恢复和延迟断言未改；未冒充全量重跑。
 
+干净冻结 `a8dd06c7` 随后全序 **1246 passed / 52 failed + 329 pgTAP**：原 34 项
+保留，另有 18 项 native GC 消费者回归。旧 facade 的 authority guard 正确拒绝 native，
+但 GC worker/测试仍使用该当前树入口，暴露维护入口未适配；不是全量通过。补充
+backend **2773 passed / 27 skipped / 76 deselected**，不抵消 hosting 失败。
+
+### 当前准入续 pin 与维护专用 GC inventory
+
+续 pin 先保留 **4 failed / 1 passed**：撤销 credential、过期 publication lease 或排队期间
+到期仍可延长 pin。新 backend-only RPC 在 primitive renewal 前后检查当前 actor，
+publication 另检查绑定 lease；read pin 不需要写权限/写 lease。失败回滚延长，无旧 RPC
+fallback；独立 backend maintenance primitive 保留。Expand 不改数据、不登记、不解除
+任何 uncertain I/O claim。严格 native-PG/组件 **13 passed**，覆盖 populated rollback/retry。
+
+`get_gc_repo` 是维护专用 inventory，不暴露旧 current-tree/head 或 publication facade；
+实际 scheduled GC 已选择它。全部旧 history/Scope heads/refs/view-index/outbox/conflict/
+shadow roots 仍是保守 retention 输入，不冒充 native 当前状态。metadata 故障不得降级，
+缺完整 scope inventory 不得当空。原 18 项的拒绝、物理 bytes/refs、fence/恢复断言不改，
+改用同一个生产维护入口；另有两种格式实际 worker/PG run-record 回归。
+
+工作树 connected 选择先 **77+329**，扩大为 **181+329**，包含原 18 项全部转绿；最终
+inventory 接口收窄后 **103+329**（无 skips/errors/gaps/耗尽），组件/GC/system **432 passed**。
+这些是选择证据，不替代冻结完整验收，也不修复原 34 项或完成其它消费者/迁移。
+
 ### Git 命令符合性与测试驱动实施
 
 新增 [CONFORMANCE.md](CONFORMANCE.md) 明确命令、原生 oracle、托管 profile、证据层及 G01–G66 尚未覆盖的门禁。`transport/test_git_conformance.py` 的 78 个工作流对同一 recipe 分别执行原生 bare Git 和生产 HTTP，然后删除测试专属 Git cache、新 mirror/fsck，比较 refs、HEAD 和全部可达对象的 OID/类型/原始字节。原生 recipe 在 fixture setup 验证，不能被 Cloud 缺口 XFAIL 隐藏；JUnit 保留命令/能力/profile，声明命令未执行会报错。

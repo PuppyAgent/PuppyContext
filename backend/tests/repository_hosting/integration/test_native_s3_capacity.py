@@ -203,7 +203,7 @@ async def test_capacity_collection_recovers_absent_objects_and_post_delete_sql_f
         return original_collect(self, objects)
 
     monkeypatch.setattr(S3StorageBackend, '_collect_capacity', fail_after_physical_delete)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name='Capacity recovery')
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = await asyncio.to_thread(RepositoryCollector(control).run, repo, dry_run=False, retention_seconds=0)
     assert failed and result.errors
     token = pg.value(f"SELECT gc_token FROM public.version_repositories WHERE project_id={literal(auth.project)}")
@@ -215,7 +215,7 @@ async def test_capacity_collection_recovers_absent_objects_and_post_delete_sql_f
     # the worker have returned. This is explicit quiescence, never TTL-based unlock.
     monkeypatch.setattr(S3StorageBackend, '_collect_capacity', original_collect)
     control.finish_gc(auth.project, token)
-    cold = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name='Capacity recovery cold')
+    cold = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     recovered = await asyncio.to_thread(RepositoryCollector(control).run, cold, dry_run=False)
     assert not recovered.errors and not recovered.sweep_skipped_for_safety
     assert capacity_usage(pg, auth.project) == baseline
@@ -242,7 +242,7 @@ async def test_expired_unsettled_capacity_keeps_gc_fenced_until_explicit_quiesce
                      p_io_id=io_id)
         pg.sql(f"UPDATE public.version_object_pins SET expires_at=clock_timestamp()-interval '1 second' WHERE id={literal(pin)}")
     before = capacity_usage(pg, auth.project)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name='Unsettled capacity')
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = await asyncio.to_thread(RepositoryCollector(control).run, repo, dry_run=False, retention_seconds=0)
     assert result.errors and result.sweep_skipped_for_safety
     assert capacity_usage(pg, auth.project) == before

@@ -266,12 +266,18 @@ def collect_object_gc_roots(repo, *, errors: list[str] | None = None) -> set[str
             out_errors.append(f"{getter_name}: {exc}")
 
     try:
-        for scope_path, scope_hash in (repo.get_all_scope_hashes() or {}).items():
-            add(scope_hash)
-            try:
-                add(repo.get_scope_head_commit_id(scope_path))
-            except Exception as exc:  # noqa: BLE001
-                out_errors.append(f"scope head {scope_path!r}: {exc}")
+        scope_getter = getattr(repo, "get_all_scope_hashes", None)
+        if callable(scope_getter):
+            for scope_path, scope_hash in (scope_getter() or {}).items():
+                add(scope_hash)
+                try:
+                    add(repo.get_scope_head_commit_id(scope_path))
+                except Exception as exc:  # noqa: BLE001
+                    out_errors.append(f"scope head {scope_path!r}: {exc}")
+        elif not callable(getattr(getattr(repo, "history", None), "list_object_gc_roots", None)):
+            raise RuntimeError("Scope retention inventory unavailable")
+        # Maintenance-only inventory includes every scope hash AND scope head;
+        # it must not expose a legacy current-tree facade to native consumers.
     except Exception as exc:  # noqa: BLE001
         out_errors.append(f"get_all_scope_hashes: {exc}")
 

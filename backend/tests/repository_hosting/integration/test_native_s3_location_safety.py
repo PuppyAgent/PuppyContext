@@ -92,7 +92,7 @@ def test_late_index_completion_after_pin_expiry_cannot_break_newer_ack(publicati
     # proof of its process or index I/O quiescence.
     pg.sql(f"UPDATE public.version_object_pins SET expires_at=clock_timestamp()-interval '1 second' "
            f"WHERE project_id={literal(auth.project)} AND state='uploading'")
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="Late index")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
     assert not result.errors and not result.sweep_skipped_for_safety
     assert result.deleted_count == 1 and result.deleted_sample == [pending["first"]["object_id"]]
@@ -160,7 +160,7 @@ def test_native_gc_rejects_foreign_bundle_without_physical_deletion(publication,
         pytest.fail("foreign placement authorized a physical DELETE")
 
     monkeypatch.setattr(s3, "delete_file", forbidden_delete)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="Foreign bundle")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
     assert result.errors and "outside its Project namespace" in " ".join(result.errors)
     assert result.deleted_count == 0

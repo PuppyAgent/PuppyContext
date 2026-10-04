@@ -80,7 +80,7 @@ async def test_native_put_delete_lost_ack_is_single_attempt_and_keeps_uncertaint
                      p_pin_id=pin, p_io_id=rows[0])
     method[0] = 'DELETE'
     before = capacity_usage(pg, auth.project)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name='Single attempt')
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = await asyncio.to_thread(RepositoryCollector(control).run, repo, dry_run=False, retention_seconds=0)
     assert result.errors and sent == ['PUT', 'DELETE']
     token = pg.value(f"SELECT gc_token FROM public.version_repositories WHERE project_id={literal(auth.project)}")

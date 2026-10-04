@@ -15,6 +15,7 @@ from botocore.exceptions import EndpointConnectionError
 from supabase import ClientOptions, create_client
 
 from src.version_engine.derived.object_gc import run_git_object_gc
+from src.version_engine.derived.object_gc_worker import process_object_gc_projects
 from src.version_engine.domain.errors import StorageWriteError
 from src.version_engine.infrastructure.supabase.ref_authority_repository import (
     RefAuthorityRepository,
@@ -133,7 +134,7 @@ def test_gc_preserves_verified_refs_and_reclaims_actual_s3_orphan(publication):
     request(service, oid, prepare)
     orphan, loose = encode_object("blob", b"unacknowledged orphan")
     backend.put_durable(orphan, loose)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="GC test")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
     assert not result.errors and not result.sweep_skipped_for_safety
     assert result.deleted_count == 1 and result.deleted_sample == [orphan]
@@ -142,10 +143,33 @@ def test_gc_preserves_verified_refs_and_reclaims_actual_s3_orphan(publication):
     assert service.control.snapshot(auth.project)["gc_token"] is None
 
 
+@pytest.mark.parametrize('publication', ['sha1', 'sha256'], indirect=True)
+def test_gc_worker_uses_native_inventory_without_legacy_current_tree_access(publication):
+    pg, auth, s3, db, backend, service, _git, oid, prepare = publication
+    request(service, oid, prepare)
+    manager = VersionRepoManager(s3, db)
+    with pytest.raises(RuntimeError, match='authority-aware access'):
+        manager.get_server_repo(auth.project)
+    before = service.control.snapshot(auth.project)
+    results = process_object_gc_projects(
+        repo_manager=manager, client=db.client, project_ids=[auth.project],
+        dry_run=True, retention_seconds=0,
+    )
+    assert len(results) == 1
+    result = results[0]
+    assert result.project_id == auth.project and result.dry_run
+    assert not result.errors and not result.sweep_skipped_for_safety
+    assert result.deleted_count == 0 and result.reachable_count > 0
+    assert service.control.snapshot(auth.project) == before
+    assert ClosureVerifier(backend, object_format=service.object_format).verify({oid: 'commit'})
+    assert pg.value(f'SELECT count(*) FROM public.version_object_gc_runs WHERE project_id={literal(auth.project)} AND dry_run') == '1'
+    assert not manager._cache
+
+
 def test_gc_dry_run_does_not_advance_epoch_or_leave_a_sweep_fence(publication):
     _pg, auth, s3, db, _backend, service, _git, oid, prepare = publication
     request(service, oid, prepare)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="GC dry run")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     before = service.control.snapshot(auth.project)
     result = run_git_object_gc(repo, dry_run=True, retention_seconds=0)
     assert not result.errors and result.deleted_count == 0
@@ -154,7 +178,7 @@ def test_gc_dry_run_does_not_advance_epoch_or_leave_a_sweep_fence(publication):
 
 def test_gc_cannot_delete_old_objects_while_a_new_publication_is_pinned(publication):
     _pg, auth, s3, db, backend, service, _git, oid, prepare = publication
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="GC race")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     def overlap():
         prepare()
         result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
@@ -173,7 +197,7 @@ def test_unknown_s3_delete_result_keeps_fence_instead_of_racing_next_writer(publ
     async def lost_ack(key):
         await original(key)
         raise ConnectionError("lost DELETE acknowledgement")
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="GC fault")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     with monkeypatch.context() as m:
         m.setattr(s3, "delete_file", lost_ack)
         result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)

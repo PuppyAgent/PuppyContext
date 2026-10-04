@@ -215,6 +215,23 @@ Initialization SHALL NOT infer an unborn repository from failed or unavailable p
 - **AND** missing or expired authority leaves the root absent
 - **AND** native metadata and corrupt accepted state reject rather than becoming an empty legacy repository
 
+### Requirement: Renewal preserves current admission
+Admitted pin renewal SHALL validate current actor authority and, for publication pins, the bound current Project lease after any repository/pin lock waits. Read pin renewal SHALL NOT require write permission or a write lease. Missing checked renewal capability SHALL fail closed without primitive fallback.
+
+#### Scenario: Revocation or expiry during renewal
+- **WHEN** a credential, publication lease or pin expires or is revoked before renewal acquires its locks
+- **THEN** renewal rejects and does not extend the previous expiration
+- **AND** rejection does not settle any uncertain storage invocation
+
+### Requirement: Maintenance inventory is not current-tree authority
+Scheduled GC SHALL use a Project-bound maintenance inventory without granting legacy current-tree or publication access to native consumers. Existing historical, Scope, mapping, outbox, conflict and shadow roots SHALL remain retention inputs until explicitly retired.
+
+#### Scenario: Native GC after canonical routing
+- **WHEN** GC processes an explicitly native repository
+- **THEN** the legacy current-tree facade remains rejected while maintenance reads the complete retention inventory
+- **AND** physical verification, quarantine, uncertain-I/O fencing and exact ref preservation remain enforced
+- **AND** missing metadata or scope inventory capabilities do not become an empty repository
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

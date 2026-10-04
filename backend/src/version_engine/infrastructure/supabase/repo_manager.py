@@ -188,6 +188,23 @@ class VersionRepoManager:
             scopes=ScopeManager(scope_backend),
         )
 
+    def get_gc_repo(self, project_id: str):
+        """Backend-only inventory for GC; not a bypass for current-tree access."""
+        from src.version_engine.infrastructure.supabase.gc_repository import (
+            ObjectGcInventory,
+            ObjectGcRepository,
+        )
+
+        metadata = self.repository_metadata(project_id)
+        backend = S3StorageBackend(self._s3, project_id, supabase=self._supabase)
+        store = ObjectStore(
+            objects_dir=_objects_dir_for(project_id), backend=backend,
+            object_format=metadata["object_format"] if metadata is not None else "sha1",
+        )
+        return ObjectGcRepository(
+            project_id, store, ObjectGcInventory(SupabaseHistoryManager(self._supabase, project_id)),
+        )
+
     def get_audit(self, project_id: str) -> SupabaseAuditManager:
         """Audit is independent of legacy root/history selection."""
         return SupabaseAuditManager(self._supabase, project_id)

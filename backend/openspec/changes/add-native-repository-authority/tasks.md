@@ -62,6 +62,20 @@
   plus 329 pgTAP, no skips/errors/resource exhaustion. All application/Auth/S3/PG
   layers pass; this does not close canonical routing or migration. Supplementary
   backend: 2773 passed / 27 skipped (2800 cases, zero failures/errors).
+- [x] Preserve clean frozen a8dd06c7: 1246 passed / 52 failed plus 329 pgTAP;
+  original 34 plus 18 native GC consumer regressions. Supplementary backend:
+  2773 passed / 27 skipped / 76 deselected. No skip/error/resource exhaustion
+  in the hosting run; this is failed acceptance, not a completed routing rollout.
+- [x] Reproduce ongoing pin admission failure (4 failed / 1 passed); add current
+  actor and publication-lease checks before/after renewal waits, without granting
+  write authority to read pins or removing the backend primitive. Validate ACLs,
+  actual SDK/PostgREST, queued expiry and populated Expand rollback/retry.
+- [x] Give scheduled GC a maintenance-only inventory instead of a current-tree
+  facade. Preserve all retention roots, old-ACK/rejection/uncertainty assertions
+  and legacy native-access guard; test the actual worker in both formats.
+  Connected selections: 77+329, expanded 181+329 (all 18 regressions pass), then
+  final narrowed-inventory 103+329. Components/GC/system: 432 passed. These
+  dirty selections are not a frozen full repair result or original-34 resolution.
 - [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
