@@ -20,7 +20,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,6 +88,12 @@ def result_exit_code(result):
         or result.get("supabase_sql_complete") is not True or "sql_exit" not in result
     ):
         return max(1, code)
+    if result.get("execution_environment") == "docker":
+        container = result.get("container_environment") or {}
+        if (not result.get("docker_image") or not container
+                or container.get("skip_auth") is not False
+                or container.get("dotenv_inherited") is not False):
+            return max(1, code)
     layers = result.get("layers", {})
     if result.get("s3") and not layers.get("hosting_s3", {}).get("passed", 0):
         return max(1, code)
@@ -240,7 +246,7 @@ def record_sql_tests(output, result):
     )
 
 
-def run_supabase_suites(stack, command, env, cli_env, result):
+def run_supabase_suites(stack, command, env, cli_env, result, *, pytest_runner=None):
     # Existing pgTAP contracts assume a nearly empty DB (global claim batch=25).
     # Seed one org so the GC smoke probe runs, then test SQL before Python tenants.
     prepare_supabase_sql_fixture(stack, cli_env)
@@ -253,7 +259,8 @@ def run_supabase_suites(stack, command, env, cli_env, result):
     print(output, flush=True)
     result["sql_exit"] = sql.returncode
     record_sql_tests(output, result)
-    result["pytest_exit"] = subprocess.call(command, cwd=ROOT / "backend", env=env)
+    result["pytest_exit"] = (pytest_runner() if pytest_runner is not None
+                             else subprocess.call(command, cwd=ROOT / "backend", env=env))
 
 
 def main():
@@ -266,12 +273,15 @@ def main():
     )
     parser.add_argument("--s3", action="store_true", help="Start owned real Supabase S3-compatible Storage (requires --live)")
     parser.add_argument("--target", action="store_true", help="known gaps must fail")
+    parser.add_argument("--docker", action="store_true", help="Run Python, production adapters and stock Git in isolated Linux Docker (requires --live --s3)")
     parser.add_argument(
         "--output", type=Path, default=ROOT / "backend/.hosting-test-results"
     )
     args, pytest_args = parser.parse_known_args()
     if args.s3 and not args.live:
         parser.error("--s3 requires --live; never use an ambient object service")
+    if args.docker and not (args.live and args.s3):
+        parser.error("--docker requires --live --s3")
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     # Do not accidentally attribute an older successful artifact to a failed startup.
@@ -300,6 +310,7 @@ def main():
     command.extend(pytest_args)
     result = {
         "live": args.live,
+        "execution_environment": "docker" if args.docker else "host",
         "native_pg": args.native_pg,
         "s3": args.s3,
         "object_environment": "owned_supabase_s3" if args.s3 else "not_started",
@@ -307,7 +318,7 @@ def main():
             "native_pg17_auth_stub" if args.native_pg else "not_started"
         ),
         "target": args.target,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "pytest_arguments": pytest_args,
         "git_version": subprocess.check_output(["git", "--version"], text=True).strip(),
         "python_version": sys.version,
@@ -323,6 +334,9 @@ def main():
         },
     }
     try:
+        if args.docker:
+            import docker_hosting
+            result["docker_image"] = docker_hosting.build_image(ROOT, cli_env)
         if args.native_pg:
             from native_postgres import native_postgres
 
@@ -428,7 +442,12 @@ def main():
                         )
                         command.append("--hosting-s3")
                     command.extend(["--hosting-live", "--hosting-supabase"])
-                    run_supabase_suites(stack, command, env, cli_env, result)
+                    if args.docker:
+                        run_supabase_suites(stack, command, env, cli_env, result,
+                            pytest_runner=lambda: docker_hosting.run_tests(
+                                ROOT, args.output, command, env, cli_env, result["docker_image"], result))
+                    else:
+                        run_supabase_suites(stack, command, env, cli_env, result)
                 finally:
                     stack.cli("stop", "--no-backup")
     except Exception as exc:
@@ -436,7 +455,7 @@ def main():
         raise
     finally:
         record_tests(args.output / "junit.xml", result)
-        result["finished_at"] = datetime.now(timezone.utc).isoformat()
+        result["finished_at"] = datetime.now(UTC).isoformat()
         result["exit_code"] = result_exit_code(result)
         (args.output / "run.json").write_text(json.dumps(result, indent=2) + "\n")
     return result["exit_code"]

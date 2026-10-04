@@ -21,6 +21,13 @@
   bare defaults; worktree defaults had 19 double failures (reflog D/F race).
 - [ ] Track the upstream worktree reflog race in the client/version matrix;
   correcting the hosting oracle profile does not fix stock Git itself.
+- [x] Add local-only Linux Docker execution of Python, stock Git and production
+  adapters against the owned Supabase/Auth/PostgREST/S3 stack. Reject inherited
+  dotenv/cloud credentials, remote daemons and missing container evidence.
+  Preserve the declared S3 origin for SigV4. Initial selection: 69 passed plus
+  329 pgTAP; no full-target, main-service/worker or multi-instance completion claim.
+- [ ] Complete frozen-revision full Docker target and actual application/worker
+  startup, environment, authenticated entrypoint and restart acceptance.
 - [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
@@ -189,7 +196,10 @@
 - [ ] Fix Workspace snapshot/base and failure recovery; retain unfinished work.
 - [ ] Implement inventory, online backfill/change replay, fencing and transparent cutover.
 - [ ] Run complete real PG/S3, concurrency/fault, old-client and restore gates.
-- [ ] Review the diff and integrate into local qubits only after applicable gates pass.
+- [ ] Review the diff; integration into local qubits now requires renewed user
+  authorization even after applicable gates pass. Current authorization is local
+  isolated Docker implementation/acceptance only: no qubits merge/push, CI/CD,
+  deployment, real-repository activation or user-data migration.
 - [ ] Obtain separate environment authorization and security prerequisite evidence before rollout.
 - [ ] Retire old authority only after consumer/task exit evidence; update canonical documentation.
 

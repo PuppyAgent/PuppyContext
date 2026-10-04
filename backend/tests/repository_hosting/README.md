@@ -21,7 +21,12 @@ backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live -q
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py --native-pg -q -m 'not hosting_supabase and not hosting_s3'
 # 上述显式排除真实 Auth/PostgREST/S3；不是完整验收。
 
-# 迁移前的严格目标入口（当前测试范围尚不完整，不能独自批准迁移）
+# 本地 Linux Docker：Python、生产适配器、stock Git 也在隔离容器执行
+# 不需要合入 qubits，不触发 CI/CD；首次构建从 uv.lock 安装 Linux 依赖
+backend/.venv/bin/python scripts/testing/run_repository_hosting.py --docker --live --s3 --target -q
+
+# 宿主机客户端 + Docker 内实服务（不是整个运行时都在 Docker）
+# 当前测试范围尚不完整，以下任一入口都不能单独批准迁移
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py --live --s3 --target -q
 ```
 
@@ -52,6 +57,26 @@ tests/repository_hosting/
 **无需先合并到 qubits。** 运行器使用当前工作树的代码和 migrations，记录实际 commit、dirty 状态和 SQL 哈希；隔离测试通过才具备后续集成依据，不反过来依赖集成或部署才能测试。
 
 `--live` 不使用开发数据库或线上数据，也不执行当前工作目录下的 `supabase db reset`。它只启停自己的临时栈。初始化失败会非零退出并记录基础设施错误；默认没有 `--live` 时，PG 用例明确跳过。多数数据库用例中的 OID 是合成值；新 ref 事务另以原生 Git 产生的 SHA-1/SHA-256 同树提交做 CAS/原子性对照。原 SQL authority 用例的 receipt 由 fixture owner 插入，不构成 S3 闭包证明；新增 native publication/S3 用例改由生产 verifier + pin/seal RPC 产生 receipt。升级用例在所属临时栈内另外创建并清理空数据库，应用真实产品迁移，但 Auth 使用 stub（即使宿主是 Supabase）；不把它算作真实 Auth 升级验收。
+
+### 本地 Docker 运行时与环境边界
+
+`--docker` 要求 `--live --s3`，只连接本次创建的 Supabase network。
+依赖镜像仅复制 pyproject/uv.lock，不复制源码、宿主机虚拟环境或密钥。
+运行时源码只读挂载，拒绝含 `.env` 的工作树；不挂载 Docker socket，
+不继承宿主机业务凭据、Git 配置或代理。容器具有 4 GiB 内存、4 CPU、
+1024 PID、2 GiB 临时盘的测试边界；这些不是生产大仓库能力保证。
+
+容器的 loopback TCP 转发仅指向本次 owned DB/Kong，并保持原始 API/S3
+origin：改用另一个容器内端口会与 Kong 提供给 Storage 的 SigV4 origin
+不一致，已实际复现六项 S3 签名失败。保留 origin 后首轮 69 项通过，
+另有 9 个文件 / 329 项 pgTAP；不是 canonical 业务链路或全量目标通过。
+
+`container-environment.json` 只记录软件版本、环境变量名称、真实生产
+Supabase client 启动检查和认证未绕过的事实，不记录密钥值。`run.json`
+区分 Linux 执行版本与宿主机编排版本；缺少容器证据、SQL 证据、要求的
+S3 层或出现失败/skip/XFAIL 均不能获得严格验收。只清理本次 owned 容器，
+不重启 Docker、不 prune、不操作其他已运行的应用栈。此运行器尚不代表
+完整 `src.main` 服务与所有异步 worker 的独立启动/重启验收。
 
 ### Git 命令符合性与测试驱动实施
 
