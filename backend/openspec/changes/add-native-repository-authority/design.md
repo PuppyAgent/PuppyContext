@@ -731,6 +731,16 @@ process/restore/resource acceptance or producer input handoff. Automatic produce
 submission, other consumers and compatibility migration remain unfinished.
 Native activation stays fenced.
 
+The subsequent process fault harness uses distinct OS processes, SIGKILL and real
+lease expiry. An owned loopback proxy keeps one complete signed PUT alive outside
+the killed process, then forwards it to actual S3 after a new process's ACK. No
+endpoint, global proxy or runtime budget changes are involved. Original input is
+supplied by the test supervisor and the RuntimeGrant is synthetic; this proves a
+controlled process/network boundary, not production input handoff, end-user token
+authentication, arbitrary multi-instance failures or paired restore. The old I/O
+claim remains even after the proxy observes completion; no automatic settlement
+is inferred from a successful retry.
+
 ### Contracts required before migrating remaining producers (M05/M09/M16)
 
 The explicit native v1 envelope is not an automatic legacy adapter. In particular:

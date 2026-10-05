@@ -405,6 +405,14 @@ Consumer dependency map (all rows must close before cutover):
   Offline: 2773 passed / 27 skipped / 76 deselected. Database policy covers all
   five task migrations after commit (its CLI compares committed HEAD, not staging).
   Corrupt foreign bundle metadata also yields zero DELETEs and a retained fence.
+- [x] Verify Product retry from a genuinely separate process after SIGKILL, real
+  30-second lease expiry and a complete signed PUT buffered outside that worker.
+  A bounded owned proxy forwards the old request to real S3 only after the new
+  ACK; old claims persist, cold bare Git fsck/content pass, read-only replay does
+  no allocation and revoked credentials deny it. Both formats; dirty selection
+  117 +329 SQL. Keep the first 115/2 failure from wrong fixture credential column
+  names. Original input is supplied by the supervisor; this is not lost-input,
+  public token authentication, multi-instance deployment or paired-restore proof.
 - [ ] Complete independent-process/multi-instance storage fault and location-cache
   recovery, long-upload renewal, paired restore and applicable resource gates;
   neither the chunk nor location-fence selections close these requirements.
