@@ -623,6 +623,37 @@ Two actual S3/PG worker cases prove selection, preserved refs and persisted run
 records for both formats; legacy-facade reads remain rejected. Other consumers,
 lifecycle, migration and complete resource/recovery gates remain unfinished.
 
+### Native ref discovery and explicit path selection (M02/M08, partial)
+
+Human `GET /api/v1/content/{project_id}/refs` and exact Project-root Runtime
+`GET /git/{project_id}.git/refs` project the existing admitted metadata snapshot.
+They return native profile, object format, generation/ref sequence, byte-safe
+refs/HEAD, typed targets and available peel metadata. They do not construct a
+native storage service, fetch objects, pin, lease, initialize or repair anything.
+Malformed/unavailable metadata is not an empty repository or legacy fallback.
+Metadata is not a continuing read/write grant. Scope credentials cannot discover
+full-repository refs, and Human/Runtime authorization planes remain separate.
+
+The five content reads accept optional canonical base64 `ref_b64` for HEAD or a
+full ref name, not an arbitrary object ID. One admitted snapshot binds both
+content and its returned revision, even if that ref moves during the read.
+Commit/annotated-tag/tree refs support tree reads; a blob ref has no path tree.
+Missing refs return 404, unsupported tree selections or malformed selectors 400.
+Explicit selectors, including explicit HEAD, never fall back to legacy. Omitted
+selectors retain the existing profile behavior. Native raw responses carry the
+same ASCII JSON revision in `X-PuppyOne-Repository-Revision` (CORS-exposed) and
+use `private, no-store`; legacy raw cache behavior is unchanged. These remain
+buffered reads, not bounded streaming or arbitrary historical/Scope access.
+
+Actual application testing exposed a shared transport-lease dependency on BOTH
+the new refs route and the prior known-key operation-status route. A transient
+acquire/release could escape count-before/count-after assertions. Metadata routes
+are now mounted separately from leased transport routes in `src.main`; their own
+current Runtime authentication and admitted SQL reads remain mandatory. Tests
+forbid lease construction at the full application boundary, while transport and
+cache-mutating routes retain their lifecycle leases. Earlier frozen operation-
+status results do not prove this subsequently discovered property.
+
 ### Selected native Product reads (M08, not Product writes or activation)
 
 `ProductOperationAdapter.open_read` validates the Project grant before fresh

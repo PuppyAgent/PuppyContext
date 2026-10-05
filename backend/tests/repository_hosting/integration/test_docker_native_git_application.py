@@ -66,6 +66,19 @@ def assert_native_product_reads(app, pg, project, commit, format):
     assert stat['exists'] and stat['head_commit_id'] == commit and stat['git_mode'] == '100644'
     raw = app.request('GET', f'/api/v1/content/{project}/raw', params={'path_bytes_b64': base64.b64encode(b'readme').decode()})
     assert raw.content == b'hello\n'
+    assert json.loads(raw.headers['x-puppyone-repository-revision'])['expected_oid'] == commit
+    assert raw.headers['cache-control'] == 'private, no-store'
+    for ref in (b'refs/heads/trunk', b'refs/tags/annotated'):
+        selected = base64.b64encode(ref).decode()
+        for action in ('ls', 'tree', 'cat', 'stat', 'raw'):
+            params = {'ref_b64': selected, 'path': 'readme' if action in ('cat', 'stat', 'raw') else ''}
+            response = app.request('GET', f'/api/v1/content/{project}/{action}', params=params)
+            revision = (json.loads(response.headers['x-puppyone-repository-revision']) if action == 'raw'
+                        else response.json()['data']['repository_revision'])
+            assert revision['target_ref_b64'] == selected and revision['head_guard'] is None
+    app.request('GET', f'/api/v1/content/{project}/cat', params={'path': '', 'ref_b64': base64.b64encode(b'refs/tags/blob').decode()}, expected=400)
+    app.request('GET', f'/api/v1/content/{project}/ls', params={'ref_b64': base64.b64encode(b'refs/heads/missing').decode()}, expected=404)
+    app.request('GET', f'/api/v1/content/{project}/ls', params={'ref_b64': 'bad!'}, expected=400)
     app.request('GET', f'/api/v1/content/{project}/ls', token=False, expected=401)
     assert pg.value(f'SELECT version_root_hash FROM public.projects WHERE id={literal(project)}') == legacy
     assert pg.value(f'SELECT ref_sequence FROM public.version_repositories WHERE project_id={literal(project)}') == sequence
@@ -158,6 +171,22 @@ def test_docker_native_git_canonical_auth_refs_policy_cold_restart(application, 
             'project_write_leases', 'version_object_pins', 'version_ref_transactions', 'version_ref_events',
             'version_repository_capacity_inflight', 'version_product_operations')]
     before_lookup = inventory()
+    metadata_path = f'/git/{project}.git/refs'
+    metadata = app.client.get(metadata_path, headers=headers)
+    assert metadata.status_code == 200 and metadata.headers['cache-control'] == 'no-store'
+    refs = metadata.json()['data']
+    human_refs = app.api('GET', f'/content/{project}/refs')
+    assert refs == human_refs and refs['object_format'] == format
+    indexed = {base64.b64decode(row['name_b64']): row for row in refs['refs']}
+    assert indexed[b'HEAD']['state'] == {'kind': 'symbolic', 'target_b64': base64.b64encode(b'refs/heads/trunk').decode()}
+    assert indexed[b'refs/tags/blob']['object_kind'] == 'blob'
+    assert indexed[b'refs/tags/annotated']['object_kind'] == 'tag'
+    assert indexed[b'refs/tags/annotated']['peeled_oid'] == first
+    assert app.client.get(metadata_path, headers=read_headers).json()['data'] == refs
+    assert app.client.get(metadata_path).status_code == 401
+    assert app.request('GET', metadata_path, expected=401).status_code == 401
+    assert app.client.get(f'/api/v1/content/{project}/refs', headers=headers).status_code == 401
+    assert inventory() == before_lookup
     response = app.client.get(status_path, headers=headers)
     assert response.status_code == 200 and response.headers['cache-control'] == 'no-store'
     status = response.json()['data']
@@ -171,5 +200,6 @@ def test_docker_native_git_canonical_auth_refs_policy_cold_restart(application, 
     assert inventory() == before_lookup
     app.api('DELETE', f'/projects/{project}/git-credentials/{issued["id"]}')
     assert app.client.get(status_path, headers=headers).status_code == 401
+    assert app.client.get(metadata_path, headers=headers).status_code == 401
     assert cold.run('ls-remote', remote, check=False).returncode != 0
     assert pg.value(f"SELECT target_oid FROM public.version_repository_refs WHERE project_id={literal(project)} AND name=decode({literal(b'refs/heads/trunk'.hex())},'hex')") == first

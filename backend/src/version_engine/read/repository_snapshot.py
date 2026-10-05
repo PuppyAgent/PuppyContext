@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from src.utils.logger import log_warning
+from src.version_engine.domain.errors import RepositoryRefNotFoundError, RepositoryRefTypeError
 from src.version_engine.write_engine.git_object_format import (
     decode_object,
     encode_object,
@@ -141,7 +142,7 @@ class RepositorySnapshot:
             state = self.refs.get(ref_name, RefState())
         if state.oid is None:
             if head_guard is None and not allow_absent:
-                raise KeyError("repository ref does not exist")
+                raise RepositoryRefNotFoundError("repository ref does not exist")
             return RepositoryRevision(selector, ref_name, state, None, self.empty_tree, head_guard)
         oid, visited = state.oid, set()
         while True:
@@ -158,7 +159,7 @@ class RepositorySnapshot:
                 return RepositoryRevision(selector, ref_name, state, oid, tree, head_guard)
             if kind == "tree":
                 return RepositoryRevision(selector, ref_name, state, None, oid, head_guard)
-            raise ValueError("repository ref has no tree")
+            raise RepositoryRefTypeError("repository ref has no tree")
 
     def close(self):
         if self._closed:

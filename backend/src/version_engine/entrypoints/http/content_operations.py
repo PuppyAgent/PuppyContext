@@ -16,7 +16,10 @@ from src.platform.authorization.models import ProjectAction, ProjectGrant
 from src.platform.authorization.service import AuthorizationService
 from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 from src.version_engine.bootstrap.dependencies import get_product_operation_adapter
-from src.version_engine.entrypoints.http.schemas import NativeOperationStatusEnvelope
+from src.version_engine.entrypoints.http.schemas import (
+    NativeOperationStatusEnvelope,
+    NativeRepositoryMetadataEnvelope,
+)
 
 operations_router = APIRouter()
 
@@ -53,3 +56,32 @@ async def read_operation_status(
     if result is None:
         raise HTTPException(status_code=404, detail="Native operation not found", headers={"Cache-Control": "no-store"})
     return NativeOperationStatusEnvelope.success(data=result)
+
+
+@operations_router.get(
+    "/{project_id}/refs", response_model=NativeRepositoryMetadataEnvelope,
+    summary="Read native repository profile, HEAD and typed byte-safe refs",
+)
+async def read_repository_refs(
+    project_id: str,
+    response: Response,
+    ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
+    current_user: CurrentUser = Depends(get_current_user),
+    authorization: AuthorizationService = Depends(get_authorization_service),
+):
+    headers = {"Cache-Control": "no-store"}
+    response.headers.update(headers)
+    grant = await asyncio.to_thread(authorization.authorize, project_id, current_user.user_id, ProjectAction.CONTENT_READ)
+    if not isinstance(grant, ProjectGrant):
+        raise HTTPException(403, "Human Project grant required", headers=headers)
+    try:
+        result = await ops.native_ref_metadata(project_id, grant)
+    except PermissionError as exc:
+        raise HTTPException(403, "Repository action denied", headers=headers) from exc
+    except APIError as exc:
+        if str(exc.code) == "42501":
+            raise HTTPException(403, "Repository action denied", headers=headers) from exc
+        raise HTTPException(503, "Repository metadata is temporarily unavailable", headers=headers) from exc
+    except (RuntimeError, HTTPError) as exc:
+        raise HTTPException(503, "Repository metadata is temporarily unavailable", headers=headers) from exc
+    return NativeRepositoryMetadataEnvelope.success(data=result)

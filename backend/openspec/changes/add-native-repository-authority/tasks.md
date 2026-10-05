@@ -227,13 +227,41 @@ Consumer dependency map (all rows must close before cutover):
 - [ ] Complete native Product writes, actual starting-base/target propagation,
   automatic producers, lifecycle, recovery and migration before activation.
 
+### Ref discovery and explicit content selection (M02/M08, partial)
+
+- [x] Expose current-reader native profile/refs/HEAD metadata under separate
+  Human and exact Project-root Runtime routes, without native storage service,
+  object I/O, pins or leases. Reject malformed metadata and grant widening.
+- [x] Add byte-safe explicit `ref_b64` to the five selected content reads; one
+  snapshot binds bytes and revision across ref movement. Support commit/tag/tree
+  views, reject blob path views, return missing-ref 404, and forbid explicit HEAD
+  legacy fallback. Native raw replies expose their revision and do not cache it.
+- [x] Reproduce an application-level transport lease on new refs AND existing
+  operation-status lookups. Mount metadata independently from transport leases;
+  forbid even transient lease construction in full-app tests. Previous before/
+  after row counts did not prove absence of an acquire/release cycle.
+- [x] Verify actual PG/S3 branch movement, non-UTF8 names and revoked current
+  readers in both formats, plus real JWT/Runtime HTTP and cold Git. Dirty
+  connected selection: 103 passed +329 pgTAP, no skips/errors/resource gaps;
+  components/read/contract: 596 passed (earlier selections 594/595 remain separate);
+  supplementary backend2773/27 skipped/76
+  deselected. Preserve first97/1 lease failure and guarded101/1 read-only-source
+  logging fixture failure. The fixture now uses its own LOG_DIR, not writable
+  source or wider budgets. Historical API fixtures remain immutable with an
+  exact two-route/three-schema/five-query-path forward delta.
+- [ ] Complete ref mutation/API families, arbitrary historical/Scope/signed
+  readers, client first publication and bounded response-lifetime streaming.
+  Discovery is a dependency, not closure of M08/M09/M10 or any checkpoint.
+
 ### Native operation discovery (M08, partial)
 
 - [x] Add a metadata-only checked lookup of the original canonical native result
   for the current principal. Preparations without results remain pending and
   expose no candidate. Unknown is not proof of absent remote I/O or safe retry.
-  No S3/Git work, native storage service, read/write pin, lease, entitlement
-  admission, charge, mutation or settlement occurs; no legacy-result fallback.
+  The checked lookup performs no S3/Git work, native storage construction,
+  read/write pin, lease, entitlement admission, charge, mutation or settlement;
+  no legacy-result fallback. Its original application mount still acquired a
+  transient transport lease; the ref-discovery batch above repairs that gap.
 - [x] Expose separate Human CONTENT_READ and Project-root Runtime credential
   routes. Preserve principal/Project binding, read-only discovery after current
   write policy loss, revocation and post-row-lock wall-clock credential expiry.

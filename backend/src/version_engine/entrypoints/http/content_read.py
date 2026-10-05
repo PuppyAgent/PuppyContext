@@ -23,6 +23,8 @@ from src.version_engine.domain.errors import (
     NativeObjectNotFoundError,
     ObjectNotFoundError,
     PathNotFoundError,
+    RepositoryRefNotFoundError,
+    RepositoryRefTypeError,
     VersionReadError,
 )
 from src.version_engine.entrypoints.http.content_helpers import (
@@ -73,13 +75,28 @@ def _read_request_path(path: str, encoded: str | None) -> str:
 
 
 @contextmanager
-def _product_read(ops, project_id, grant, *, byte_path=False):
+def _product_read(ops, project_id, grant, *, byte_path=False, ref_b64=None):
+    from src.version_engine.read.ref_metadata import decode_ref_name
+
+    selection = {}
+    if ref_b64 is not None:
+        try:
+            selection["selector"] = decode_ref_name(ref_b64)
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid repository ref selector") from exc
     try:
-        with ops.open_read(project_id, grant) as read:
+        with ops.open_read(project_id, grant, **selection) as read:
             revision = read.get_read_revision(project_id)
-            if byte_path and revision is None:
-                raise HTTPException(400, "Byte paths require native repository authority")
+            if revision is None:
+                if ref_b64 is not None:
+                    raise HTTPException(400, "Ref selection requires native repository authority")
+                if byte_path:
+                    raise HTTPException(400, "Byte paths require native repository authority")
             yield read, revision
+    except RepositoryRefNotFoundError as exc:
+        raise HTTPException(404, "Repository ref not found") from exc
+    except RepositoryRefTypeError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except (HTTPException, ObjectNotFoundError, FileNotFoundError, PathNotFoundError, VersionReadError):
         raise
     except PermissionError as exc:
@@ -208,12 +225,13 @@ def list_dir(
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
     grant = ensure_project_access(authorization, current_user, project_id)
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None) as (read, revision):
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
             entries = read.list_dir(project_id, clean_path)
             head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
@@ -243,12 +261,13 @@ def read_file(
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
     grant = ensure_project_access(authorization, current_user, project_id)
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None) as (read, revision):
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
             content = read.read_file(project_id, clean_path)
             head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
@@ -297,12 +316,13 @@ def raw_file(
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
     grant = ensure_project_access(authorization, current_user, project_id)
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None) as (read, _revision):
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, _revision):
             content = read.read_file(project_id, clean_path)
             entry = read.stat(project_id, clean_path)
     except ObjectNotFoundError as exc:
@@ -313,14 +333,19 @@ def raw_file(
     mime = detect_mime(clean_path) if entry else "application/octet-stream"
 
     filename = clean_path.rsplit("/", 1)[-1] if "/" in clean_path else clean_path
-    return _serve_file_bytes(
+    response = _serve_file_bytes(
         request=request,
         content=content,
         media_type=mime,
         filename=filename,
         disposition="inline",
-        cache_control="private, max-age=3600",
+        cache_control="private, no-store" if _revision else "private, max-age=3600",
     )
+    if _revision is not None:
+        response.headers["X-PuppyOne-Repository-Revision"] = _json.dumps(
+            _revision, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+        )
+    return response
 
 
 def _content_disposition_inline(filename: str) -> str:
@@ -747,12 +772,13 @@ def stat(
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
     grant = ensure_project_access(authorization, current_user, project_id)
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None) as (read, revision):
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
             head_commit_id = read.get_head_commit_id(project_id)
             scope_head_commit_id = read.get_scope_head_commit_id_for_path(project_id, clean_path)
             entry = read.stat(project_id, clean_path)
@@ -802,12 +828,13 @@ def full_tree(
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
     grant = ensure_project_access(authorization, current_user, project_id)
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None) as (read, revision):
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
             entries = read.list_tree(project_id, clean_path, max_depth=max_depth)
             head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:

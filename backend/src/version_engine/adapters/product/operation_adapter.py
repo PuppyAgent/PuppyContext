@@ -122,7 +122,9 @@ class ProductOperationAdapter:
         service = self._repos.get_native_service(project_id)
         if service is None:
             if selector != b"HEAD":
-                raise ValueError("legacy repository ref selection unavailable")
+                from src.version_engine.domain.errors import RepositoryRefTypeError
+
+                raise RepositoryRefTypeError("legacy repository ref selection unavailable")
             yield self
             return
         from src.version_engine.domain.errors import NativeObjectNotFoundError, ObjectNotFoundError
@@ -134,6 +136,9 @@ class ProductOperationAdapter:
                 yield NativeTreeReader(snapshot, selector=selector)
         except ObjectNotFoundError as exc:
             raise NativeObjectNotFoundError("Canonical repository object unavailable") from exc
+
+    async def native_ref_metadata(self, project_id: str, grant):
+        return await asyncio.to_thread(self._repos.get_native_ref_metadata, project_id, grant)
 
     async def native_operation_status(self, project_id: str, grant, request_key: str):
         return await asyncio.to_thread(self._repos.get_native_operation_status, project_id, grant, request_key)

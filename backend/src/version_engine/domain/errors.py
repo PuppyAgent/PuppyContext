@@ -27,6 +27,18 @@ class NativeObjectNotFoundError(ObjectNotFoundError):
     http_status = 500
 
 
+class RepositoryRefNotFoundError(KeyError, VersionEngineError):
+    """A well-formed ref is absent from an admitted metadata snapshot."""
+
+    http_status = 404
+
+
+class RepositoryRefTypeError(ValueError, VersionEngineError):
+    """A ref's type or repository profile cannot support this path selection."""
+
+    http_status = 400
+
+
 class PathNotFoundError(VersionEngineError):
     http_status = 404
 

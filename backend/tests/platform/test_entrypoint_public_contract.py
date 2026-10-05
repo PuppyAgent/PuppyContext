@@ -87,6 +87,16 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
     for category in ("paths", "schemas"):
         assert not expected["contract"][category].keys() & status[category].keys()
         expected["contract"][category].update(status[category])
+    refs = json.loads(Path(__file__).with_name("native_ref_read_contract_delta.json").read_text())
+    assert set(refs["changed_paths"]) == {f"/api/v1/content/{{project_id}}/{action}" for action in ("ls", "cat", "raw", "stat", "tree")}
+    assert set(refs["paths"]) == {"/api/v1/content/{project_id}/refs", "/git/{project_id}.git/refs"}
+    assert set(refs["schemas"]) == {"NativeRepositoryRefResponse", "NativeRepositoryMetadataResponse", "NativeRepositoryMetadataEnvelope"}
+    for name, change in refs["changed_paths"].items():
+        assert expected["contract"]["paths"][name] == change["before"]
+        expected["contract"]["paths"][name] = change["after"]
+    for category in ("paths", "schemas"):
+        assert not expected["contract"][category].keys() & refs[category].keys()
+        expected["contract"][category].update(refs[category])
     assert contract(app.openapi()) == expected["contract"]
 
 

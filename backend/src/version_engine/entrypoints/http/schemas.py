@@ -28,6 +28,27 @@ from pydantic import BaseModel, Field
 from src.common_schemas import ApiResponse
 
 
+class NativeRepositoryRefResponse(BaseModel):
+    name_b64: str
+    name: str | None
+    state: dict[str, Any]
+    object_kind: Literal["commit", "tree", "tag", "blob"] | None
+    peeled_oid: str | None
+
+
+class NativeRepositoryMetadataResponse(BaseModel):
+    project_id: str
+    repository_profile: Literal["native"]
+    object_format: Literal["sha1", "sha256"]
+    generation: int
+    ref_sequence: int
+    refs: list[NativeRepositoryRefResponse]
+
+
+class NativeRepositoryMetadataEnvelope(ApiResponse[NativeRepositoryMetadataResponse]):
+    """Named wire identity shared by the separate Human and Runtime routes."""
+
+
 class NativeOperationStatusResponse(BaseModel):
     project_id: str
     request_key: UUID

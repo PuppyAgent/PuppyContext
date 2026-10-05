@@ -119,6 +119,16 @@ class VersionRepoManager:
             raise RuntimeError("invalid repository authority metadata")
         return metadata
 
+    def get_native_ref_metadata(self, project_id: str, grant):
+        """Current-reader refs/profile discovery; no backend, pin or lease."""
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            AdmittedRefAuthorityRepository,
+        )
+        from src.version_engine.read.ref_metadata import repository_ref_metadata
+
+        control = AdmittedRefAuthorityRepository(self._supabase.client, lease_provider=lambda _: None)
+        return repository_ref_metadata(control, project_id, grant)
+
     def get_native_operation_status(self, project_id: str, grant, request_key: str):
         """Historical native result discovery, independent of current write policy.
 

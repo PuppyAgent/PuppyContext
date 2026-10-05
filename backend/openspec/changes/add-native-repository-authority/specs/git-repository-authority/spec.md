@@ -356,6 +356,28 @@ Legacy Upload prestaging SHALL check fresh repository authority under its stagin
 - **THEN** staging propagates that failure without treating it as absence or issuing a replacement PUT
 - **AND** valid alternate encodings of the original Git framing/body can be reused without PUT
 
+### Requirement: Ref discovery and selected content remain admitted reads
+Native repository ref discovery SHALL use current Project-bound read admission
+without object I/O, native storage construction, pins, write leases or mutation.
+Human and Project-root Runtime discovery SHALL remain separate authority planes.
+Explicit named-ref path reads SHALL bind content and revision to one admitted
+snapshot without arbitrary-OID authorization or native-to-legacy fallback.
+
+#### Scenario: A read-only caller discovers refs after write-policy loss
+- **WHEN** a currently authorized Human or Project-root Runtime reader requests native refs or a known operation result without available write admission
+- **THEN** the application SHALL not acquire even a transient transport/write lease
+- **AND** revoked or foreign/scoped credentials SHALL not gain full-repository discovery
+
+#### Scenario: An explicit branch moves while content is read
+- **WHEN** a caller selects a canonical byte-safe ref and that ref subsequently moves
+- **THEN** the response bytes and revision SHALL remain bound to the captured snapshot
+- **AND** missing refs, blob-only refs and malformed selectors SHALL not fabricate an empty tree or select HEAD instead
+
+#### Scenario: Explicit HEAD encounters a legacy repository
+- **WHEN** a content read explicitly selects HEAD but the repository has legacy authority
+- **THEN** the request SHALL reject unsupported selection rather than silently use the legacy reader
+- **AND** omitted selection SHALL retain the existing legacy contract
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

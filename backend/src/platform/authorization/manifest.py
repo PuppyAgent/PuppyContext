@@ -93,6 +93,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
             "diff": ProjectAction.HISTORY_READ,
         }.items()
     },
+    ("GET", "/api/v1/content/{project_id}/refs"): _human(ProjectAction.CONTENT_READ),
     ("GET", "/api/v1/content/{project_id}/operations/{request_key}"): _human(ProjectAction.CONTENT_READ),
     ("GET", "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}"): _human(ProjectAction.HISTORY_READ),
     ("POST", "/api/v1/content/{project_id}/download/sign"): _human(ProjectAction.CONTENT_READ),
@@ -116,6 +117,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
 
     # Git smart HTTP is the Machine data plane. These routes must never accept
     # Project roles as a substitute for their scoped RuntimeGrant.
+    ("GET", "/git/{project_id}.git/refs"): _runtime("git.read"),
     ("GET", "/git/{project_id}.git/operations/{request_key}"): _runtime("git.read"),
     ("GET", "/git/{project_id}.git/health"): _runtime("git.health"),
     ("GET", "/git/{project_id}.git/info/refs"): _runtime("git.read"),
