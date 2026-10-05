@@ -6,23 +6,64 @@ All data types used by the PuppyOne platform layer:
 2. Commit history, diff, and rollback schemas
 
 Identity model:
-    Commits are identified by a 40-hex SHA-1 commit_id — the SHA-1
-    over the git ``commit`` object body produced by ``encode_commit``
-    (tree + parent + author/committer lines + message). On disk the
-    commit body is stored as a zlib-compressed loose object whose
-    SHA-1 is exactly this commit_id, so PuppyOne and any standard git
-    tool agree byte-for-byte.
-    The old integer `version` columns / fields are gone.
-    Clients that need to represent "no prior state" send an
-    empty string "" as the base_commit_id.
+    Commits retain the declared repository object format: legacy SHA-1
+    (40 hex) or native SHA-1/SHA-256 (40/64 hex). Native read responses
+    capture their target ref, expected OID and HEAD selector together with
+    the content. Display paths are not byte identities; native clients use
+    path_bytes_b64 for lossless paths. Legacy write requests continue to use
+    an empty base_commit_id for no prior state. Native read revisions use
+    expected_oid=null for an unborn selected branch. Explicit native write
+    envelopes bind that captured revision and a durable caller request UUID;
+    they never enroll a repository or replace an omitted legacy base.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from src.common_schemas import ApiResponse
+
+
+class NativeRepositoryRefResponse(BaseModel):
+    name_b64: str
+    name: str | None
+    state: dict[str, Any]
+    object_kind: Literal["commit", "tree", "tag", "blob"] | None
+    peeled_oid: str | None
+
+
+class NativeRepositoryMetadataResponse(BaseModel):
+    project_id: str
+    repository_profile: Literal["native"]
+    object_format: Literal["sha1", "sha256"]
+    generation: int
+    ref_sequence: int
+    refs: list[NativeRepositoryRefResponse]
+
+
+class NativeRepositoryMetadataEnvelope(ApiResponse[NativeRepositoryMetadataResponse]):
+    """Named wire identity shared by the separate Human and Runtime routes."""
+
+
+class NativeOperationStatusResponse(BaseModel):
+    project_id: str
+    request_key: UUID
+    status: Literal["pending", "committed", "rejected"]
+    # Product digest includes the frozen input version, original base and message.
+    # Neither digest is a grant or proof that a different input was acknowledged.
+    input_sha256: str | None
+    ref_request_sha256: str | None
+    result: dict[str, Any] | None
+    product: dict[str, Any] | None
+
+
+class NativeOperationStatusEnvelope(ApiResponse[NativeOperationStatusResponse]):
+    """One named wire schema, independent of router import/generic-cache order."""
+
 
 # Path syntactic validation lives in the L4 adapter
 # (``ProductOperationAdapter.*`` → ``validate_path``). Per the
@@ -35,6 +76,18 @@ from pydantic import BaseModel, Field
 # ============================================================
 # Tree API request schemas
 # ============================================================
+
+class NativeProductWrite(BaseModel):
+    """Retry identity and genuine read revision; not an authorization grant."""
+    model_config = {"extra": "forbid"}
+    input_version: Literal[1] = 1
+    request_key: str = Field(min_length=36, max_length=36)
+    repository_revision: dict[str, Any]
+    byte_paths: dict[str, str] = Field(default_factory=dict, description=(
+        "Lossless path slots: path/old_path/new_path, paths/N, files/N/path. "
+        "The corresponding text field must be empty. Values are canonical base64."
+    ))
+
 
 class WriteFileRequest(BaseModel):
     """Write file request.
@@ -51,6 +104,7 @@ class WriteFileRequest(BaseModel):
     message: str = ""
     base_commit_id: str | None = None
     node_type: str = "json"  # json | markdown | file
+    native: NativeProductWrite | None = None
 
 
 class MkdirRequest(BaseModel):
@@ -58,6 +112,7 @@ class MkdirRequest(BaseModel):
     path: str
     base_commit_id: str | None = None
     parents: bool = False
+    native: NativeProductWrite | None = None
 
 
 class MoveRequest(BaseModel):
@@ -69,6 +124,7 @@ class MoveRequest(BaseModel):
     no_clobber: bool = False
     target_directory: bool = False
     no_target_directory: bool = False
+    native: NativeProductWrite | None = None
 
 
 class CopyRequest(BaseModel):
@@ -102,6 +158,7 @@ class RemoveRequest(BaseModel):
     force: bool = False
     recursive: bool = False
     base_commit_id: str | None = None
+    native: NativeProductWrite | None = None
 
 
 class RmdirRequest(BaseModel):
@@ -120,9 +177,11 @@ class BulkWriteItem(BaseModel):
 
 
 class BulkWriteRequest(BaseModel):
-    """Bulk write request"""
+    """Bulk write request; an explicit base guards the entire batch."""
     files: list[BulkWriteItem]
     message: str = ""
+    base_commit_id: str | None = None
+    native: NativeProductWrite | None = None
 
 
 # ============================================================
@@ -130,7 +189,7 @@ class BulkWriteRequest(BaseModel):
 # ============================================================
 
 class VersionEntryResponse(BaseModel):
-    """A single entry in the version tree."""
+    """A single tree entry. Native byte-path fields, not display text, identify names."""
     name: str
     path: str
     type: str  # "folder" | "json" | "markdown" | "file"
@@ -139,16 +198,25 @@ class VersionEntryResponse(BaseModel):
     mime_type: str | None = None
     children_count: int | None = None
     integrity_status: Literal["ok", "damaged", "unknown"] = "ok"
+    git_mode: str | None = None
+    name_bytes_b64: str | None = None
+    path_bytes_b64: str | None = None
 
 
-class ListDirResponse(BaseModel):
+class RepositoryReadResponse(BaseModel):
+    """Captured native ref/base; absent for the preserved legacy profile."""
+    repository_revision: dict[str, Any] | None = None
+    path_bytes_b64: str | None = None
+
+
+class ListDirResponse(RepositoryReadResponse):
     """Response for listing directory contents"""
     path: str
     entries: list[VersionEntryResponse]
     head_commit_id: str = ""
 
 
-class ReadFileResponse(BaseModel):
+class ReadFileResponse(RepositoryReadResponse):
     """Response for reading file contents"""
     path: str
     type: str
@@ -158,7 +226,7 @@ class ReadFileResponse(BaseModel):
     head_commit_id: str = ""
 
 
-class StatResponse(BaseModel):
+class StatResponse(RepositoryReadResponse):
     """File/directory information"""
     path: str
     type: str
@@ -168,12 +236,14 @@ class StatResponse(BaseModel):
     mime_type: str | None = None
     children_count: int | None = None
     integrity_status: Literal["ok", "damaged", "unknown"] = "ok"
+    git_mode: str | None = None
+    name_bytes_b64: str | None = None
     exists: bool = True
     head_commit_id: str = ""
     scope_head_commit_id: str = ""
 
 
-class TreeResponse(BaseModel):
+class TreeResponse(RepositoryReadResponse):
     """Full directory tree response"""
     path: str
     entries: list[VersionEntryResponse]

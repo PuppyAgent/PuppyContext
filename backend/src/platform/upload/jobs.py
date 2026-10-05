@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from src.infra.supabase.client import SupabaseClient
+from src.infra.s3.exceptions import S3FileNotFoundError, S3OperationError
 from src.infra.file_processing.config import etl_config
 from src.platform.upload.config import upload_config
 from src.infra.file_processing.exceptions import ETLTransformationError
@@ -43,7 +44,7 @@ def _version_object_key(project_id: str, blob_hash: str) -> str:
     at the exact key the version object store will look at.
 
     The 2-char shard prefix is intentional and must stay in sync with
-    ``version_engine/server/backends/s3_storage.py`` (search for
+    ``version_engine/storage/backends/s3.py`` (search for
     ``_HASH_PREFIX_LEN``). Drift here would silently break
     pre-staging — the blob would land at a key the version object store cannot see.
     """
@@ -55,70 +56,82 @@ async def stage_blob_from_s3(
     *,
     project_id: str,
     src_key: str,
+    repo_manager=None,
+    write_lease_factory=None,
 ) -> BlobRef:
-    """Stage an uploaded file as a Git-compatible blob object.
+    """Stage a legacy SHA-1 blob, never bypass native publication admission.
 
-    The source S3 object is raw user bytes. PuppyOne's object store now expects
-    Git loose-object bytes, so this worker must write
-    ``zlib(b"blob <size>\\0" + content)`` under the Git blob SHA-1. A direct S3
-    ``CopyObject`` would store invalid object bytes for the Git kernel.
+    The lease spans source encoding, destination verification and PUT. Authority
+    is selected freshly after lease admission and storage waits. Native uploads
+    require a durable producer envelope and an admitted publication attempt;
+    neither a raw S3 key nor the task's stored creator supplies those contracts.
+    This guard is not a cutover protocol or proof of old-I/O quiescence.
     """
-    size = await _head_object_size(s3, src_key)
-    blob_hash, loose_bytes = await _encode_s3_object_as_git_blob_loose(
-        s3,
-        src_key=src_key,
-        size=size,
-    )
+    if repo_manager is None:
+        from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
 
-    dst_key = _version_object_key(project_id, blob_hash)
-    # Existence-only dedup would be a footgun: an older code path
-    # (server-side ``copy_object`` from the upload staging key, see
-    # ``infra/s3/service.py::copy_object`` docstring) wrote the **raw**
-    # uploaded bytes under exactly this dst_key, before the object store
-    # switched to Git loose-object framing. A bare ``object_exists``
-    # check would skip the re-upload and trust those legacy raw bytes,
-    # which then explodes downstream with
-    # ``invalid git loose object … incorrect header check`` when the
-    # version engine tries to ``zlib.decompress`` them on read.
-    #
-    # The Git loose-object format is content-addressed AND
-    # deterministic: same blob hash + same encoder = identical
-    # zlib stream of identical byte length. So a stored object whose
-    # ContentLength matches ``len(loose_bytes)`` is, in practice, the
-    # same bytes (size collision with a *different* byte string at the
-    # same SHA-1 of the *raw* content is astronomically unlikely on a
-    # per-project basis). Anything else is stale/raw and must be
-    # overwritten.
-    stale_existing = False
+        repo_manager = VersionRepoManager(s3, SupabaseClient())
+    lease_factory = write_lease_factory or ProjectWriteLease
+
+    async def require_legacy():
+        metadata = await asyncio.to_thread(repo_manager.repository_metadata, project_id)
+        if metadata is not None:
+            if metadata["authority"] == "native":
+                raise RuntimeError("native repository requires admitted upload staging")
+            if metadata["authority"] != "shadow":
+                raise RuntimeError("invalid repository staging authority")
+
+    async with lease_factory(project_id, "upload.stage_blob"):
+        await require_legacy()
+        size = await _head_object_size(s3, src_key)
+        blob_hash, loose_bytes, frame_sha256 = await _encode_s3_object_as_git_blob_loose(
+            s3, src_key=src_key, size=size,
+        )
+        dst_key = _version_object_key(project_id, blob_hash)
+        frame_size = len(f"blob {size}".encode("ascii")) + 1 + size
+        await require_legacy()
+        verified = await _verify_staged_blob(s3, dst_key, frame_size, frame_sha256)
+        await require_legacy()
+        if not verified:
+            # This is an explicit write of verified original input, not read-side
+            # repair or an existence/length-only deduplication decision.
+            await s3.upload_file(dst_key, loose_bytes, content_type="application/octet-stream")
+            if not await _verify_staged_blob(s3, dst_key, frame_size, frame_sha256):
+                raise S3OperationError("staged Git blob verification failed")
+            await require_legacy()
+        return BlobRef(hash=blob_hash, size=size)
+
+
+async def _verify_staged_blob(s3, key: str, frame_size: int, frame_sha256: str) -> bool:
+    """Fresh physical verification with bounded decoding, independent of zlib encoding.
+
+    Only explicit absence or provably invalid bytes permit replacement. Transport,
+    permission and other uncertain reads propagate; they are not proof of absence.
+    SHA-256 binds the full framing/body to the input even for legacy SHA-1 OIDs.
+    """
+    decoder = zlib.decompressobj()
+    digest = hashlib.sha256()
+    decoded_size = encoded_size = 0
+    stream = s3.download_file_stream(key, chunk_size=64 * 1024)
     try:
-        existing_meta = await s3.get_file_metadata(dst_key)
-    except Exception:
-        existing_meta = None
-    if existing_meta is not None:
-        if existing_meta.size == len(loose_bytes):
-            logger.info(
-                f"stage_blob_from_s3: blob {blob_hash[:12]} already at "
-                f"{dst_key} ({existing_meta.size} bytes), skipping upload",
-            )
-            return BlobRef(hash=blob_hash, size=size)
-        stale_existing = True
-        logger.warning(
-            f"stage_blob_from_s3: blob {blob_hash[:12]} at {dst_key} has "
-            f"unexpected size {existing_meta.size} (expected "
-            f"{len(loose_bytes)} for the loose Git format); overwriting "
-            f"to recover from legacy raw-bytes finalize",
-        )
-
-    await s3.upload_file(
-        dst_key,
-        loose_bytes,
-        content_type="application/octet-stream",
-    )
-    if stale_existing:
-        logger.info(
-            f"stage_blob_from_s3: overwrote stale {blob_hash[:12]} at {dst_key}",
-        )
-    return BlobRef(hash=blob_hash, size=size)
+        async for chunk in stream:
+            encoded_size += len(chunk)
+            # Resource exhaustion is uncertainty, not proof of invalid bytes.
+            # Valid deflate streams can contain arbitrarily many empty blocks.
+            if encoded_size > 2 * frame_size + 64 * 1024:
+                raise S3OperationError("staged Git blob verification byte budget exceeded")
+            while chunk:
+                part = decoder.decompress(chunk, min(64 * 1024, frame_size - decoded_size + 1))
+                decoded_size += len(part)
+                if decoded_size > frame_size or decoder.unused_data:
+                    return False
+                digest.update(part)
+                chunk = decoder.unconsumed_tail
+        return decoder.eof and decoded_size == frame_size and digest.hexdigest() == frame_sha256
+    except (S3FileNotFoundError, zlib.error):
+        return False
+    finally:
+        await stream.aclose()
 
 
 async def _encode_s3_object_as_git_blob_loose(
@@ -126,27 +139,35 @@ async def _encode_s3_object_as_git_blob_loose(
     *,
     src_key: str,
     size: int,
-) -> tuple[str, bytes]:
-    """Stream raw S3 bytes into Git loose-object bytes."""
+) -> tuple[str, bytes, str]:
+    """Hash streamed input; the encoded object is still retained in memory."""
 
     sha1 = hashlib.sha1()
+    sha256 = hashlib.sha256()
     compressor = zlib.compressobj()
     compressed: list[bytes] = []
 
     def feed(chunk: bytes) -> None:
         sha1.update(chunk)
+        sha256.update(chunk)
         part = compressor.compress(chunk)
         if part:
             compressed.append(part)
 
     feed(f"blob {size}".encode("ascii") + b"\x00")
     actual_size = 0
-    async for chunk in s3.download_file_stream(src_key, chunk_size=64 * 1024):
-        actual_size += len(chunk)
-        feed(chunk)
+    stream = s3.download_file_stream(src_key, chunk_size=64 * 1024)
+    try:
+        async for chunk in stream:
+            actual_size += len(chunk)
+            if actual_size > size:
+                raise S3OperationError("S3 object grew while staging")
+            feed(chunk)
+    finally:
+        await stream.aclose()
 
     if actual_size != size:
-        raise ETLTransformationError(
+        raise S3OperationError(
             f"S3 object size changed while staging {src_key}: "
             f"expected {size}, got {actual_size}"
         )
@@ -154,16 +175,14 @@ async def _encode_s3_object_as_git_blob_loose(
     tail = compressor.flush()
     if tail:
         compressed.append(tail)
-    return sha1.hexdigest(), b"".join(compressed)
+    return sha1.hexdigest(), b"".join(compressed), sha256.hexdigest()
 
 
 async def _head_object_size(s3, key: str) -> int:
     """Return the byte length of an S3 object via HEAD.
 
-    Helper kept private to this module — exposed publicly we'd
-    want a more general "object metadata" facade. For our one
-    use case (size for audit when we trust caller-supplied
-    hash) this is enough.
+    This is the raw artifact size, not a trusted caller-provided object hash.
+    Encoding must read exactly this many bytes before returning its identity.
     """
     # ``S3Service`` doesn't yet expose a typed head method; use
     # the underlying boto client. The thread-pool wrapper is the
@@ -172,7 +191,10 @@ async def _head_object_size(s3, key: str) -> int:
         return s3.client.head_object(Bucket=s3.bucket_name, Key=key)
 
     response = await asyncio.to_thread(_head)
-    return int(response["ContentLength"])
+    size = response["ContentLength"]
+    if type(size) is not int or size < 0:
+        raise S3OperationError("invalid upload staging source size")
+    return size
 
 
 def _creator_id(task) -> str:
@@ -482,10 +504,9 @@ async def finalize_upload_to_version(
     The two paths share semantics — task lifecycle, runtime state,
     error tagging — so polling/UI is identical.
 
-    Memory profile: this path uses ``stage_blob_from_s3`` so the
-    bytes never enter the Python process. For a 1 GB file the
-    backend memory cost is the streaming hash buffer
-    (~64 KiB) plus the tree node JSON (~hundreds of bytes).
+    Memory profile: raw input is read in chunks, but staging retains the
+    compressed object and joins it for PUT. This is not a bounded-memory
+    large-file/native producer path; streaming publication remains a gate.
     """
     task = repo.get_task(task_id)
     if not task:

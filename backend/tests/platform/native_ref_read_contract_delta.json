@@ -1,0 +1,34 @@
+{
+  "baseline": "3923e827305ae8f5db10cd583996ee474e2cb1e8",
+  "changed_paths": {
+    "/api/v1/content/{project_id}/cat": {
+      "before": "a0987313eec0196673b94b1748e262311a9972d3a7dd3b2113bda15bfe3054a0",
+      "after": "d2cf0039351b8547e012c5ea7b8698f95d956d90a45faf17d6b7f03f51d7ae22"
+    },
+    "/api/v1/content/{project_id}/ls": {
+      "before": "f7d76d7f035582d669fe33324362474d39173b0197b2936509f42403b72ffa89",
+      "after": "b9d9b2d4626e31d5711bddc6e0551ec9dafd5a625c9ec55e1029d8d7749ea42a"
+    },
+    "/api/v1/content/{project_id}/raw": {
+      "before": "7b4bb20134092298173b60fd93c1a42980e7ac613b598860cc9bd17b0c0cee54",
+      "after": "317a2f3de5126530a4772185d7f0632c2e97608af4b42e61eaae90d72839b8b1"
+    },
+    "/api/v1/content/{project_id}/stat": {
+      "before": "1d200b26dc7217dc8d19c497707bd2a5fc7686ec4dbf246cc8f13b32d0b0c43c",
+      "after": "385f56874f568386c4c183341b12e4c10f4e674c180df887b87d2f1727a90649"
+    },
+    "/api/v1/content/{project_id}/tree": {
+      "before": "f83ff99f96dda7512bb20cbabb5827fe259e6920e6773ccb3ba37a14b6197c3e",
+      "after": "ee59055269a09a9dd1318f2704f7cc698d56a0b4a1ba6618dbf6e2d91ae29ba5"
+    }
+  },
+  "paths": {
+    "/api/v1/content/{project_id}/refs": "9aa80c5b88115cfdb12462ab3e7083e2f8398659e70485cd6cf41fc95c9c6089",
+    "/git/{project_id}.git/refs": "7f93ef4c0ad5a55cedc73f1d7689117b4b70f4c717c8497b9f66589e23f88546"
+  },
+  "schemas": {
+    "NativeRepositoryRefResponse": "ba9ba099fe2e1627dbd624a49c976c1501ad17125f8f57ea0bda682470dab7b7",
+    "NativeRepositoryMetadataResponse": "72d60caec9d2d60b4067048330aa7645d756cc4f69b1fe9821468e18622c3125",
+    "NativeRepositoryMetadataEnvelope": "2fe0c286fd6357169fced05a8d8abb64c619d6315a82d9982b15abfa93701523"
+  }
+}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import pytest
 from fastapi import HTTPException
 
@@ -20,6 +22,12 @@ class _FakeOps:
             VersionEntry(name="visible.md", path="visible.md", type="markdown"),
             VersionEntry(name="config.json", path=".config/config.json", type="json"),
         ]
+
+    def open_read(self, _project_id, _grant):
+        return nullcontext(self)  # Explicit legacy read fixture.
+
+    def get_read_revision(self, _project_id):
+        return None
 
     def list_dir(self, _project_id: str, _path: str):
         return list(self._entries)

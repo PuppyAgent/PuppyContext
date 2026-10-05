@@ -1,0 +1,29 @@
+{
+  "baseline_product_commit": "d9b0a1a746b93f6752c423975da96177d64650e3",
+  "paths": {},
+  "schemas": {
+    "WriteFileRequest": {
+      "before": "62bdf7db668d9729252c944ca50c2b671d1eaf0f83900b21def36d3f8f17441c",
+      "after": "76c53841c9ea85fc392b78eb7cd98755137222499f9a57ff9923361b9c0ff8d1"
+    },
+    "BulkWriteRequest": {
+      "before": "5f73786258e9f77ef08e5233cc409008ded2c66f76f9df6235a7aa12bd691f2a",
+      "after": "613c63e01f9a853438fe18861570ea5baee7eefd3a7b78313179e7439ab62bf9"
+    },
+    "MkdirRequest": {
+      "before": "a0da2ce52d8f473c20fba43a8f8522a02c590d010fd3ef234679fc27dc201c77",
+      "after": "b2a10a0869a3029cd840c9e776f8b119004704a3cbf32d68b59ca0eea6bb01b6"
+    },
+    "MoveRequest": {
+      "before": "8b2de80d26efcb4d49f8179edfc06363aac33f9928cf71795765a2ce33a223cf",
+      "after": "7ac67c8312ef60e758efddc6fdb08250a9f6002e0615ffecfb87e383c7adbb51"
+    },
+    "RemoveRequest": {
+      "before": "3f85cbae794c1103d9862be6140eab7167d0407f3df584b7fe0699179b2493ae",
+      "after": "982faa7d9107389c272fec9f80622ed18aa3af8858dfb73ef4dc52503bdd0d19"
+    }
+  },
+  "added_schemas": {
+    "NativeProductWrite": "a8567de3238315ee566589065d75684b330a479c8455cce9694a0c5aa9a2779a"
+  }
+}

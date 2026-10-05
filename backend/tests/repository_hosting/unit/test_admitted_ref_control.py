@@ -25,7 +25,15 @@ def test_missing_guard_rpc_never_falls_back_to_unguarded_publication():
     calls.clear()
     with pytest.raises(RuntimeError, match='RPC unavailable'):
         control.begin('p', 'user:u', 'pin', 1, {})
-    assert calls == ['check_version_repository_write_admission']
+    assert calls == ['begin_admitted_version_object_publication']
+    calls.clear()
+    with pytest.raises(RuntimeError, match='RPC unavailable'):
+        control.read_snapshot('p', 'user:u')
+    assert calls == ['get_admitted_version_repository_snapshot']
+    calls.clear()
+    with pytest.raises(RuntimeError, match='RPC unavailable'):
+        control.renew('p', 'user:u', 'pin')
+    assert calls == ['renew_admitted_version_object_pin']
 
 
 def test_current_read_grant_can_replay_but_cannot_start_publication():

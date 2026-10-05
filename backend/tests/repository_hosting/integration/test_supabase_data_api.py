@@ -143,6 +143,83 @@ def test_clients_cannot_read_capacity_inventory_or_ledger(api, role, table):
     assert response.json()['code'] == '42501'
 
 
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('function', ['check_version_repository_billing', 'apply_billed_version_ref_transaction'])
+def test_current_auth_clients_cannot_call_logical_billing_rpcs(api, authority, role, function):
+    body = {'p_project_id': authority.project}
+    if function.startswith('apply_'):
+        body = authority.parameters([update(old=oid(A), new=oid(B))])
+        body.update(p_lease_id=str(uuid.uuid4()), p_holder_id='untrusted', p_usage={})
+    response = api.request('POST', f'/rest/v1/rpc/{function}', role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()['code'] in ('42501', 'PGRST202')
+    assert authority.state()['oid'] == A
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('table', ['version_repository_billing', 'version_repository_billing_authorizations'])
+def test_clients_cannot_read_logical_billing_policies_or_proofs(api, role, table):
+    response = api.request('GET', f'/rest/v1/{table}', role=role, params={'select': '*'})
+    assert response.status_code in (401, 403)
+    assert response.json()['code'] == '42501'
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('function,extra', [
+    ('begin_version_storage_reconciliation', {}),
+    ('get_version_storage_reconciliation_page', {'p_after': '', 'p_limit': 200}),
+    ('record_version_storage_measurements', {'p_values': {}}),
+    ('finish_version_storage_reconciliation', {}),
+    ('cancel_version_storage_reconciliation', {}),
+    ('prune_version_storage_measurements', {'p_limit': 200}),
+])
+def test_auth_clients_cannot_call_storage_reconciliation(api, role, function, extra):
+    body = {'p_org_id': 'untrusted', 'p_id': str(uuid.uuid4()), **extra}
+    if function.startswith('prune_'):
+        body = extra
+    response = api.request('POST', f'/rest/v1/rpc/{function}', role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()['code'] in ('42501', 'PGRST202')
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('table', ['version_storage_reconciliations', 'version_storage_reconciliation_projects'])
+def test_auth_clients_cannot_read_storage_reconciliation(api, role, table):
+    response = api.request('GET', f'/rest/v1/{table}', role=role, params={'select': '*'})
+    assert response.status_code in (401, 403)
+    assert response.json()['code'] == '42501'
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('function', ['check_version_repository_file_policy', 'begin_admitted_version_object_publication',
+                                     'begin_admitted_version_repository_read', 'get_admitted_version_repository_snapshot',
+                                     'apply_policy_version_ref_transaction'])
+def test_auth_clients_cannot_call_repository_file_policy(api, role, function):
+    body = {'p_project_id': 'untrusted'}
+    if function.startswith('begin_'):
+        body.update(p_actor='user:'+str(uuid.uuid4()), p_pin_id=str(uuid.uuid4()))
+        if 'publication' in function:
+            body.update(p_generation=1, p_roots={}, p_lease_id=str(uuid.uuid4()), p_holder_id='untrusted')
+    elif function.startswith('get_'):
+        body.update(p_actor='user:'+str(uuid.uuid4()))
+    elif function.startswith('apply_'):
+        body.update(p_actor='user:'+str(uuid.uuid4()), p_request_key=str(uuid.uuid4()), p_generation=1,
+                    p_updates=[], p_receipt_id=None, p_message='', p_lease_id=None, p_holder_id=None,
+                    p_usage={}, p_policy={})
+    response = api.request('POST', f'/rest/v1/rpc/{function}', role=role, json=body)
+    assert response.status_code in (401, 403, 404)
+    assert response.json()['code'] in ('42501', 'PGRST202')
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+@pytest.mark.parametrize('table', ['version_repository_file_policies', 'version_repository_file_authorizations',
+                                  'version_publication_admissions'])
+def test_auth_clients_cannot_read_repository_file_policy(api, role, table):
+    response = api.request('GET', f'/rest/v1/{table}', role=role, params={'select': '*'})
+    assert response.status_code in (401, 403)
+    assert response.json()['code'] == '42501'
+
+
 def rpc(api, body, function="apply_version_ref_transaction"):
     response = api.request("POST", f"/rest/v1/rpc/{function}", json=body)
     assert response.status_code == 200

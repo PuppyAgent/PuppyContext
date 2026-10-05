@@ -51,6 +51,52 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
         for name, digest in delta["added"].items():
             assert name not in expected["contract"][category]
             expected["contract"][category][name] = digest
+    # ISSUE-062 adds ref/base metadata and byte-path alternatives only to these
+    # content reads. Match exact before/after digests; do not rewrite any
+    # historical publication/retirement fixture or exempt other APIs.
+    native = json.loads(Path(__file__).with_name("native_content_read_contract_delta.json").read_text())
+    assert set(native["paths"]) == {
+        f"/api/v1/content/{{project_id}}/{action}" for action in ("ls", "cat", "raw", "stat", "tree")
+    }
+    assert set(native["schemas"]) == {"ListDirResponse", "ReadFileResponse", "StatResponse", "TreeResponse", "VersionEntryResponse"}
+    for category in ("paths", "schemas"):
+        for name, change in native[category].items():
+            assert expected["contract"][category][name] == change["before"]
+            expected["contract"][category][name] = change["after"]
+    # The optional bulk precondition follows the existing single-write contract.
+    # Only this request schema changes; paths and historical fixtures do not.
+    bulk = json.loads(Path(__file__).with_name("product_bulk_base_contract_delta.json").read_text())
+    assert bulk["paths"] == {} and set(bulk["schemas"]) == {"BulkWriteRequest"}
+    change = bulk["schemas"]["BulkWriteRequest"]
+    assert expected["contract"]["schemas"]["BulkWriteRequest"] == change["before"]
+    expected["contract"]["schemas"]["BulkWriteRequest"] = change["after"]
+    product = json.loads(Path(__file__).with_name("native_product_write_contract_delta.json").read_text())
+    assert product["paths"] == {}
+    assert set(product["schemas"]) == {"WriteFileRequest", "BulkWriteRequest", "MkdirRequest", "MoveRequest", "RemoveRequest"}
+    assert set(product["added_schemas"]) == {"NativeProductWrite"}
+    for name, change in product["schemas"].items():
+        assert expected["contract"]["schemas"][name] == change["before"]
+        expected["contract"]["schemas"][name] = change["after"]
+    for name, digest in product["added_schemas"].items():
+        assert name not in expected["contract"]["schemas"]
+        expected["contract"]["schemas"][name] = digest
+    status = json.loads(Path(__file__).with_name("native_operation_status_contract_delta.json").read_text())
+    assert set(status["paths"]) == {"/api/v1/content/{project_id}/operations/{request_key}",
+                                    "/git/{project_id}.git/operations/{request_key}"}
+    assert set(status["schemas"]) == {"NativeOperationStatusResponse", "NativeOperationStatusEnvelope"}
+    for category in ("paths", "schemas"):
+        assert not expected["contract"][category].keys() & status[category].keys()
+        expected["contract"][category].update(status[category])
+    refs = json.loads(Path(__file__).with_name("native_ref_read_contract_delta.json").read_text())
+    assert set(refs["changed_paths"]) == {f"/api/v1/content/{{project_id}}/{action}" for action in ("ls", "cat", "raw", "stat", "tree")}
+    assert set(refs["paths"]) == {"/api/v1/content/{project_id}/refs", "/git/{project_id}.git/refs"}
+    assert set(refs["schemas"]) == {"NativeRepositoryRefResponse", "NativeRepositoryMetadataResponse", "NativeRepositoryMetadataEnvelope"}
+    for name, change in refs["changed_paths"].items():
+        assert expected["contract"]["paths"][name] == change["before"]
+        expected["contract"]["paths"][name] = change["after"]
+    for category in ("paths", "schemas"):
+        assert not expected["contract"][category].keys() & refs[category].keys()
+        expected["contract"][category].update(refs[category])
     assert contract(app.openapi()) == expected["contract"]
 
 

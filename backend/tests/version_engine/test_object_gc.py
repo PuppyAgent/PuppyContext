@@ -416,7 +416,7 @@ def test_git_object_gc_invalid_persisted_root_is_non_actionable(server_repo, mon
 
 def test_object_gc_worker_can_run_bounded_manual_project_list(server_repo, monkeypatch):
     manager = MagicMock(spec=VersionRepoManager)
-    manager.get_server_repo.return_value = server_repo
+    manager.get_gc_repo.return_value = server_repo
     monkeypatch.setattr(
         "src.version_engine.derived.object_gc_worker.settings.VERSION_OBJECT_GC_ENABLED",
         False,
@@ -436,7 +436,8 @@ def test_object_gc_worker_can_run_bounded_manual_project_list(server_repo, monke
 
     assert len(results) == 1
     assert results[0].project_id == "test-proj"
-    manager.get_server_repo.assert_called_once_with("test-proj")
+    manager.get_gc_repo.assert_called_once_with("test-proj")
+    manager.get_server_repo.assert_not_called()
 
 
 def _put_raw_object(store: ObjectStore, data: bytes) -> str:

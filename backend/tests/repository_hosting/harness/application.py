@@ -17,7 +17,8 @@ from .supabase_api import SupabaseAPI
 
 
 class Application:
-    def __init__(self, directory):
+    def __init__(self, directory, *, profile='legacy core Git/API; optional external integrations disabled'):
+        self.profile = profile
         if not Path('/evidence/container-environment.json').is_file() or sys.platform != 'linux':
             raise RuntimeError('application acceptance requires the owned Docker runner')
         self.auth = SupabaseAPI(os.environ)
@@ -78,7 +79,7 @@ class Application:
                     Path('/evidence/application-environment.json').write_text(json.dumps({
                         'process_ids': self.starts, 'configured_names': sorted(names),
                         'readiness': report, 'skip_auth': False,
-                        'profile': 'legacy core Git/API; optional external integrations disabled',
+                        'profile': self.profile,
                     }, indent=2) + '\n')
                     return report
             except httpx.TransportError:

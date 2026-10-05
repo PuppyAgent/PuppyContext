@@ -44,7 +44,7 @@ def test_sha256_native_gc_quarantine_and_physical_deletion(publication):
     assert request(service, oid, prepare)["status"] == "committed"
     orphan, loose = encode_object("blob", b"sha256 quarantine", object_format="sha256")
     backend.put_durable(orphan, loose)
-    repo = VersionRepoManager(s3, db).get_server_repo(auth.project, project_name="SHA-256 GC")
+    repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     first = run_git_object_gc(repo, dry_run=False, retention_seconds=0, quarantine_seconds=3600)
     assert not first.errors and not first.sweep_skipped_for_safety
     assert first.deleted_count == 0 and first.quarantined_count == 1

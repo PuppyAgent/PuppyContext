@@ -110,10 +110,10 @@ class NativeGitRepository:
             yield path
 
     def info_refs(self, grant, service: str, *, protocol=""):
-        admitted_actor(grant, self.project_id, write=False)
+        actor = admitted_actor(grant, self.project_id, write=False)
         if service not in {"git-upload-pack", "git-receive-pack"}:
             raise ValueError("unsupported Git service")
-        snapshot = self.control.snapshot(self.project_id)
+        snapshot = self.control.read_snapshot(self.project_id, actor)
         if not snapshot or snapshot["authority"] != "native":
             raise RuntimeError("native repository unavailable")
         # Ref advertisement never traverses or reads canonical objects.
@@ -172,12 +172,12 @@ class NativeGitRepository:
         return command, requested
 
     def upload(self, grant, request_path: Path, *, protocol=""):
-        admitted_actor(grant, self.project_id, write=False)
+        actor = admitted_actor(grant, self.project_id, write=False)
         command, requested = self.upload_request(request_path)
         if command == b"command=ls-refs":
             # Protocol-v2 discovery is advertisement too, not a fetch. Packed
             # refs and their verified peel metadata require no object I/O.
-            snapshot = self.control.snapshot(self.project_id)
+            snapshot = self.control.read_snapshot(self.project_id, actor)
             if not snapshot or snapshot["authority"] != "native":
                 raise RuntimeError("native repository unavailable")
             with self.bare(snapshot) as bare, request_path.open("rb") as request:

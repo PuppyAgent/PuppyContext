@@ -26,6 +26,10 @@ class ConcurrentMutationError(RuntimeError):
         )
 
 
+class NativeRevisionConflictError(RuntimeError):
+    """The captured native target, OID, generation or HEAD no longer matches."""
+
+
 class CrossScopeSubmissionError(PermissionError):
     """Raised when a version submission modifies paths owned by another scope."""
 

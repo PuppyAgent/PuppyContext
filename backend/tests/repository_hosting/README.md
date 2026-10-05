@@ -132,6 +132,147 @@ pgTAP 329 通过。原始 34 项仍在，另有 `workspace-stash` 真实 S3 冷 
 同 revision 的隔离复测 4 passed，但这不是修复或全量通过。Git 超时现在追加
 worker 线程栈（不含 argv/locals），仍保留原 30 秒预算和失败。补充 backend
 回归 2773 passed / 27 skipped / 76 deselected，也不替代 strict Docker 验收。
+后续干净冻结 `8defc2cb` 全序复验 **1089 passed / 原 34 failed**、pgTAP 329：
+额外超时未复现，但诊断代码不算修复。原生 18、组件 625/34、PG 214、Auth 86、
+S3 145、真实应用 1；PID 峰值 47、内存峰值 703975424 bytes，耗尽计数为零。
+
+逻辑计费正在单独接入：原生发布的可选 checked wrapper 将实际默认 ref 的
+before/after OID、`storage.logical_bytes`、当前 entitlement revision、actor/lease、
+ref/audit/outbox 放进同一事务。失败不改 refs 或账单，rewind 按新事务计量，
+原结果只读重放不重复计费。一次真实 PG red case 复现旧全量对账器把 native 用量
+归零，现阻止该旧路径覆盖；native-aware 对账/生命周期结算仍待实现。
+定向 Docker **43 passed + 329 pgTAP**（PG 17、Auth 8、S3 2、组件 15、legacy
+应用 1），包含 populated Expand rollback、等待过期、同 Org 竞争及 S3 冷读/恢复。
+随后组合 admission/capacity/snapshot/transaction 回归 **161 passed + 329 pgTAP**，
+无 skip/error/资源耗尽（PID 峰值 22、内存峰值 413999104 bytes）；组件集 337 通过。
+这不是完整 file/ref policy、真实 Native HTTP 或外部 Billing 集成验收；原 34
+项失败、完整 canonical/消费者/迁移门禁仍在。
+
+`defff62e` 冻结全量：**1131 passed / 原 34 failed + 329 pgTAP**，无新失败或
+资源耗尽；补充 backend 2773 passed / 27 skipped / 76 deselected（不是严格验收）。
+后续 checked 对账已接 application scheduler：完整 SQL inventory、200-row pages、
+native 当前树物理读（不读 commit history）、legacy placement 兼容、最终双向
+inventory CAS、等待后过期回滚和原结果重放。失败取消只释放测量元数据，不代表
+存储 I/O quiescence。单 Org 未结束 inventory 背压及 bounded cleanup 防止重试膨胀。
+定向 owned Docker **82 passed + 329 pgTAP**，包括混合 SHA-1 legacy / SHA-256
+native 冷测量、lost ACK、202-Project 分页和 populated migration rollback。
+早期 receipts 保留：SQL local-variable 错误、到期拒绝原因/跨 fixture cleanup 断言、
+psql boolean JSON 解码夹具错误，以及选中过 Auth 的 native-PG run 的 16 skips；
+修正后 strict native-PG 10 passed，再运行上述 82-case 实服 selection 全绿。
+
+后续 file admission 使用新的空 Expand 和 optional checked publisher：新 blob
+单文件限制在 PUT 前拒绝，已发布历史可 grandfather，但 rejected receipt / allocation
+不构成发布证明；当前树 rename 保留 multiplicity，额外超限 copy 拒绝。每次 I/O
+claim 检查当前 actor/lease/entitlement；uploading pin 不能借用另一重试的新 lease。
+Admitted metadata advertisement / `ls-refs` 在 SQL 等待后重新检查 credential，仍为
+零 object I/O。无 canonical routing/activation，Scope/consumer/recovery/migration 未关闭。
+
+File-policy 首轮实服 94 passed / 4 failed：两条零 delta event 计数夹具断言错误，
+以及两种格式真实的 sealed-retry 回归（未发布 root 错送入 read snapshot）。修复通过
+原 publication pin 重新验证 incoming graph，不扩大 reader authority；后续实服
+**98 passed + 329 pgTAP**。再后 broad run **267 passed / 2 failed + 329 pgTAP**
+暴露对账测试错误复用 admitted user control；改为 application scheduler 同一个
+backend-only factory，未给 user reader 增加特权。该 broad run 期间有源码修改，
+不是 frozen acceptance。metadata guard 最终 strict native-PG **47 passed**，组件
+及 storage billing **365 passed**，不把以上 selection 合并计数。
+
+随后清洁冻结 `b652330b` 全量 **1220 passed / 原 34 failed + 329 pgTAP**；相对
+`defff62e` 失败集合无增减，无 skip/error/资源耗尽（PID 峰值 46、内存峰值
+716460032 bytes）。补充 backend **2773 passed / 27 skipped**，2800 JUnit cases，
+无 failure/error；不是严格 hosting 验收。此结果不适用于后续 dirty 初始化修复。
+
+初始化修复先保留三条 red：已有 ACK 在 storage probe 失败时被置为 empty tree，
+缺 checked capability 仍调用旧 setter。新的空 Expand/checked RPC 在锁内识别真正
+未初始化的 legacy SHA-1 Project；已有合法 root 不探测对象、不改写；缺 root 但有
+accepted history/Scope state/refs 属于损坏，不是空库。首初始化要求有效生命周期和
+等待后仍有效的 Project lease；native authority 拒绝走旧初始化。真实 PostgREST、
+anon/JWT denial、populated rollback/retry、publication race/queued expiry 的定向
+Docker **24 passed + 329 pgTAP**（Auth 3、PG 8、legacy 应用 1、S3 2、组件 10）。
+该 selection 不证明 native 生命周期完成，也不自动恢复物理缺失的 ACK。后续损坏
+root/删除生命周期回归 strict native-PG **23 passed**，组件/billing/deep scenarios
+**412 passed**；先前误选 Auth 的 PG receipt 含 3 skips，保留并按 strict 失败记录。
+
+### Canonical native Git 源码接入（仅合成 enrollment）
+
+正式 Git router 现按 fresh PG authority 选择实现；native 强制 admitted control +
+capacity + logical billing + file policy，无缺能力 fallback。旧 cached root 不得
+作为 native 当前状态。既有项目不自动 enroll/activate；未映射 legacy locator / Scope
+不能扩大为 full repo。Product/Scope/自动写入及生命周期/消费者/迁移仍未完成。
+
+新增实际 `src.main` 测试：先 JWT 创建 Project/credential，测试 owner 显式设置空
+native authority 和 synthetic entitlement，不伪造 grant/物理 receipt。SHA-1/SHA-256
+验证非 main HEAD、多 ref/typed tag atomic push、单文件限制拒绝、冷进程重启、v2
+fetch/fsck、精确 refs/bytes，以及只读/匿名/跨 Project/撤销 credential 拒绝。首轮
+**16 passed + 329 pgTAP**，加强后 **41 passed + 329 pgTAP**（application 3、S3 2、
+Auth 3、PG 13、组件 20），无 skip/error/gap/资源耗尽；不是外部 PuppyPay 或 native
+产品 Save/API 验收。组件/router 回归 **503 passed**。补充 backend 首轮 2772 passed /
+1 failed / 27 skipped：mixed-protocol MagicMock 没声明 legacy selection；保持原断言，
+补齐夹具明确 legacy authority，不给生产 lookup 添加 fallback。随后 mixed-write /
+admission / selector 定向 **21 passed**，原并发、恢复和延迟断言未改；未冒充全量重跑。
+
+干净冻结 `a8dd06c7` 随后全序 **1246 passed / 52 failed + 329 pgTAP**：原 34 项
+保留，另有 18 项 native GC 消费者回归。旧 facade 的 authority guard 正确拒绝 native，
+但 GC worker/测试仍使用该当前树入口，暴露维护入口未适配；不是全量通过。补充
+backend **2773 passed / 27 skipped / 76 deselected**，不抵消 hosting 失败。
+
+### 当前准入续 pin 与维护专用 GC inventory
+
+续 pin 先保留 **4 failed / 1 passed**：撤销 credential、过期 publication lease 或排队期间
+到期仍可延长 pin。新 backend-only RPC 在 primitive renewal 前后检查当前 actor，
+publication 另检查绑定 lease；read pin 不需要写权限/写 lease。失败回滚延长，无旧 RPC
+fallback；独立 backend maintenance primitive 保留。Expand 不改数据、不登记、不解除
+任何 uncertain I/O claim。严格 native-PG/组件 **13 passed**，覆盖 populated rollback/retry。
+
+`get_gc_repo` 是维护专用 inventory，不暴露旧 current-tree/head 或 publication facade；
+实际 scheduled GC 已选择它。全部旧 history/Scope heads/refs/view-index/outbox/conflict/
+shadow roots 仍是保守 retention 输入，不冒充 native 当前状态。metadata 故障不得降级，
+缺完整 scope inventory 不得当空。原 18 项的拒绝、物理 bytes/refs、fence/恢复断言不改，
+改用同一个生产维护入口；另有两种格式实际 worker/PG run-record 回归。
+
+工作树 connected 选择先 **77+329**，扩大为 **181+329**，包含原 18 项全部转绿；最终
+inventory 接口收窄后 **103+329**（无 skips/errors/gaps/耗尽），组件/GC/system **432 passed**。
+这些是选择证据，不替代冻结完整验收，也不修复原 34 项或完成其它消费者/迁移。
+
+### Native Product 读取子集与 ACK 保护（M08 未完成）
+
+`ProductOperationAdapter.open_read` 经 Project grant、实时 PG authority 和 admitted
+read pin 选择同一份 refs/HEAD/format snapshot。已接 `ls/cat/raw/stat/tree`，内容与
+返回的 `repository_revision` 来自同一快照，不走 legacy root 或 Git materialization。
+新增 base64 路径身份和 Git mode；显示名称不是字节身份，symlink 不跟随、gitlink 不当
+本仓库 blob 下载。native tree walk 超出 entry budget 明确失败，不截断为完整成功。
+HTTP 历史契约 fixture 不变，单独 forward delta 限定五条读取路径和五个 response schema。
+
+同时复现两种读时 ACK 丢失：缺 subtree 或 blob 会触发 `list_dir` 以不完整 Scope inventory
+改写已有 root，连健康 sibling 也被删除。已移除此非空根重建；真实 owned S3/PG 验证仅恢复
+物理字节即可读回全部 ACK，metadata 不变。16 项 authority 错误不能冒充空 root/head 或
+路径不存在。旧 empty-root Scope compatibility 没被当作 native authority，也未宣称完成 repair。
+
+初选 **25+329**；加入读取/续租/快照/selector 回归后 **103+329**（component78、PG9、
+Auth3、application3、S310），无 skips/errors/资源缺口；组件/契约/legacy 选择 **534→535 passed**
+（最后补充 text/base64 Unicode 路径长度上限一致性）。
+两种格式的真实 src.main/JWT 读取覆盖应用重启前后；enrollment/entitlements 仍由测试 owner
+合成安装。此前 backend **2772 passed / 1 failed / 27 skipped** 的失败是新增公开 wire 未登记
+forward contract delta，原失败保留；补充精确 delta 后定向契约已通过。
+随后干净冻结 **6fe12550** 完整重试 **1343 passed / 原34 failed + 329 pgTAP**，失败集与
+9b060399一致；native18、component757/34、PG278、Auth132、application3、S3155，无
+skip/error/耗尽。PID峰值47、内存710967296 bytes。首次 CLI startup 在27.784s退出1、
+没有 SQL/JUnit，严格拒绝；原因未定，未改预算/代理/daemon，重试不等于因果修复。
+同提交干净补充 backend **2773/27 skipped/76 deselected**。
+Signed inline/download、历史/Scope、native Save/其它写入、自动生产者和完整资源/恢复/迁移仍待完成。
+不自动激活任何现有仓库，不把读取子集或测试增量称为 M08/M09/A6–A11 完成。
+
+### Bulk starting-base 兼容性修复（非 native 写入完成）
+
+实际复现 HTTP bulk-write 丢弃传入的旧 `base_commit_id`、覆盖较新 ACK。保留25项 red，
+将 optional base 沿 schema → commands → byte/reference bulk → 原有 expected-head/CAS
+传递；显式空 base、不含操作的 batch、重试和多 Scope 分组均不能丢失/替换此前提。
+省略 base 的原有策略不变，历史 HTTP fixture 不改；单独精确 delta 仅改 BulkWriteRequest。
+扩展组件31项，相关组件/legacy/contract合计520通过；owned服务 **64+329**（PG11、Auth8、
+application3、S3 4、component38），实际 JWT 验证 bulk 成功/409、匿名拒绝、冷重启/fetch
+及原 commit 字节保留。首次60+329选择因缺 requested S3 layer 被严格拒绝；原回执与首次
+contract失败、误用 Pydantic 而非 FastAPI schema fingerprint 的失败均保留。dirty backend
+2773/27 skipped/76 deselected。以上不是新提交的冻结全量、native ref/HEAD/grant 发布、
+自动生产者 base 捕获或 M09 完成。
 
 ### Git 命令符合性与测试驱动实施
 
@@ -147,7 +288,7 @@ stock Git 拒绝的问题。receive 广告/隔离仓库包含已有命名 refs�
 缓存删除后接收、冷读、旧 blob 复用、普通对象缺失、拒绝和恢复；不扩大 legacy
 Scope 合同，也不接通 dormant SQL authority。
 
-### Native 实服务 profile（尚未接入正式入口）
+### Native 内部实服务 profile（与上方正式入口证据分开）
 
 `integration/test_native_s3_transport.py` 对真实 S3/PostgREST 执行同一组 78 个
 recipe；另验证 SHA-1/SHA-256 HTTP 空库/首推、冷 clone、typed tags、rewrite 和
@@ -163,7 +304,8 @@ read-back 必须来自 canonical Project namespace，不接受跨 Project 的 ba
 指向其他 namespace 的 location；旧兼容读取不因此获得 native receipt。
 
 该 ASGI fixture 显式提供 grant，**没有**替代正式凭据解析、授权、配额或生命周期
-准入；正式 Git router、产品/Scope/自动写入及 Desktop 尚未选择新 adapter。
+准入；该历史 profile 没接正式 Git router。后续正式 Git 源码和独立 application
+证据见上节；产品/Scope/自动写入及 Desktop 仍未完成。
 原路由失败继续保留，不能因新 profile 转绿就称这些目标已修复。完整资源约束、
 长上传续租、多进程/重启/恢复、消费者、迁移和部署门禁仍未完成，不得激活真实仓库。
 

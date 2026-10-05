@@ -63,8 +63,23 @@ def test_docker_application_real_auth_git_api_cold_restart_and_revocation(applic
     written = app.api('POST', f'/content/{project}/write', json={
         'path': 'from-api.md', 'content': 'API bytes\n', 'node_type': 'markdown', 'base_commit_id': first,
     })
-    commit = written['commit_id']
-    assert commit != first
+    api_commit = written['commit_id']
+    assert api_commit != first
+    bulk = app.api('POST', f'/content/{project}/bulk-write', json={
+        'files': [{'path': 'from-bulk.md', 'content': 'Bulk bytes\n', 'node_type': 'markdown'}],
+        'base_commit_id': api_commit,
+    })
+    commit = bulk['commit_id']
+    assert commit not in (first, api_commit)
+    for stale in (first, api_commit, ''):
+        app.request('POST', f'/api/v1/content/{project}/bulk-write', expected=409, json={
+            'files': [{'path': 'from-api.md', 'content': 'stale bulk overwrite', 'node_type': 'markdown'}],
+            'base_commit_id': stale,
+        })
+    app.request('POST', f'/api/v1/content/{project}/bulk-write', token=False, expected=401, json={
+        'files': [{'path': 'from-api.md', 'content': 'anonymous', 'node_type': 'markdown'}],
+        'base_commit_id': commit,
+    })
     app.request('POST', f'/api/v1/content/{project}/write', expected=409, json={
         'path': 'from-api.md', 'content': 'stale overwrite', 'node_type': 'markdown', 'base_commit_id': first,
     })
@@ -84,12 +99,16 @@ def test_docker_application_real_auth_git_api_cold_restart_and_revocation(applic
     app.start()
     assert len(set(app.starts)) == 2
     assert app.request('GET', path, params={'path': 'from-api.md'}).content == b'API bytes\n'
+    assert app.request('GET', path, params={'path': 'from-bulk.md'}).content == b'Bulk bytes\n'
     cold = Git.init(tmp_path / 'cold.git', bare=True)
     authorize_git(cold, credential)
     cold.run('fetch', remote, '+refs/heads/*:refs/heads/*')
     assert cold.text('rev-parse', 'refs/heads/main') == commit
     assert cold.run('show', f'{commit}:from-git.md').stdout == b'Git bytes\n'
     assert cold.run('show', f'{commit}:from-api.md').stdout == b'API bytes\n'
+    assert cold.run('show', f'{commit}:from-bulk.md').stdout == b'Bulk bytes\n'
+    assert cold.run('show', f'{api_commit}:from-api.md').stdout == b'API bytes\n'
+    assert cold.run('show', f'{first}:from-git.md').stdout == b'Git bytes\n'
     cold.run('fsck', '--full', '--strict')
     app.api('DELETE', f'/projects/{project}/git-credentials/{issued["id"]}')
     assert cold.run('ls-remote', remote, check=False).returncode != 0

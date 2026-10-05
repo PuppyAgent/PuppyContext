@@ -37,6 +37,16 @@ class FakeHistoryManager:
     def get_root_hash(self) -> str:
         return self._root_hash
 
+    def initialize_root_hash(self) -> str:
+        from src.version_engine.write_engine.git_object_format import EMPTY_TREE_SHA1
+
+        with self._lock:
+            if not self._root_hash:
+                if self._entries or self._scope_hashes or self._scope_head_commit_ids:
+                    raise RuntimeError('legacy_repository_root_corrupt')
+                self._root_hash = EMPTY_TREE_SHA1
+            return self._root_hash
+
     def set_root_hash(self, h: str) -> None:
         self._root_hash = h
 

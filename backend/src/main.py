@@ -447,6 +447,7 @@ def _init_storage_reconciler(app: FastAPI) -> None:
 
     service = StorageReconciliationService(
         repo_manager=app.state.version_engine.repo_manager,
+        checked_reconciler=app.state.version_engine.repo_manager.create_usage_reconciler(),
     )
     stop_event = asyncio.Event()
 
@@ -640,6 +641,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-PuppyOne-Repository-Revision"],
     )
     cors_duration = time.time() - cors_start
 
@@ -721,6 +723,13 @@ def create_app() -> FastAPI:
         tags=["git-protocol"],
         dependencies=[Depends(git_project_write_lease)],
     )
+    # Metadata/results use current Runtime authorization in their own handlers,
+    # not the transport-cache lease (whose acquisition is itself a mutation).
+    from src.version_engine.entrypoints.git.operations import (
+        operations_router as git_metadata_router,
+    )
+
+    app.include_router(git_metadata_router, prefix="/git", tags=["git-protocol"])
     # WebSocket /ws — server→client commit_update notifications.
     from src.version_engine.entrypoints.http.websocket import ws_router as version_ws_router
 

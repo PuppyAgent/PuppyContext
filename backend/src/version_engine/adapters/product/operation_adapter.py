@@ -28,6 +28,9 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
+
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from src.version_engine.write_engine.engine import VersionWriteEngine
@@ -102,6 +105,81 @@ class ProductOperationAdapter:
         self._repos = repo_manager
         self._reader = VersionTreeReader(repo_manager)
         self._engine = VersionWriteEngine(repo_manager)
+
+    @contextmanager
+    def open_read(self, project_id: str, grant, *, selector: bytes = b"HEAD"):
+        """Keep native bytes and their starting ref/base in one admitted snapshot.
+
+        Authority selection is fresh and mandatory. Legacy callers retain their
+        existing adapter only after an explicit absent/shadow result; errors are
+        never a reason to consult cached legacy roots or materialize Git.
+        """
+        from src.version_engine.read.native_tree_reader import NativeTreeReader
+        from src.version_engine.read.repository_snapshot import repository_snapshot
+        from src.version_engine.write_engine.ref_transaction import admitted_actor
+
+        admitted_actor(grant, project_id, write=False)
+        service = self._repos.get_native_service(project_id)
+        if service is None:
+            if selector != b"HEAD":
+                from src.version_engine.domain.errors import RepositoryRefTypeError
+
+                raise RepositoryRefTypeError("legacy repository ref selection unavailable")
+            yield self
+            return
+        from src.version_engine.domain.errors import NativeObjectNotFoundError, ObjectNotFoundError
+
+        try:
+            with repository_snapshot(service.control, service.backend, grant, project_id=project_id) as snapshot:
+                if snapshot.object_format != service.object_format:
+                    raise ValueError("repository object format mismatch")
+                yield NativeTreeReader(snapshot, selector=selector)
+        except ObjectNotFoundError as exc:
+            raise NativeObjectNotFoundError("Canonical repository object unavailable") from exc
+
+    async def native_ref_metadata(self, project_id: str, grant):
+        return await asyncio.to_thread(self._repos.get_native_ref_metadata, project_id, grant)
+
+    async def native_operation_status(self, project_id: str, grant, request_key: str):
+        return await asyncio.to_thread(self._repos.get_native_operation_status, project_id, grant, request_key)
+
+    async def apply_native_command(self, project_id: str, grant, *, request_key: str,
+                                   base: dict, input_sha256: str, splice, message: str = "",
+                                   write_lease_factory=None):
+        """One native ingress shared by Product and explicitly admitted producers.
+
+        Look up an acknowledged result before acquiring a lease. Authorization
+        snapshots do not replace the current SQL actor/lease checks. A worker is
+        awaited on cancellation; releasing a lease never settles its remote I/O.
+        """
+        from src.platform.project.write_lease import ProjectWriteLease
+        from src.version_engine.write_engine.native_operation_writer import NativeOperationWriter
+        from src.version_engine.write_engine.ref_transaction import admitted_actor
+
+        admitted_actor(grant, project_id, write=False)
+        service = await asyncio.to_thread(self._repos.get_native_service, project_id)
+        if service is None:
+            raise ValueError("native Product revision requires native repository authority")
+        writer = NativeOperationWriter(service)
+        request = dict(request_key=request_key, base=base, input_sha256=input_sha256, message=message)
+        result = await asyncio.to_thread(writer.replay, grant, **request)
+        if result is not None:
+            return result
+        admitted_actor(grant, project_id, write=True)
+        factory = write_lease_factory or ProjectWriteLease
+        async with factory(project_id, "product.native"):
+            worker = asyncio.create_task(asyncio.to_thread(writer.apply, grant, splice=splice, **request))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                try:
+                    await worker
+                finally:
+                    raise
+
+    def get_read_revision(self, project_id: str):
+        """Only an admitted native read view exposes native ref/base metadata."""
+        return None
 
     def get_project_write_state(
         self,
@@ -563,6 +641,7 @@ class ProductOperationAdapter:
         policy: str = "",
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         """Batch write + optional batch delete.
 
@@ -580,6 +659,7 @@ class ProductOperationAdapter:
                 who, message, defer_projection,
                 policy=policy, source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
 
         write_groups = self._group_paths_by_scope(
@@ -587,6 +667,12 @@ class ProductOperationAdapter:
         )
         del_groups = self._group_paths_by_scope(project_id, clean_del)
         all_scopes = set(write_groups.keys()) | set(del_groups.keys())
+
+        if base_commit_id is not None:
+            if len(all_scopes) > 1:
+                raise ValueError("base_commit_id is ambiguous for multi-scope bulk operations")
+            # Even an empty batch must honor a supplied precondition.
+            all_scopes = all_scopes or {""}
 
         first_result: WriteResult | None = None
         for target_scope in all_scopes:
@@ -601,6 +687,7 @@ class ProductOperationAdapter:
                 defer_projection,
                 policy=policy, source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
             first_result = first_result or r
         return first_result or WriteResult(
@@ -620,11 +707,12 @@ class ProductOperationAdapter:
         policy: str = "",
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         ops: list[tuple] = []
         ops.extend(("put", path, content) for path, content in rel_files.items())
         ops.extend(("rm", path) for path in rel_dels)
-        if not ops:
+        if not ops and base_commit_id is None:
             return WriteResult()
 
         def splice_fn(store, root_hash):
@@ -635,6 +723,7 @@ class ProductOperationAdapter:
             who=who,
             message=message or f"bulk write {len(rel_files)} files",
             op_type="bulk_write",
+            expected_head_commit_id=base_commit_id,
             policy=policy,
             source_channel=source_channel,
             audit_detail={
@@ -727,6 +816,7 @@ class ProductOperationAdapter:
         verify_blobs: bool = True,
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         """Commit a tree update referencing already-staged blobs by hash.
 
@@ -763,6 +853,7 @@ class ProductOperationAdapter:
                 project_id, scope, clean, clean_del, who, message,
                 source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
 
         write_groups = self._group_paths_by_scope(
@@ -770,6 +861,11 @@ class ProductOperationAdapter:
         )
         del_groups = self._group_paths_by_scope(project_id, clean_del)
         all_scopes = set(write_groups.keys()) | set(del_groups.keys())
+
+        if base_commit_id is not None:
+            if len(all_scopes) > 1:
+                raise ValueError("base_commit_id is ambiguous for multi-scope bulk operations")
+            all_scopes = all_scopes or {""}
 
         first_result: WriteResult | None = None
         for target_scope in all_scopes:
@@ -783,6 +879,7 @@ class ProductOperationAdapter:
                 rel_refs, rel_dels, who, message,
                 source_channel=source_channel,
                 project_write_state=project_write_state,
+                base_commit_id=base_commit_id,
             )
             first_result = first_result or r
         return first_result or WriteResult(
@@ -800,13 +897,14 @@ class ProductOperationAdapter:
         *,
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteResult:
         ops: list[tuple] = []
         ops.extend(
             ("put_ref", path, ref.hash) for path, ref in rel_refs.items()
         )
         ops.extend(("rm", path) for path in rel_dels)
-        if not ops:
+        if not ops and base_commit_id is None:
             return WriteResult()
 
         def splice_fn(store, root_hash):
@@ -818,6 +916,7 @@ class ProductOperationAdapter:
             who=who,
             message=message or f"bulk write {len(rel_refs)} files",
             op_type="bulk_write",
+            expected_head_commit_id=base_commit_id,
             audit_detail={
                 "writes": len(rel_refs),
                 "deletes": len(rel_dels),

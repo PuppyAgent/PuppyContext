@@ -111,7 +111,7 @@ def test_issue_012_production_gc_evidence_is_enforced_per_project(
         project_id: _repo(tmp_path, project_id)
         for project_id in ("ready-project", "unproven-project")
     }
-    manager = SimpleNamespace(get_server_repo=lambda project_id: repos[project_id])
+    manager = SimpleNamespace(get_gc_repo=lambda project_id: repos[project_id])
     monkeypatch.setattr(
         "src.version_engine.derived.object_gc_worker.settings.APP_ENV", "production"
     )

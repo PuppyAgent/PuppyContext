@@ -86,5 +86,6 @@ def repo_manager(server_repo):
     # the HTTP/S3 application stack, which is irrelevant for in-memory
     # version-engine unit tests and makes local test collection fragile.
     manager = MagicMock()
+    manager.get_native_service.return_value = None  # Explicit legacy fixture authority.
     manager.get_server_repo.return_value = server_repo
     return manager

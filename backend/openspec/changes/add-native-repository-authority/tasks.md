@@ -1,3 +1,39 @@
+## Delivery checkpoints (user-approved cadence, 2026-10-05)
+
+Implement coherent cross-layer batches before running connected suites. Keep
+only small safety checks in the implementation loop. Run the full frozen target
+at integration checkpoints, not after each local change. The original M01–M20
+and G01–G66 scope is unchanged; the historical evidence below is not completion.
+
+| Checkpoint | Original scope | Closure criterion | State |
+| --- | --- | --- | --- |
+| Repository contract | M01–M04, M06–M08 | Typed repository/ref/base/operation identity; complete protocol/API families; no second authority | OPEN |
+| All producers and compatibility | M09, M16; M05 mapping contract | Product/automatic/scoped producers share publication, original bases and recoverable results; old bindings remain stable | OPEN |
+| Complete client workflows | M10, M17 | First publication, ordinary sync, Workspace and failed/incomplete work preservation against actual Cloud | OPEN |
+| Operational closure | M11–M15, M18 | Storage, GC, lifecycle, derived effects, independent-worker recovery, export/paired restore and bounded resources | OPEN |
+| Migration and retirement | M05, M19–M20 | Reentrant inventory/replay/cutover/recovery, all consumers retired safely, integrated version and final evidence | OPEN |
+
+Global contracts precede caller edits: read selection and old-entrypoint binding
+are distinct; a logical operation ID is distinct from its physical attempts and
+per-invocation I/O IDs; metadata preparation is not publication; result replay is
+a current read. No client is forced to invent a base or silently follow a changed
+HEAD. Code complete, batch verified and environment rollout are separate states.
+A discovered TODO is assigned to its owning checkpoint unless it blocks the
+current end-to-end path. No production activation or remote action is authorized.
+
+Consumer dependency map (all rows must close before cutover):
+
+| Consumer family | Shared boundary / prerequisite | Remaining acceptance |
+| --- | --- | --- |
+| `content_write` Product routes | Versioned normalized intent → native writer → ref transaction | Five explicit routes have actual JWT/cold/replay evidence; remaining producers and old omitted-base semantics require explicit old-entrypoint mapping, never guessed HEAD |
+| `access_point_fs`, `internal/mcp_runtime`, content tables | Scope/view grant and stable old binding | No widening into full repository grants; base/result/audit compatibility |
+| Upload jobs/handlers, imports runner/database, synchronize write port | Persist request/base/actor before delayed work; staged-content identity | Independent attempts, current admission, pause/drain, no orphan-as-published proof |
+| Project seed/templates and template registry | Initializing lifecycle, explicit authority/profile | No automatic enrollment or quota initialization; interrupted initialization recovery |
+| Content history/signed reads, shadow snapshots, dashboard/git view/exporter | Admitted historical/view snapshots and response-lifetime pins | Complete bounded reads; metadata outage is not absence or repair permission |
+| Desktop and Workspace router/sync worker | Explicit destination/profile/HEAD plus initialization journal | Actual Cloud first publication, failure preservation, branch and UI flows |
+| Integrity/hooks/derived workers, billing/GC/deletion | Native events and complete maintenance/lifecycle contracts | Current-tree vs retention distinction; settlement and paired restore |
+| Inventory/backfill/cutover/retirement | Every consumer above and M18 evidence | Synthetic migration/rollback rehearsal, old-user continuity, then authorized rollout |
+
 ## 1. Baseline and objects (M01/M03/M18, partial)
 
 - [x] Create isolated Cloud/Desktop worktrees from the integration baselines.
@@ -51,6 +87,40 @@
   4 passed is not a repair. Capture all worker stacks on future Git deadlines
   without changing the 30-second budget. Supplementary backend: 2773 passed,
   27 skipped, 76 deselected; not strict target acceptance.
+- [x] Run clean frozen logical-settlement `defff62e`: 1131 passed / exactly the
+  original 34 failures, plus 329 pgTAP; no skips/errors/exhaustion. Supplementary
+  backend: 2773 passed / 27 skipped / 76 deselected. This is not complete target
+  acceptance; current canonical/consumer/migration work remains separate.
+- [x] Repeat full order at clean frozen `8defc2cb`: 1089 passed / the original
+  34 failures, 329 pgTAP, no skips/errors/exhaustion. The extra timeout did not
+  recur; preserve the earlier failure, do not label diagnostics a product repair.
+- [x] Run clean frozen `b652330b`: 1220 passed / exactly the original 34 failures,
+  plus 329 pgTAP, no skips/errors/resource exhaustion. All application/Auth/S3/PG
+  layers pass; this does not close canonical routing or migration. Supplementary
+  backend: 2773 passed / 27 skipped (2800 cases, zero failures/errors).
+- [x] Preserve clean frozen a8dd06c7: 1246 passed / 52 failed plus 329 pgTAP;
+  original 34 plus 18 native GC consumer regressions. Supplementary backend:
+  2773 passed / 27 skipped / 76 deselected. No skip/error/resource exhaustion
+  in the hosting run; this is failed acceptance, not a completed routing rollout.
+- [x] Reproduce ongoing pin admission failure (4 failed / 1 passed); add current
+  actor and publication-lease checks before/after renewal waits, without granting
+  write authority to read pins or removing the backend primitive. Validate ACLs,
+  actual SDK/PostgREST, queued expiry and populated Expand rollback/retry.
+- [x] Give scheduled GC a maintenance-only inventory instead of a current-tree
+  facade. Preserve all retention roots, old-ACK/rejection/uncertainty assertions
+  and legacy native-access guard; test the actual worker in both formats.
+  Connected selections: 77+329, expanded 181+329 (all 18 regressions pass), then
+  final narrowed-inventory 103+329. Components/GC/system: 432 passed. These
+  dirty selections are not a frozen full repair result or original-34 resolution.
+- [x] Run clean frozen `9b060399`: 1289 passed / exactly the original 34 failures,
+  plus 329 pgTAP, no skips/errors/resource exhaustion. All 18 native GC consumer
+  regressions are repaired; supplementary backend 2773 passed / 27 skipped /
+  76 deselected. This remains failed full acceptance, not activation readiness.
+- [x] Run clean frozen `6fe12550`: 1343 passed / exactly the original 34
+  failures, plus 329 pgTAP; no skips/errors/resource exhaustion. Preserve the
+  preceding startup failure (CLI exit 1 after 27.784s, no SQL/JUnit); its cause
+  remains unestablished and unchanged-budget retry is not causal repair.
+  Supplementary frozen backend: 2773 passed / 27 skipped / 76 deselected.
 - [ ] Diagnose the intermittent cold-mirror/server-shutdown failure in full order.
 - [ ] Complete the updated frozen full Docker target, native canonical application
   admission and worker/resource/crash-recovery acceptance. Optional external AI,
@@ -58,6 +128,160 @@
 - [ ] Complete real-object service and full multi-instance acceptance gates.
 - [ ] Freeze complete G01–G66/API/scenario contracts and repo/ref/base integration contract.
 - [ ] Complete byte/object-format/raw-header semantics including SHA-256 end to end.
+
+### Initialization preserves acknowledged roots (M07/M14 prerequisite)
+
+- [x] Reproduce initialization replacing a nonempty acknowledged root when its
+  object probe fails, and missing checked capability falling back to a setter.
+  Replace this with a backend-only SQL initializer: preserve existing valid roots
+  without storage probes; require genuine absence, legacy SHA-1 authority, valid
+  lifecycle and a current Project lease for first initialization. Check after
+  lock waits and reject corrupt accepted metadata, native authority and missing
+  RPC capability. No enrollment, repair or activation in DDL.
+- [x] Validate populated Expand rollback/retry, SDK/PostgREST and anon/JWT denial,
+  publication/initializer race and queued expiry. Connected owned Docker: 24
+  passed plus 329 pgTAP (Auth 3, PG 8, legacy application 1, S3 2, component 10).
+  Original three failing component regressions are retained separately. Additional
+  corrupt-root/lifecycle tests: strict native-PG 23 passed; component/billing/deep
+  scenarios 412 passed. The earlier native-PG selection's three Auth skips remain
+  a rejected strict receipt, not acceptance.
+- [ ] Complete native initialization together with lifecycle and migration gates.
+
+### Logical billing integration (M15, in progress)
+
+- [x] Add verified-tree logical byte measurement without Git materialization,
+  blob re-reads or exponential path expansion. Preserve path multiplicity,
+  file modes/gitlink exclusion and current-tree rather than history semantics.
+  Focused component/legacy billing selection: 18 passed; not SQL settlement.
+- [x] Bind actual before/after default-ref selection to current-tree measurement;
+  atomically settle the existing Organization usage counter with current
+  entitlement revision, actor/lease checks and ref/audit/outbox publication.
+  Match the existing Organization advisory-lock ordering, fence old issuers,
+  preserve read-only exact replay, and fail closed on missing initialized usage.
+- [x] Connect optional checked logical billing to native publication and verify
+  SQL atomic quota/entitlement rejection, sibling races, queued expiry, replay,
+  HEAD switches/deletion, old-issuer ACL fences and populated Expand rollback.
+  Real S3 SHA-1/SHA-256 tests preserve old ACKs through quota rejection and reuse
+  sealed proof during recovery. Guarded selection: 43 passed plus 329 pgTAP;
+  combined billing/admission/capacity/snapshot/transaction regression: 161 passed
+  plus 329 pgTAP, no skips/errors/resource exhaustion. Component suite: 337 passed.
+- [x] Reproduce the old full reconciler overwriting native usage (one real PG
+  regression failed), then fence its event/counter transaction for enrolled Orgs.
+- [x] Implement checked mixed-authority reconciliation and select it in the
+  application scheduler: complete SQL inventory, 200-row pages, current-tree
+  physical measurement, full inventory CAS, current entitlement, late expiry
+  rollback, cancellation/backpressure, bounded metadata cleanup and lost-ACK
+  replay. Keep legacy namespace/chunk reads distinct from native proof. Selected
+  owned Docker: 82 passed plus 329 pgTAP (S3 4, PG 27, Auth 24, component 26,
+  legacy application 1). Preserve earlier SQL/fixture and skipped-auth receipts;
+  focused strict native-PG recovery: 10 passed. No external billing claim.
+- [ ] Complete lifecycle logical settlement and native canonical worker acceptance.
+- [ ] Complete named-ref/file-policy admission, canonical caller integration and
+  real authenticated native application acceptance. No billing activation.
+
+### Canonical native Git routing (M06, partial)
+
+- [x] Select fresh PG authority in canonical Git routes; require admitted control,
+  retained capacity, logical billing and file policy. Preserve Git-Protocol,
+  spooling, leases, fetch audit and physical health checks. Missing metadata/RPCs
+  fail closed; cached legacy roots cannot serve native reads. No enrollment.
+- [x] Exercise actual src.main, JWT-issued credentials and checked PG/S3 publication
+  in both formats: non-main HEAD, atomic branches/typed tags, oversized rejection,
+  cold restart/protocol-v2 fetch/fsck, read-only/foreign/anonymous/revoked denial.
+  Synthetic owner enrollment and entitlement projection are explicit. First
+  connected selection 16 passed + 329 pgTAP; guarded selection 41 passed + 329
+  pgTAP (application 3, S3 2, Auth 3, PG 13, component 20), no skips/errors/gaps.
+- [x] Preserve legacy fixture authority and original assertions; component/router
+  regression 503 passed. Supplementary backend initially 2772 passed / 1 failed /
+  27 skipped: one mixed-protocol MagicMock fixture lacked explicit legacy selection,
+  so its undefined result correctly could not become a legacy fallback. Explicit
+  fixture selection plus admission/selector regression: 21 passed, with unchanged
+  mixed-write/recovery/latency assertions; not a replacement full-backend receipt.
+- [ ] Complete native ProductOperationAdapter/API, Scope/legacy mappings and automatic
+  writers; complete lifecycle/consumer/resource/recovery/migration gates before
+  activating existing repositories. Original canonical target failures remain open.
+
+### Selected native Product reads (M08, partial)
+
+- [x] Reproduce native Product reader/route fallback failures (8 adapter and 10
+  route cases); use a single admitted ref snapshot for selected content reads
+  and their real base, without transport materialization or legacy aliases.
+- [x] Wire authenticated `ls`, `cat`, `raw`, `stat`, `tree`; expose captured
+  ref/OID/HEAD guard, byte-path alternatives and modes without following symlinks
+  or fetching external gitlinks. Preserve historical HTTP contract fixtures and
+  add an exact five-path/five-schema forward delta, not a wildcard exemption.
+- [x] Reproduce destructive read-time root healing (2 failures) and authority
+  failures disguised as absence (16 failures). Preserve nonempty acknowledged
+  roots, healthy siblings and physical-only recovery in component/owned S3/PG
+  tests. Do not reinterpret legacy incident rows as native root authority.
+- [x] Exercise actual JWT/application/PG/S3 reads in both formats before/after
+  restart; synthetic enrollment remains explicit. Guarded connected selection:
+  103 passed + 329 pgTAP (component 78, PG 9, Auth 3, application 3, S3 10), no
+  skips/errors/resource gaps. Components/contract/legacy regression: 534, then
+  535 passed including equal text/base64 Unicode path-length behavior.
+  Preserve the earlier backend 2772/1 contract-delta failure and the accidentally
+  selected Desktop-window test's missing-environment failure; neither is a full
+  native Product acceptance result.
+- [ ] Complete signed inline/download streaming, historical/Scope readers and
+  all remaining authority-aware consumers; complete long-I/O/resource bounds.
+- [ ] Complete native Product writes, actual starting-base/target propagation,
+  automatic producers, lifecycle, recovery and migration before activation.
+
+### Ref discovery and explicit content selection (M02/M08, partial)
+
+- [x] Expose current-reader native profile/refs/HEAD metadata under separate
+  Human and exact Project-root Runtime routes, without native storage service,
+  object I/O, pins or leases. Reject malformed metadata and grant widening.
+- [x] Add byte-safe explicit `ref_b64` to the five selected content reads; one
+  snapshot binds bytes and revision across ref movement. Support commit/tag/tree
+  views, reject blob path views, return missing-ref 404, and forbid explicit HEAD
+  legacy fallback. Native raw replies expose their revision and do not cache it.
+- [x] Reproduce an application-level transport lease on new refs AND existing
+  operation-status lookups. Mount metadata independently from transport leases;
+  forbid even transient lease construction in full-app tests. Previous before/
+  after row counts did not prove absence of an acquire/release cycle.
+- [x] Verify actual PG/S3 branch movement, non-UTF8 names and revoked current
+  readers in both formats, plus real JWT/Runtime HTTP and cold Git. Dirty
+  connected selection: 103 passed +329 pgTAP, no skips/errors/resource gaps;
+  components/read/contract: 596 passed (earlier selections 594/595 remain separate);
+  supplementary backend2773/27 skipped/76
+  deselected. Preserve first97/1 lease failure and guarded101/1 read-only-source
+  logging fixture failure. The fixture now uses its own LOG_DIR, not writable
+  source or wider budgets. Historical API fixtures remain immutable with an
+  exact two-route/three-schema/five-query-path forward delta.
+- [ ] Complete ref mutation/API families, arbitrary historical/Scope/signed
+  readers, client first publication and bounded response-lifetime streaming.
+  Discovery is a dependency, not closure of M08/M09/M10 or any checkpoint.
+
+### Native operation discovery (M08, partial)
+
+- [x] Add a metadata-only checked lookup of the original canonical native result
+  for the current principal. Preparations without results remain pending and
+  expose no candidate. Unknown is not proof of absent remote I/O or safe retry.
+  The checked lookup performs no S3/Git work, native storage construction,
+  read/write pin, lease, entitlement admission, charge, mutation or settlement;
+  no legacy-result fallback. Its original application mount still acquired a
+  transient transport lease; the ref-discovery batch above repairs that gap.
+- [x] Expose separate Human CONTENT_READ and Project-root Runtime credential
+  routes. Preserve principal/Project binding, read-only discovery after current
+  write policy loss, revocation and post-row-lock wall-clock credential expiry.
+  Mutation replay still validates the exact original input; lookup is not replay.
+- [x] Verify populated function-only Expand/rollback/old-result compatibility,
+  service-role-only RPC ACLs, actual Auth/PostgREST, real rotated-attempt S3
+  results with S3 disabled, and real JWT/Runtime application routes in both
+  formats. Final dirty connected selection: 164 passed +329 SQL, no skipped/
+  errors/gaps/resource failures (component37/PG97/Auth6/application4/S3 20).
+  Retain 14 missing-RPC reds, malformed-status 16/1, first connected153/1 from
+  a SHA-1-only upgrade fixture, and import-order-sensitive generic schema reds.
+  One named response envelope fixes the schema identity without exemptions.
+  Clean edcdd3e3 frozen full: 1561 passed / unchanged original34 failed +329 SQL;
+  native18/component852+34/PG375/Auth138/application5/S3 173, no skips/errors or
+  resource failures. PID peak45, memory728301568 bytes. This includes 48f20dc4's
+  independent-worker case, not production durable input handoff or full acceptance.
+- [ ] Complete client/UI polling and durable producer input handoff; complete
+  remaining API families, Scope/old binding contracts and Git operation-key
+  negotiation. The Runtime test discovers a stock-Git-generated key through
+  owned SQL, not through a newly implemented public Git retry protocol.
 
 ### Git command conformance (M01/M18, partial)
 
@@ -84,6 +308,18 @@
 
 ### Legacy product-operation recovery (M14 compatibility, partial)
 
+- [x] Reproduce HTTP bulk-write discarding a supplied stale base and overwriting
+  the newer ACK. Preserve optional bases through byte/reference bulk commands,
+  including empty-base/no-op/CAS-retry and multi-scope rejection. Retain 25 red
+  cases; expanded 31 component regressions pass. Register one exact forward
+  request-schema delta; historical fixtures and omitted-base policy stay intact.
+  Components/legacy/contracts: 520 passed; actual owned services: 64+329 (PG11,
+  Auth8, application3, S3 4, component38), including real JWT bulk success/409,
+  anonymous denial, cold restart/fetch and preservation of earlier commit bytes.
+  The first 60+329 selection is rejected for missing the requested S3 test layer;
+  preserve it and the initial/miscomputed contract-delta failures. Supplementary
+  dirty backend: 2773/27 skipped/76 deselected. Native Product publication and
+  automatic starting-base capture remain unfinished; this is not M09 acceptance.
 - [x] Reproduce original C04/F12 failures without changing catalog assertions.
 - [x] Bind rename recovery to the engine's first successful snapshot, including
   directory sources, rather than a separately read live blob.
@@ -97,6 +333,58 @@
   52 deselected. Neither selection is full actual-service acceptance.
 - [ ] Resolve A04/B11/C01 catalog-versus-current-policy discrepancies without
   weakening acceptance or silently changing the existing LWW compatibility profile.
+
+### Native Product preparation and explicit ingress (M09, partial)
+
+- [x] Reproduce absent retry-stable preparation (22 PG reds) and the additional
+  four mismatched/unprepared publication reds in both object formats.
+- [x] Add empty, private intent/candidate metadata with stable server time,
+  original input digest, exact native ref-request digest and atomic result fence.
+  Current actor/lease is rechecked after waits; matching result recovery is a
+  current read without a new write lease. Add checked SDK methods without fallback.
+- [x] Verify the initial journal metadata ACL/queued-expiry/upgrade and real
+  Supabase API boundary (dirty selected 82 plus 329 SQL). Stored-actor proof is
+  distinct from end-user authentication and S3 durability.
+- [ ] Close native revision/grant/request identity through Product operations,
+  staging, commit construction, replay and ALL HTTP/automatic producers.
+  The five explicit routes are verified at clean cb8480c6: actual JWT/PG/S3/cold
+  Git, both formats, raw names, no-op/base/quota, sealed/lost-ACK and current-read
+  replay/revocation. Frozen full 1484/original34 +329 SQL; failure set unchanged,
+  not whole-issue acceptance. Keep all four integration failures (stale HTTP500,
+  creator downgrade, missing member org_id, the test's own extra read pin).
+- [x] Separate physical attempts for explicit Product requests with the original
+  input available. Checked current admission, immutable candidate/clock, old-pin
+  tombstones, active result fencing and per-invocation uncertainty survive retry.
+  Actual PG/S3 verifies expired/unacknowledged upload recovery and a real old PUT
+  completing after the new ACK; the old worker recovers that result as a reader.
+  Clean 900c2761 frozen full: 1514 passed / unchanged original34 failed +329
+  SQL, no skips/errors/resource failures. This is not acceptance closure.
+  Dirty connected115 +329 SQL includes original fixed-pin verified reuse and
+  post-pin-wait lease expiry rollback; components559 and supplementary backend
+  2773/27 skipped/76 deselected. These
+  are selections, not a new frozen full result or process/restore acceptance.
+  Preserve missing-RPC8, PG81/2 ambiguous-name and connected99/12 invalid-qualifier
+  failures; the final expected_roots name fixes the SQL without relaxing guards.
+- [x] Fence legacy Upload single/batch prestaging before native canonical I/O;
+  read fresh authority after staging lease admission and source/destination waits.
+  Metadata failure is not absence. Replace encoded-length dedup with bounded
+  physical framing/content proof, preserve valid alternate encoding, propagate
+  uncertain reads, and verify after PUT before returning a BlobRef. Raw input is
+  retained. This does not implement native Upload, grant producer authority,
+  settle old I/O or close cutover/streaming/resource gates. Final connected
+  92+329 passes with no skips/errors/gaps/resource failures (component59/PG20/
+  Auth6/application2/S3 5); PID peak26, memory432099328 bytes. Initial84+329 and
+  91+329 remain separate; the latter's 21 new unit cases were unclassified, now
+  explicitly component-marked without altering any original target. The added
+  valid padded-deflate case proves verification-budget exhaustion cannot justify
+  replacement. Components593 and supplementary backend2773/27 skipped/76
+  deselected pass. Preserve14 missing-interface reds and unit13/1 from the invalid
+  transformation-error constructor. This dirty selection is not a new frozen full
+  or native Upload acceptance.
+- [ ] Complete independent-attempt recovery across the remaining producer paths,
+  durable input handoff and independent-process/restore/resource gates. Another
+  invocation's unsettled I/O never becomes eligible merely because retry passed.
+- [ ] Complete other consumers, legacy/Scope mappings and migration before activation.
 
 ### Product object/tree interoperability (M03/M14/M16, partial)
 
@@ -191,6 +479,14 @@
   Offline: 2773 passed / 27 skipped / 76 deselected. Database policy covers all
   five task migrations after commit (its CLI compares committed HEAD, not staging).
   Corrupt foreign bundle metadata also yields zero DELETEs and a retained fence.
+- [x] Verify Product retry from a genuinely separate process after SIGKILL, real
+  30-second lease expiry and a complete signed PUT buffered outside that worker.
+  A bounded owned proxy forwards the old request to real S3 only after the new
+  ACK; old claims persist, cold bare Git fsck/content pass, read-only replay does
+  no allocation and revoked credentials deny it. Both formats; dirty selection
+  117 +329 SQL. Keep the first 115/2 failure from wrong fixture credential column
+  names. Original input is supplied by the supervisor; this is not lost-input,
+  public token authentication, multi-instance deployment or paired-restore proof.
 - [ ] Complete independent-process/multi-instance storage fault and location-cache
   recovery, long-upload renewal, paired restore and applicable resource gates;
   neither the chunk nor location-fence selections close these requirements.
@@ -206,6 +502,19 @@
   read-only grant to replay while rejecting new writes and changed requests.
   Selected actual-service regression: 54 passed plus 329 pgTAP; no skips/XFAIL.
   This is not a full clean-revision target receipt or canonical authentication.
+- [x] Add optional checked file admission alongside capacity/billing: new blob
+  limits before PUT, prior-published grandfathering, current-tree move/copy
+  multiplicity, private publisher fences and atomic rollback. Capture actor/lease
+  on pins; revalidate every new I/O claim and prohibit uploading-pin lease
+  borrowing. Checked readers/metadata discovery recheck current credentials.
+  Preserve current-reader result replay and backend-only reconciliation authority.
+  No canonical routing or native activation is implied. Selected pre-metadata
+  integration: 98 passed +329 pgTAP; metadata guard final strict native-PG:
+  47 passed; current component/storage-billing: 365 passed.
+  Retain the sealed-retry regression (unpublished incoming roots were incorrectly
+  sent through a read snapshot) and its repair: fresh verification under the
+  publication pin, never wider reader authority. Subsequent broad regression and
+  clean frozen acceptance remain separate receipts.
 - [x] Connect technical capacity to native publication/collection: explicit
   Org/Project inventory, atomic unique-object reservations/ledger, pre-PUT
   admission, verified-closure sealing, old-issuer fences and non-expiring

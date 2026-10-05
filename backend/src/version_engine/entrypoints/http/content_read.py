@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json as _json
 import re
+from contextlib import contextmanager
+from typing import Annotated
 from urllib.parse import quote
 from zipfile import ZIP_DEFLATED
 
@@ -16,11 +20,16 @@ from src.common_schemas import ApiResponse
 from src.infra.supabase.client import SupabaseClient
 from src.version_engine.bootstrap.dependencies import get_product_operation_adapter
 from src.version_engine.domain.errors import (
+    NativeObjectNotFoundError,
     ObjectNotFoundError,
     PathNotFoundError,
+    RepositoryRefNotFoundError,
+    RepositoryRefTypeError,
     VersionReadError,
 )
-from src.version_engine.entrypoints.http.content_helpers import ensure_project_access, entry_to_response
+from src.version_engine.entrypoints.http.content_helpers import (
+    display_git_path, ensure_project_access, entry_to_response, git_path_b64,
+)
 from src.version_engine.entrypoints.http.download_token import (
     DEFAULT_TTL_SECONDS,
     DownloadTokenError,
@@ -33,7 +42,7 @@ from src.version_engine.entrypoints.http.schemas import (
     StatResponse,
     TreeResponse,
 )
-from src.version_engine.admission.validation import validate_path
+from src.version_engine.admission.validation import MAX_PATH_LENGTH, validate_path
 from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
@@ -42,6 +51,63 @@ from src.platform.authorization.service import AuthorizationService
 
 read_router = APIRouter()
 _LEGACY_ROOT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _read_request_path(path: str, encoded: str | None) -> str:
+    if encoded is None:
+        return validate_path(path)
+    if path:
+        raise HTTPException(400, "Provide path or path_bytes_b64, not both")
+    # Preserve the text API's character ceiling (UTF-8 uses at most four
+    # bytes per character) while bounding decoding before allocating raw bytes.
+    if len(encoded) > ((MAX_PATH_LENGTH * 4 + 2) // 3) * 4:
+        raise HTTPException(400, "Invalid byte path")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(400, "Invalid byte path") from exc
+    decoded = raw.decode("utf-8", "surrogateescape")
+    if len(decoded) > MAX_PATH_LENGTH or b"\x00" in raw or (
+        raw and any(part in {b"", b".", b".."} for part in raw.split(b"/"))
+    ):
+        raise HTTPException(400, "Invalid byte path")
+    return decoded
+
+
+@contextmanager
+def _product_read(ops, project_id, grant, *, byte_path=False, ref_b64=None):
+    from src.version_engine.read.ref_metadata import decode_ref_name
+
+    selection = {}
+    if ref_b64 is not None:
+        try:
+            selection["selector"] = decode_ref_name(ref_b64)
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid repository ref selector") from exc
+    try:
+        with ops.open_read(project_id, grant, **selection) as read:
+            revision = read.get_read_revision(project_id)
+            if revision is None:
+                if ref_b64 is not None:
+                    raise HTTPException(400, "Ref selection requires native repository authority")
+                if byte_path:
+                    raise HTTPException(400, "Byte paths require native repository authority")
+            yield read, revision
+    except RepositoryRefNotFoundError as exc:
+        raise HTTPException(404, "Repository ref not found") from exc
+    except RepositoryRefTypeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except (HTTPException, ObjectNotFoundError, FileNotFoundError, PathNotFoundError, VersionReadError):
+        raise
+    except PermissionError as exc:
+        raise HTTPException(403, "Repository action denied") from exc
+    except Exception as exc:
+        # A grant and a pin establish provenance, not ongoing authority. SQL
+        # may deny an actor after the PDP check (including after lock waits).
+        from postgrest.exceptions import APIError
+        if isinstance(exc, APIError) and exc.message == "repository_action_denied":
+            raise HTTPException(403, "Repository action denied") from exc
+        raise HTTPException(503, "Repository read is temporarily unavailable") from exc
 
 
 def _is_marked_irrecoverable(project_id: str) -> bool:
@@ -91,8 +157,10 @@ def _has_unsupported_legacy_root(project_id: str) -> bool:
 def _raise_storage_integrity_error(
     project_id: str, path: str, exc: ObjectNotFoundError,
 ) -> None:
+    path = display_git_path(path)
     target = path or "project root"
-    if _is_marked_irrecoverable(project_id) or _has_unsupported_legacy_root(project_id):
+    native = isinstance(exc, NativeObjectNotFoundError)
+    if not native and (_is_marked_irrecoverable(project_id) or _has_unsupported_legacy_root(project_id)):
         raise HTTPException(
             status_code=410,
             detail={
@@ -109,6 +177,8 @@ def _raise_storage_integrity_error(
         detail={
             "code": "VERSION_STORAGE_INTEGRITY_ERROR",
             "message": (
+                f"Canonical repository bytes are unavailable while reading {target}."
+                if native else
                 "Version storage integrity error while reading "
                 f"{target}. Run the version object namespace migration/repair."
             ),
@@ -118,6 +188,7 @@ def _raise_storage_integrity_error(
 
 
 def _raise_directory_not_found(path: str, exc: PathNotFoundError) -> None:
+    path = display_git_path(path)
     target = path or "project root"
     raise HTTPException(
         status_code=404,
@@ -130,6 +201,7 @@ def _raise_directory_not_found(path: str, exc: PathNotFoundError) -> None:
 
 
 def _raise_version_read_error(path: str, exc: VersionReadError) -> None:
+    path = display_git_path(path)
     target = path or "project root"
     raise HTTPException(
         status_code=502,
@@ -149,25 +221,29 @@ def _raise_version_read_error(path: str, exc: VersionReadError) -> None:
 def list_dir(
     project_id: str,
     path: str = Query("", description="Directory path, empty = root directory"),
+    path_bytes_b64: Annotated[str | None, Query()] = None,
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
-    ensure_project_access(authorization, current_user, project_id)
-    clean_path = validate_path(path)
+    grant = ensure_project_access(authorization, current_user, project_id)
+    clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        entries = ops.list_dir(project_id, clean_path)
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+            entries = read.list_dir(project_id, clean_path)
+            head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     except PathNotFoundError as exc:
         _raise_directory_not_found(clean_path, exc)
     except VersionReadError as exc:
         _raise_version_read_error(clean_path, exc)
-    head_commit_id = ops.get_head_commit_id(project_id)
-
     return ApiResponse.success(data=ListDirResponse(
-        path=clean_path,
+        path=display_git_path(clean_path),
+        path_bytes_b64=git_path_b64(clean_path) if revision else None,
+        repository_revision=revision,
         entries=[entry_to_response(e) for e in entries],
         head_commit_id=head_commit_id,
     ))
@@ -180,24 +256,27 @@ def list_dir(
 )
 def read_file(
     project_id: str,
-    path: str = Query(..., description="File path"),
+    path: str = Query("", description="File path, or provide path_bytes_b64"),
+    path_bytes_b64: Annotated[str | None, Query()] = None,
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
-    ensure_project_access(authorization, current_user, project_id)
-    clean_path = validate_path(path)
+    grant = ensure_project_access(authorization, current_user, project_id)
+    clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        content = ops.read_file(project_id, clean_path)
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+            content = read.read_file(project_id, clean_path)
+            head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"File not found: {clean_path}")
+        raise HTTPException(status_code=404, detail=f"File not found: {display_git_path(clean_path)}")
 
     from src.version_engine.read.tree_reader import detect_type
     node_type = detect_type(clean_path)
-    head_commit_id = ops.get_head_commit_id(project_id)
 
     content_json = None
     content_text = None
@@ -214,7 +293,9 @@ def read_file(
         content_text = decoded_text
 
     return ApiResponse.success(data=ReadFileResponse(
-        path=clean_path,
+        path=display_git_path(clean_path),
+        path_bytes_b64=git_path_b64(clean_path) if revision else None,
+        repository_revision=revision,
         type=node_type,
         content=content_json,
         content_text=content_text,
@@ -230,45 +311,54 @@ def read_file(
 def raw_file(
     project_id: str,
     request: Request,
-    path: str = Query(..., description="File path"),
+    path: str = Query("", description="File path, or provide path_bytes_b64"),
+    path_bytes_b64: Annotated[str | None, Query()] = None,
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
-    ensure_project_access(authorization, current_user, project_id)
-    clean_path = validate_path(path)
+    grant = ensure_project_access(authorization, current_user, project_id)
+    clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        content = ops.read_file(project_id, clean_path)
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, _revision):
+            content = read.read_file(project_id, clean_path)
+            entry = read.stat(project_id, clean_path)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"File not found: {clean_path}")
-
-    try:
-        entry = ops.stat(project_id, clean_path)
-    except ObjectNotFoundError as exc:
-        _raise_storage_integrity_error(project_id, clean_path, exc)
+        raise HTTPException(status_code=404, detail=f"File not found: {display_git_path(clean_path)}")
     from src.version_engine.read.tree_reader import detect_mime
     mime = detect_mime(clean_path) if entry else "application/octet-stream"
 
     filename = clean_path.rsplit("/", 1)[-1] if "/" in clean_path else clean_path
-    return _serve_file_bytes(
+    response = _serve_file_bytes(
         request=request,
         content=content,
         media_type=mime,
         filename=filename,
         disposition="inline",
-        cache_control="private, max-age=3600",
+        cache_control="private, no-store" if _revision else "private, max-age=3600",
     )
+    if _revision is not None:
+        response.headers["X-PuppyOne-Repository-Revision"] = _json.dumps(
+            _revision, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+        )
+    return response
 
 
 def _content_disposition_inline(filename: str) -> str:
     """Build an inline Content-Disposition that supports UTF-8 names."""
-    safe_filename = filename.replace('"', "")
-    ascii_fallback = safe_filename.encode("ascii", errors="replace").decode("ascii")
-    encoded = quote(safe_filename, safe="")
-    return f'inline; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
+    return _content_disposition(filename, "inline")
+
+
+def _content_disposition(filename: str, disposition: str) -> str:
+    display = display_git_path(filename)
+    ascii_name = display.encode("ascii", errors="replace").decode("ascii")
+    fallback = "".join(c if 32 <= ord(c) < 127 and c not in {'"', "\\"} else "_" for c in ascii_name)
+    encoded = quote(display, safe="")
+    return f'{disposition}; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
 
 
 def _parse_byte_range(range_header: str, total: int) -> tuple[int, int] | None:
@@ -375,10 +465,7 @@ def _content_disposition_attachment(filename: str) -> str:
     """Build a `Content-Disposition: attachment` header value that handles
     non-ASCII filenames per RFC 5987 (so e.g. Chinese folder names download
     with the right name across browsers)."""
-    safe_filename = filename.replace('"', "")
-    ascii_fallback = safe_filename.encode("ascii", errors="replace").decode("ascii")
-    encoded = quote(safe_filename, safe="")
-    return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
+    return _content_disposition(filename, "attachment")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -680,23 +767,28 @@ _ = DEFAULT_TTL_SECONDS
 )
 def stat(
     project_id: str,
-    path: str = Query(..., description="Path"),
+    path: str = Query("", description="Path, or provide path_bytes_b64"),
+    path_bytes_b64: Annotated[str | None, Query()] = None,
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
-    ensure_project_access(authorization, current_user, project_id)
-    clean_path = validate_path(path)
-    head_commit_id = ops.get_head_commit_id(project_id)
-    scope_head_commit_id = ops.get_scope_head_commit_id_for_path(project_id, clean_path)
+    grant = ensure_project_access(authorization, current_user, project_id)
+    clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        entry = ops.stat(project_id, clean_path)
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+            head_commit_id = read.get_head_commit_id(project_id)
+            scope_head_commit_id = read.get_scope_head_commit_id_for_path(project_id, clean_path)
+            entry = read.stat(project_id, clean_path)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     if not entry:
         return ApiResponse.success(data=StatResponse(
-            path=clean_path,
+            path=display_git_path(clean_path),
+            path_bytes_b64=git_path_b64(clean_path) if revision else None,
+            repository_revision=revision,
             type="",
             name="",
             exists=False,
@@ -705,9 +797,13 @@ def stat(
         ))
 
     return ApiResponse.success(data=StatResponse(
-        path=entry.path,
+        path=display_git_path(entry.path),
+        path_bytes_b64=git_path_b64(entry.path) if revision else None,
+        repository_revision=revision,
+        git_mode=entry.git_mode,
         type=entry.type,
-        name=entry.name,
+        name=display_git_path(entry.name),
+        name_bytes_b64=git_path_b64(entry.name) if revision else None,
         content_hash=entry.content_hash,
         size_bytes=entry.size_bytes,
         mime_type=entry.mime_type,
@@ -727,26 +823,30 @@ def stat(
 def full_tree(
     project_id: str,
     path: str = Query("", description="Starting path"),
+    path_bytes_b64: Annotated[str | None, Query()] = None,
     max_depth: int = Query(-1, description="Maximum recursion depth, -1 = unlimited"),
     ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    ref_b64: Annotated[str | None, Query(max_length=1400)] = None,
 ):
-    ensure_project_access(authorization, current_user, project_id)
-    clean_path = validate_path(path)
+    grant = ensure_project_access(authorization, current_user, project_id)
+    clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        entries = ops.list_tree(project_id, clean_path, max_depth=max_depth)
+        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+            entries = read.list_tree(project_id, clean_path, max_depth=max_depth)
+            head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     except PathNotFoundError as exc:
         _raise_directory_not_found(clean_path, exc)
     except VersionReadError as exc:
         _raise_version_read_error(clean_path, exc)
-    head_commit_id = ops.get_head_commit_id(project_id)
-
     return ApiResponse.success(data=TreeResponse(
-        path=clean_path,
+        path=display_git_path(clean_path),
+        path_bytes_b64=git_path_b64(clean_path) if revision else None,
+        repository_revision=revision,
         entries=[entry_to_response(e) for e in entries],
         head_commit_id=head_commit_id,
     ))

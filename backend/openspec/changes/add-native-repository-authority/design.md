@@ -103,6 +103,17 @@ persistence or admitted native publication. The catalog's three remaining policy
 discrepancies stay failing; current LWW behavior and catalog assertions are not
 changed just to produce a green result.
 
+Bulk Product writes also preserve an optional caller-supplied `base_commit_id`
+through HTTP schemas, command normalization, byte/reference batching and the
+existing operation writer's atomic expected-head guard. Previously HTTP input
+silently discarded that field and overwrote a newer acknowledged file. Empty
+strings mean an absent base; they must not become an omitted precondition. Empty
+batches still check a supplied base, CAS retries retain it, and one base cannot
+be spread across separate Scope transactions. Omitting the precondition retains
+existing legacy policy. An exact forward delta changes only `BulkWriteRequest`;
+this compatibility fix does not implement native ref/HEAD/grant publication or
+supply a missing starting base for automatic producers.
+
 ## Release properties and remaining gates
 
 Phase: Expand only. Existing data rows rewritten: zero. Runtime: small DDL plus
@@ -452,3 +463,383 @@ This connects technical capacity to the existing native service and collector,
 not to canonical Git/API/product routing. Ref policy, public operation identity,
 consumer migration, logical billing, lifecycle retirement and large-resource
 acceptance remain required before activation.
+
+### Checked logical settlement (M15, partial; no activation)
+
+An additional empty Expand enrolls no repositories and initializes no usage.
+The optional `RepositoryBilling` connection requires admitted control and retained
+capacity. It checks the existing `storage.logical_bytes` counter and acknowledged
+PuppyPay projection, then binds measured old/new default OIDs to the actual refs
+inside the publication transaction. Tree sizes preserve path multiplicity while
+memoizing shared subtrees; blobs are not re-read or paths exponentially expanded
+when the complete physical manifest already exists. Commit history/gitlinks do
+not become current-tree charges. A named-ref-only change has zero logical delta.
+
+The SQL wrapper takes the existing Organization/metric advisory locks before
+Project locks. Current entitlement revision and wall-clock expiry, actor and
+lease are checked after billing waits as well as ref waits. Usage, ref result,
+reflog, audit and outbox roll back together. Events use ref-transaction identity,
+not commit OID, so later rewinds/HEAD changes can revisit a commit correctly.
+A private transaction-bound attestation fences older publishers after explicit
+billing enrollment; exact original-result replay still needs only current read
+access and the matching original request digest, not a new billing projection.
+No caller-provided quota limit or uninitialized-usage fallback is accepted.
+
+A red regression demonstrated that the legacy full reconciler could reset a
+native incremental counter to its stale legacy-root total. A new event fence
+rolls back that old reconciliation for enrolled Organizations. This deliberately
+fails closed for the old caller. Checked full reconciliation is described below;
+lifecycle settlement, complete file/named-ref policy and canonical authenticated
+routing remain separate gates.
+Actual S3/PG tests use synthetic entitlement rows and explicit admitted grants;
+they are not evidence of the external billing service or native public HTTP.
+
+### Complete logical reconciliation
+
+The legacy Project-list facade defaults to 100 rows and cannot be an accounting
+inventory. A forward Expand captures all Organization Projects in SQL under the
+existing Organization/metric advisory locks, with no object I/O. The service
+reads stable inventory pages of 200, measures canonical native trees under read
+pins (not commit history), and preserves legacy namespace/chunk compatibility
+for legacy or shadow authority. Current-tree DAG memoization preserves repeated
+paths without exponential expansion. Object/decoded-byte budgets include the
+native selector commit; incomplete inventories and more than one million
+Projects fail closed, never truncate.
+
+Final reconciliation takes the same locks, compares both directions of the
+captured inventory (including HEAD symref, object format and generation), checks
+all measurements and current entitlement, then delegates to the existing usage
+counter/event function. Private same-transaction authorization admits this call
+through the older-reconciler fence. Waiting past capture or entitlement expiry
+rolls everything back. Completed receipts survive measurement-row cleanup and
+replay without another charge or renewed entitlement. Cancellation cannot undo
+an already committed/unknown-ACK result. At most one unfinished inventory per
+Organization is admitted; expired/cancelled metadata is cleaned in bounded
+batches, not silently replaced by another capture. This cleanup grants no GC or
+storage-invocation quiescence authority.
+
+The application storage-reconciliation scheduler selects the checked service;
+RPC or measurement failures never fall back to the old root-only path. This is
+internal service authority, not an end-user authorization shortcut.
+
+### Checked file policy and continued admission (partial; no activation)
+
+An empty forward Expand explicitly enrolls file policy only alongside retained
+capacity and logical billing. The checked publisher binds the current
+`upload.max_single_file_bytes` projection/revision, incoming physical manifest
+and actual before/after selected HEAD to the same ref/usage transaction. Private
+transaction-bound authorization fences old publishers. New oversized blob
+allocations fail before PUT, including blobs reachable only through named refs
+or history. Previously published large blobs can remain in retained history or
+be tagged after a plan downgrade; allocations and rejected receipts alone do
+not confer grandfathered publication rights. Current-tree moves preserve per-OID
+path counts, whereas additional oversized copies are rejected. Typed DAG
+counting does not expand paths or count external gitlinks.
+
+Publication pins capture the checked actor and Project lease atomically.
+Every new storage invocation, including deduplicated uploads, rechecks current
+actor, lease and entitlement after waits. An uploading pin cannot borrow a
+retry's new lease. A verified pin can recover with a current lease, but remains
+sealed against further PUTs; billing re-verifies that pin's incoming roots,
+never inserts unpublished roots into a read snapshot. Exact committed-result
+replay still needs only current read permission and the original digest.
+
+Admitted read pins and metadata-only advertisement/`ls-refs` recheck current
+credentials after repository lock waits. Metadata discovery still does no
+object I/O and does not create read pins. Backend reconciliation uses the
+scheduler's distinct backend-only control, not a fabricated user credential or
+an exception to the end-user reader's checks. These capabilities do not select
+native authority in the canonical router or finish Scope, consumer, recovery,
+retirement and migration gates.
+
+### Initialization is not repair
+
+The legacy initializer previously treated an unsuccessful object-existence probe
+as permission to replace an acknowledged root with the intrinsic empty tree.
+The regression reproduces that loss even without a concurrent writer. The new
+forward Expand adds a service-only checked initializer; the engine has no direct
+setter or missing-RPC fallback. Existing valid roots return unchanged without any
+object probe. Missing physical bytes remain corruption/unavailability, not unborn
+metadata. Missing roots alongside accepted commits, Scope state or refs reject.
+
+First initialization locks Organization, Project and existing repository metadata,
+requires legacy SHA-1 authority and initializing/ready lifecycle, and verifies a
+current Project lease before and after the update. A publication winning the lock
+race is returned unchanged. Native authority requires its own lifecycle operation,
+never a legacy empty-tree repair. The DDL initializes no Project and performs no
+storage access. Populated rollback/retry, real SDK/Auth ACLs and the legacy main
+application profile are tested separately from native activation.
+
+### Canonical native Git source routing (synthetic enrollment only)
+
+The canonical Git router now asks the manager for fresh PG authority after the
+existing credential/locator resolution. Explicit native rows select a fresh
+Project-bound S3 backend and the mandatory admitted/capacity/billing/file-policy
+service. Missing metadata RPCs or malformed metadata reject, never downgrade.
+Absent metadata and shadow rows retain legacy routing. The legacy repository
+cache also rechecks authority and cannot masquerade as a native read source.
+This is a source implementation, not enrollment or permission to activate any
+existing repository before the outstanding lifecycle/consumer/migration gates.
+
+Native HTTP preserves Git-Protocol, request spooling, fetch audit attribution,
+Project leases and read-only/foreign/revoked credential boundaries. Health is a
+pinned physical graph diagnostic; it does not repair missing objects or describe
+unavailability as an empty repository. Native caches are disposable, so checked
+rebuild validates the graph rather than installing another persistent authority.
+Unmapped legacy locators and Scope grants cannot become full-repository native
+access. Product/Scope/automatic-writer and compatibility mapping work is still
+unfinished; these paths fail closed rather than reading a stale legacy root.
+
+Real application-process tests create JWT-authorized Projects and Git credentials,
+then explicitly install synthetic empty native authority and policy/entitlements
+as the owned test database owner. No fabricated durability receipt or runtime
+grant is used. Both formats exercise non-main HEAD, atomic branch/typed-tag push,
+file-policy rejection before oversized allocation, cold restart/protocol-v2 fetch,
+exact refs/bytes, read-only/anonymous/foreign rejection and credential revocation.
+This proves canonical authenticated Git, not external PuppyPay, native product
+Save/API, existing-data cutover or complete activation readiness.
+
+### Ongoing pin authority and maintenance inventory
+
+Canonical admission must remain current during renewal, not only pin creation.
+`renew_admitted_version_object_pin` rechecks current actor before and after the
+primitive's repository/pin lock waits. Publication pins additionally require the
+stored admitted Project lease; read pins need neither write permission nor a write
+lease. Expiry/revocation rolls back renewal. The admitted adapter never falls back
+to primitive renewal; backend-only GC/reconciliation keep their separate primitive
+capability. This adds no I/O settlement authority and does not solve long single-I/O
+heartbeat/resource bounds by itself.
+
+The frozen a8dd06c7 run exposed 18 native GC consumer regressions because the new
+legacy-facade guard also rejected maintenance callers. The scheduled GC worker now
+uses a dedicated Project-bound inventory, with no legacy current-tree/head or
+publication interface. Existing legacy history, Scope heads, view mappings, pending
+outbox/conflicts, named refs and shadow snapshots remain conservative retention
+inputs. They are not native current content. The collector requires either an
+explicit complete inventory or the old scoped-root interface; absent capability
+is not an empty repository. Metadata lookup still fails closed. Physical verification,
+quarantine, per-invocation uncertainty and destructive token rules are unchanged.
+Two actual S3/PG worker cases prove selection, preserved refs and persisted run
+records for both formats; legacy-facade reads remain rejected. Other consumers,
+lifecycle, migration and complete resource/recovery gates remain unfinished.
+
+### Native ref discovery and explicit path selection (M02/M08, partial)
+
+Human `GET /api/v1/content/{project_id}/refs` and exact Project-root Runtime
+`GET /git/{project_id}.git/refs` project the existing admitted metadata snapshot.
+They return native profile, object format, generation/ref sequence, byte-safe
+refs/HEAD, typed targets and available peel metadata. They do not construct a
+native storage service, fetch objects, pin, lease, initialize or repair anything.
+Malformed/unavailable metadata is not an empty repository or legacy fallback.
+Metadata is not a continuing read/write grant. Scope credentials cannot discover
+full-repository refs, and Human/Runtime authorization planes remain separate.
+
+The five content reads accept optional canonical base64 `ref_b64` for HEAD or a
+full ref name, not an arbitrary object ID. One admitted snapshot binds both
+content and its returned revision, even if that ref moves during the read.
+Commit/annotated-tag/tree refs support tree reads; a blob ref has no path tree.
+Missing refs return 404, unsupported tree selections or malformed selectors 400.
+Explicit selectors, including explicit HEAD, never fall back to legacy. Omitted
+selectors retain the existing profile behavior. Native raw responses carry the
+same ASCII JSON revision in `X-PuppyOne-Repository-Revision` (CORS-exposed) and
+use `private, no-store`; legacy raw cache behavior is unchanged. These remain
+buffered reads, not bounded streaming or arbitrary historical/Scope access.
+
+Actual application testing exposed a shared transport-lease dependency on BOTH
+the new refs route and the prior known-key operation-status route. A transient
+acquire/release could escape count-before/count-after assertions. Metadata routes
+are now mounted separately from leased transport routes in `src.main`; their own
+current Runtime authentication and admitted SQL reads remain mandatory. Tests
+forbid lease construction at the full application boundary, while transport and
+cache-mutating routes retain their lifecycle leases. Earlier frozen operation-
+status results do not prove this subsequently discovered property.
+
+### Selected native Product reads (M08, not Product writes or activation)
+
+`ProductOperationAdapter.open_read` validates the Project grant before fresh
+mandatory authority selection. Explicit native authority opens an admitted read
+pin and a typed, format-checked `NativeTreeReader`; absent/shadow authority retains
+the legacy adapter. Metadata/capability failures never select the legacy path.
+The native view has no publish, repair or transport-materialization capability.
+
+Authenticated content `ls`, `cat`, `raw`, `stat` and `tree` use this context for
+both bytes and base metadata. `repository_revision` reports format, generation,
+ref sequence, target ref (text when representable and base64), expected OID,
+tree OID and captured HEAD guard. This describes the actual read, not write
+permission. Scope-head aliases are not invented from legacy historical rows.
+Native entry DTOs include Git mode and lossless base64 name/path fields; display
+text is JSON-safe and is not byte identity. The five routes accept the additive
+`path_bytes_b64` alternative (not alongside a nonempty text path), with the
+existing path-length ceiling and no traversal/NUL/empty segments. Symlinks remain
+blob bytes and gitlinks remain external. The native tree walk is iterative and
+rejects its entry-budget overflow rather than returning a truncated success.
+This is not complete RAM/network/deadline or long-single-I/O acceptance.
+
+The HTTP schema change has a forward contract delta for exactly five paths and
+five response schemas, checking both prior and new digests; historical entrypoint
+fixtures and security schemes are unchanged. Actual src.main/JWT/PG/S3 cases now
+read both formats before/after cold application restart without changing refs or
+legacy roots. Enrollment/entitlements remain owner-installed synthetic facts.
+Signed inline/download streaming, historical/Scope readers, native Product
+writes, automatic producers, lifecycle and migration are still separate gates.
+
+The investigation also reproduced destructive legacy read-time healing: either
+a missing subtree or a missing blob caused `list_dir` to replace a valid root
+with an incomplete Scope-derived tree, removing healthy siblings too. That
+nonempty-root mutation is removed; component and actual S3/PG tests preserve the
+acknowledged metadata and recover by restoring only physical bytes. Authority
+errors in legacy Project/Scope reads now propagate as unavailable rather than
+empty roots/heads or missing paths. The older empty-root Scope compatibility
+path is unchanged and is not claimed as native read or repair authority.
+
+### Native Product preparation and explicit write ingress (M09, partial)
+
+A Product request needs a caller-stable UUID and a digest of its complete
+normalized intent, including its genuine starting base, selected ref, expected
+OID and captured HEAD guard. Capturing a newer head during a retry is not a
+substitute. `version_product_operations` reserves a stable server creation time
+and immutable candidate ref request under `(Project, actor, request UUID)`.
+This is metadata only: it neither saves file bytes nor publishes a version.
+The result authority remains `version_ref_transactions`, not a second journal
+result or a legacy root/history setter.
+
+The empty Expand exposes only checked read/begin/prepare RPCs to service_role. They
+lock Org/Project, revalidate current actor and lease after waits, and require
+active native format/generation for new work. Existing result recovery requires
+current read authority and the original input digest, not a write lease or new
+quota/object allocation. The prepared request hash uses the exact existing ref
+transaction digest. A ref-result insertion fence atomically rejects an
+unprepared or mismatched request before any ref/audit/outbox/usage ACK can escape.
+An unrelated earlier ref transaction cannot be claimed retroactively. Direct
+journal DML and helper execution are denied to application roles.
+
+There is no Project cascade on this cleanup identity. A pending journal row is
+not an acknowledged root, read grant, grandfathering proof or GC/I/O settlement.
+The journal never expires uncertainty or releases another invocation's claim.
+`NativeOperationWriter` constructs Product commits directly from one admitted
+starting snapshot, with private disk-backed draft objects and the journal's
+stable clock. It does not invoke Git or materialize transport. Both hash formats
+and literal byte names/modes use the existing tree primitives. Product edits
+select a branch or detached HEAD; tag/custom-ref management remains the native
+Git/ref interface rather than silently converting a typed ref into a commit. Publication still
+uses RefTransactionService and its current capacity, file, logical billing and
+physical closure checks. Same-tree operations submit check-only preconditions;
+changing HEAD to another branch invalidates the captured selector even if its
+OID is unchanged. Prepared, still-valid verified receipts resume without another
+splice/PUT; exact acknowledged responses are recovered before a new lease.
+
+The five Product write routes accept an optional `native` envelope containing a
+caller UUID, versioned normalized input (`input_version=1`), captured
+`repository_revision` and lossless byte-path alternatives. Omitted HTTP fields
+are normalized by the frozen v1 command contract, not future schema defaults.
+Absence preserves the legacy path, not a guessed native base. Native requests
+never select a legacy facade. Only already explicitly enrolled repositories can
+use this path; route availability is not activation/cutover authority. The wire
+change is an exact five-schema delta plus the new envelope schema; paths and
+security contracts are unchanged. Copy/touch normalization is shared code, not
+an advertised completed HTTP/producer integration.
+
+Candidate metadata includes the tree/commit identity and ordered byte-path
+changes; a matching changed-ref outbox event includes that immutable metadata.
+It is not a second publication authority or a completed derived-event consumer.
+The next recovery batch separates physical attempt pins from this immutable
+logical candidate. Its private attempt inventory has no Project/pin/lease cascade;
+only the currently selected attempt digest can publish. A never-started original
+pin is tombstoned too, so a delayed old worker cannot create it after rotation.
+Uploading pins cannot borrow another invocation's lease; live verified receipts
+(including never-retired original fixed native pins) may rebind for verification/
+ref publication, never for PUT. Another live lease
+reports busy. Once a prior lease is unavailable, a fresh attempt can proceed
+without treating expiry, worker death or retry as remote-I/O quiescence: old claims
+are untouched and continue fencing GC. The same lease can also start a distinct
+invocation, with a distinct pin rather than reusing its uncertain physical work.
+A late old worker may recover a different attempt's committed result through
+current read admission; it cannot publish with its retired digest or settle that
+other invocation's claims. Original clock, input and candidate bytes remain fixed.
+Selected actual PG/S3/application verification covers these transitions,
+including a late old PUT after the new ACK. This does not close independent-
+process/restore/resource acceptance or producer input handoff. Automatic producers, legacy/Scope mappings, rollback/conflict
+submission, other consumers and compatibility migration remain unfinished.
+Native activation stays fenced.
+
+The subsequent process fault harness uses distinct OS processes, SIGKILL and real
+lease expiry. An owned loopback proxy keeps one complete signed PUT alive outside
+the killed process, then forwards it to actual S3 after a new process's ACK. No
+endpoint, global proxy or runtime budget changes are involved. Original input is
+supplied by the test supervisor and the RuntimeGrant is synthetic; this proves a
+controlled process/network boundary, not production input handoff, end-user token
+authentication, arbitrary multi-instance failures or paired restore. The old I/O
+claim remains even after the proxy observes completion; no automatic settlement
+is inferred from a successful retry.
+
+### Native operation discovery (M08)
+
+`GET /api/v1/content/{project_id}/operations/{request_key}` uses the current Human
+`CONTENT_READ` grant. `GET /git/{project_id}.git/operations/{request_key}` uses the
+exact Project-root Runtime credential and existing Git pause/target admission.
+Neither route accepts the other authorization plane or a caller-selected actor.
+One metadata-only, service-role RPC locks and rechecks current read authority,
+including wall-clock credential expiry after preparation/result row waits.
+Canonical results come only from `version_ref_transactions`; Product preparation
+and physical attempts validate original digest binding, never replace that ledger.
+
+Lookup does not construct a native storage service, open objects/read pins,
+acquire write leases, charge usage, settle I/O or activate authority. Historical
+results remain discoverable when current writes are fenced or entitlement/file
+admission is unavailable. `pending` means preparation without a canonical result,
+not an active-worker guarantee or permission to read a candidate. Unknown is not
+proof of absent remote I/O or permission to allocate a new operation. Returned
+input/ref-request digests are provenance: mutation retry still requires the exact
+original input. Committed Product metadata is separate from the canonical result.
+
+This API is for known operation keys. The Runtime application test discovers a
+stock-Git-generated key through owned SQL; it does not demonstrate request-key
+negotiation or recovery of an unknown key by stock Git. Producer input handoff,
+Scope operations, UI polling/recovery and the remaining API families stay gated.
+
+### Contracts required before migrating remaining producers (M05/M09/M16)
+
+The explicit native v1 envelope is not an automatic legacy adapter. In particular:
+
+- Persist a producer's identity, complete immutable input/artifact references,
+  original base and destination before delayed work. A raw object OID, stored
+  `who`, cached grant or old lease is not staging/read/write authority.
+- Preserve omitted base versus explicit empty base and the existing legacy
+  conflict policy. A legacy reevaluation is not permission to change the base or
+  immutable candidate of an outstanding explicit native v1 request. Its logical
+  intent/evaluation/result binding must be specified before wiring it to refs.
+- Establish old Project/Scope/credential bindings and selected-ref semantics
+  before cutover. An old OID-only request cannot disambiguate a same-OID HEAD
+  switch by guessing current HEAD; choose an explicit compatibility contract.
+- Scope credentials must never be converted into full-repository grants. View
+  reconstruction, bounded tree changes, original submitted objects/history and
+  canonical publication require a checked, atomic compatibility path.
+- Human producers use canonical named Project actions. Runtime/automatic
+  producers must revalidate their current credential or existing binding/job
+  authority, lifecycle and pause/drain state; a historical creator ID is not an
+  unconditional service permission.
+- Derived view/event metadata and artifact staging are not new version/result
+  authorities. Missing bytes or mappings fail closed, not into empty roots.
+- Lifecycle cleanup must retain format/namespace/claim provenance after deletion;
+  the present retained inventory is not yet a completed deletion/settlement path.
+
+These prerequisites apply across uploads, imports, synchronize, MCP, content
+Tables, seed/templates and Workspace, not just the five explicit HTTP routes.
+
+The existing Upload prestager is specifically a **legacy SHA-1** path. It must
+select fresh authority after acquiring its staging lease and after source and
+destination I/O; native authority rejects before canonical staging. A missing
+metadata RPC is not legacy absence. This prevents the current single/batch
+finalizers from bypassing native admission before their later writer rejects;
+it does not enable native Upload or constitute an atomic cutover protocol.
+Migration must still drain/fence every legacy producer and uncertain I/O.
+
+Legacy deduplication verifies fresh, bounded-decoded framing/body bytes against
+the input SHA-256, not object existence or encoded length. Alternate valid zlib
+encodings remain reusable; only explicit absence or proven invalid bytes permit
+replacement by the original input. Transport/permission failures propagate.
+After PUT the same physical verification is mandatory before returning a
+BlobRef. Raw input is retained; no refs/results/policies or native inventories
+are created by this helper. The encoder still retains the compressed object in
+memory, so this work does not close streaming, native producer handoff, current
+producer authorization, or long-I/O/resource acceptance.

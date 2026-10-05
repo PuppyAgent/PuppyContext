@@ -621,8 +621,23 @@ def test_access_point_auth_maps_to_repo_facade_not_physical_repo() -> None:
     assert facade.read_only is False
 
 
+@pytest.fixture
+def legacy_upload_admission():
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    @asynccontextmanager
+    async def lease(_project, _channel):
+        yield
+
+    return {
+        "repo_manager": SimpleNamespace(repository_metadata=lambda _project: None),
+        "write_lease_factory": lease,
+    }
+
+
 @pytest.mark.asyncio
-async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
+async def test_upload_staging_writes_git_loose_blob_bytes(legacy_upload_admission) -> None:
     raw = b"raw upload bytes"
     source_key = "uploads/file.bin"
 
@@ -640,9 +655,15 @@ async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
             self.uploads: dict[str, bytes] = {}
 
         async def download_file_stream(self, key: str, chunk_size: int):
-            assert key == source_key
-            yield raw[:4]
-            yield raw[4:]
+            from src.infra.s3.exceptions import S3FileNotFoundError
+
+            if key == source_key:
+                yield raw[:4]
+                yield raw[4:]
+            elif key in self.uploads:
+                yield self.uploads[key]
+            else:
+                raise S3FileNotFoundError(key)
 
         async def object_exists(self, key: str) -> bool:
             return key in self.uploads
@@ -652,7 +673,7 @@ async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
             self.uploads[key] = content
 
     s3 = _FakeS3()
-    ref = await stage_blob_from_s3(s3, project_id="project-1", src_key=source_key)
+    ref = await stage_blob_from_s3(s3, project_id="project-1", src_key=source_key, **legacy_upload_admission)
 
     expected_hash = hash_object("blob", raw)
     expected_key = f"version/project-1/objects/{expected_hash[:2]}/{expected_hash[2:]}"
@@ -663,11 +684,11 @@ async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
+async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key(legacy_upload_admission) -> None:
     """Regression: a pre-existing **raw-bytes** entry at the version object
     key (left behind by the historic ``copy_object``-based finalize path
     described in ``infra/s3/service.py::copy_object``) must be detected
-    via a size mismatch and overwritten with the proper Git loose-object
+    by decoding and hashing, then overwritten with the proper Git loose-object
     bytes — otherwise the subsequent ``zlib.decompress`` on read blows
     up with ``invalid git loose object … incorrect header check`` and
     bulk push fails for the whole batch.
@@ -698,8 +719,12 @@ async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
             self.uploads: dict[str, bytes] = {dst_key: raw}
 
         async def download_file_stream(self, key, chunk_size):
-            assert key == source_key
-            yield raw
+            if key == source_key:
+                yield raw
+            elif key in self.uploads:
+                yield self.uploads[key]
+            else:
+                raise S3FileNotFoundError(key)
 
         async def object_exists(self, key):
             return key in self.uploads
@@ -722,11 +747,11 @@ async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
             self.uploads[key] = content
 
     s3 = _FakeS3()
-    ref = await stage_blob_from_s3(s3, project_id="project-2", src_key=source_key)
+    ref = await stage_blob_from_s3(s3, project_id="project-2", src_key=source_key, **legacy_upload_admission)
 
     # The legacy raw bytes happened to be exactly len(raw) — different
     # from len(loose_bytes) since zlib framing changes the size. The
-    # staging path must have detected the mismatch and overwritten.
+    # staging path must have detected invalid framing/content and overwritten.
     assert ref.hash == blob_hash
     assert s3.uploads[dst_key] == loose_bytes
     assert decode_object(s3.uploads[dst_key]) == ("blob", raw)
