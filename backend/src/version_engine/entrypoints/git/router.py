@@ -45,10 +45,12 @@ from src.version_engine.entrypoints.git.auth import (
     resolve_git_access_point as _resolve_git_access_point,
 )
 from src.version_engine.entrypoints.git.native import select_native_git_endpoint
+from src.version_engine.entrypoints.git.operations import operations_router
 from src.version_engine.entrypoints.http.access_point import resolve_access_point
 from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
 
 router = APIRouter(prefix="/git")
+router.include_router(operations_router)
 
 
 async def resolve_git_access_point(access_key: str, request: Request) -> tuple[str, dict]:

@@ -741,6 +741,31 @@ authentication, arbitrary multi-instance failures or paired restore. The old I/O
 claim remains even after the proxy observes completion; no automatic settlement
 is inferred from a successful retry.
 
+### Native operation discovery (M08)
+
+`GET /api/v1/content/{project_id}/operations/{request_key}` uses the current Human
+`CONTENT_READ` grant. `GET /git/{project_id}.git/operations/{request_key}` uses the
+exact Project-root Runtime credential and existing Git pause/target admission.
+Neither route accepts the other authorization plane or a caller-selected actor.
+One metadata-only, service-role RPC locks and rechecks current read authority,
+including wall-clock credential expiry after preparation/result row waits.
+Canonical results come only from `version_ref_transactions`; Product preparation
+and physical attempts validate original digest binding, never replace that ledger.
+
+Lookup does not construct a native storage service, open objects/read pins,
+acquire write leases, charge usage, settle I/O or activate authority. Historical
+results remain discoverable when current writes are fenced or entitlement/file
+admission is unavailable. `pending` means preparation without a canonical result,
+not an active-worker guarantee or permission to read a candidate. Unknown is not
+proof of absent remote I/O or permission to allocate a new operation. Returned
+input/ref-request digests are provenance: mutation retry still requires the exact
+original input. Committed Product metadata is separate from the canonical result.
+
+This API is for known operation keys. The Runtime application test discovers a
+stock-Git-generated key through owned SQL; it does not demonstrate request-key
+negotiation or recovery of an unknown key by stock Git. Producer input handoff,
+Scope operations, UI polling/recovery and the remaining API families stay gated.
+
 ### Contracts required before migrating remaining producers (M05/M09/M16)
 
 The explicit native v1 envelope is not an automatic legacy adapter. In particular:

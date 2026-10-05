@@ -80,6 +80,13 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
     for name, digest in product["added_schemas"].items():
         assert name not in expected["contract"]["schemas"]
         expected["contract"]["schemas"][name] = digest
+    status = json.loads(Path(__file__).with_name("native_operation_status_contract_delta.json").read_text())
+    assert set(status["paths"]) == {"/api/v1/content/{project_id}/operations/{request_key}",
+                                    "/git/{project_id}.git/operations/{request_key}"}
+    assert set(status["schemas"]) == {"NativeOperationStatusResponse", "NativeOperationStatusEnvelope"}
+    for category in ("paths", "schemas"):
+        assert not expected["contract"][category].keys() & status[category].keys()
+        expected["contract"][category].update(status[category])
     assert contract(app.openapi()) == expected["contract"]
 
 

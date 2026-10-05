@@ -21,8 +21,28 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from src.common_schemas import ApiResponse
+
+
+class NativeOperationStatusResponse(BaseModel):
+    project_id: str
+    request_key: UUID
+    status: Literal["pending", "committed", "rejected"]
+    # Product digest includes the frozen input version, original base and message.
+    # Neither digest is a grant or proof that a different input was acknowledged.
+    input_sha256: str | None
+    ref_request_sha256: str | None
+    result: dict[str, Any] | None
+    product: dict[str, Any] | None
+
+
+class NativeOperationStatusEnvelope(ApiResponse[NativeOperationStatusResponse]):
+    """One named wire schema, independent of router import/generic-cache order."""
+
 
 # Path syntactic validation lives in the L4 adapter
 # (``ProductOperationAdapter.*`` → ``validate_path``). Per the

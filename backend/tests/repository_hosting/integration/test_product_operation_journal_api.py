@@ -29,7 +29,9 @@ def test_product_operation_journal_real_sdk_replay_and_revocation(api, journal_a
         sdk = create_client(str(api.client.base_url), api.headers("service_role")["apikey"],
                             ClientOptions(httpx_client=http, auto_refresh_token=False, persist_session=False))
         control = AdmittedRefAuthorityRepository(sdk, lease_provider=lambda _: lease)
+        assert control.operation_status(a.project, a.actor, key) is None
         first = control.begin_product_operation(a.project, a.actor, key, DIGEST, 1)
+        assert control.operation_status(a.project, a.actor, key)["status"] == "pending"
         prepared = control.prepare_product_operation(a.project, a.actor, key, DIGEST, proposal())
         assert first["created_at"] == prepared["created_at"]
         assert prepared["proposal"] == proposal() and prepared["result"] is None
@@ -39,11 +41,14 @@ def test_product_operation_journal_real_sdk_replay_and_revocation(api, journal_a
         lease.is_active = False
         assert control.begin_product_operation(a.project, a.actor, key, DIGEST, 1)["result"] == result
         assert control.read_product_operation(a.project, a.actor, key, DIGEST, 1)["result"] == result
+        assert control.operation_status(a.project, a.actor, key)["result"] == result
         with pytest.raises(APIError, match="request_key_reused"):
             control.begin_product_operation(a.project, a.actor, key, "2"*64, 1)
         a.pg.sql(f"DELETE FROM public.org_members WHERE org_id={literal(a.org)} AND user_id={literal(a.user)}")
         with pytest.raises(APIError, match="repository_action_denied"):
             control.begin_product_operation(a.project, a.actor, key, DIGEST, 1)
+        with pytest.raises(APIError, match="repository_action_denied"):
+            control.operation_status(a.project, a.actor, key)
         assert a.authority.count("version_ref_transactions") == 1
 
 
@@ -60,6 +65,10 @@ def test_product_operation_journal_not_a_client_data_api(api, journal_actor, rol
     read_parameters = {name: value for name, value in parameters.items() if name not in {"p_lease_id", "p_holder_id"}}
     response = api.request("POST", "/rest/v1/rpc/read_admitted_version_product_operation",
                            role=role, json={**read_parameters, "p_generation": 1})
+    assert response.status_code in (401, 403, 404)
+    assert response.json()["code"] in ("42501", "PGRST202")
+    response = api.request("POST", "/rest/v1/rpc/get_admitted_version_operation_status", role=role,
+                           json={name: parameters[name] for name in ("p_project_id", "p_actor", "p_request_key")})
     assert response.status_code in (401, 403, 404)
     assert response.json()["code"] in ("42501", "PGRST202")
     response = api.request("GET", "/rest/v1/version_product_operations?select=*", role=role)

@@ -91,6 +91,10 @@ async def test_native_product_new_attempt_preserves_old_unknown_io(publication, 
     old_claims = pending(pg, auth.project)
     assert len(old_claims) == 1 and value(billing) == 0
     old_pin = old_claims[0]['pin_id']
+    status = await asyncio.to_thread(manager.get_native_operation_status, auth.project, grant, request['request_key'])
+    assert status['status'] == 'pending' and status['product'] is None and status['result'] is None
+    assert status['input_sha256'] == original['input_sha256']
+    assert pending(pg, auth.project) == old_claims
     if expire_pin:
         pg.sql(f"UPDATE public.version_object_pins SET expires_at=clock_timestamp()-interval '1 second' WHERE id={literal(old_pin)}")
     # Fresh service/control/backend, genuine original base and candidate clock.
@@ -101,6 +105,18 @@ async def test_native_product_new_attempt_preserves_old_unknown_io(publication, 
     assert result['product']['commit_oid'] == original['proposal']['product_result']['commit_oid']
     assert prepared(pg, auth.project) == original
     assert pending(pg, auth.project) == old_claims  # Another worker must not settle it.
+    assert value(billing) == 4 and events(billing) == 1
+    # The winning physical attempt differs from the original preparation. Query
+    # its canonical result with ALL S3 I/O unavailable, without original bytes.
+    def forbidden_s3(*_args, **_kwargs):
+        raise AssertionError('operation lookup must not access S3')
+    with monkeypatch.context() as patch:
+        patch.setattr(s3.client._endpoint.http_session, 'send', forbidden_s3)
+        patch.setattr(strict._endpoint.http_session, 'send', forbidden_s3)
+        status = await asyncio.to_thread(manager.get_native_operation_status, auth.project, grant, request['request_key'])
+    assert status['result'] == {k: v for k, v in result.items() if k != 'product'}
+    assert status['product'] == result['product'] and status['input_sha256'] == original['input_sha256']
+    assert prepared(pg, auth.project) == original and pending(pg, auth.project) == old_claims
     assert value(billing) == 4 and events(billing) == 1
     assert await asyncio.to_thread(read_bytes, resumed, grant) == b'data'
     assert pg.value(f"SELECT state FROM public.version_object_pins WHERE id={literal(old_pin)}") == 'released'

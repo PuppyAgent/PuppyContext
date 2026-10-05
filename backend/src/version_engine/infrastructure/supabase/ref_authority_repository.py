@@ -110,6 +110,12 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
         return self.call("renew_admitted_version_object_pin", p_project_id=project_id,
                          p_actor=actor, p_pin_id=pin)
 
+    def operation_status(self, project_id: str, actor: str, request_key: str):
+        # No lease/pin/entitlement or original body is needed to discover the
+        # original result. This is not permission to replay a changed input.
+        return self.call("get_admitted_version_operation_status", p_project_id=project_id,
+                         p_actor=actor, p_request_key=request_key)
+
     def read_product_operation(self, project_id: str, actor: str, request_key: str,
                                input_sha256: str, generation: int):
         return self.call("read_admitted_version_product_operation", p_project_id=project_id,

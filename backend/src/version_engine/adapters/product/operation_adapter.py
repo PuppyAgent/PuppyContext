@@ -135,6 +135,9 @@ class ProductOperationAdapter:
         except ObjectNotFoundError as exc:
             raise NativeObjectNotFoundError("Canonical repository object unavailable") from exc
 
+    async def native_operation_status(self, project_id: str, grant, request_key: str):
+        return await asyncio.to_thread(self._repos.get_native_operation_status, project_id, grant, request_key)
+
     async def apply_native_command(self, project_id: str, grant, *, request_key: str,
                                    base: dict, input_sha256: str, splice, message: str = "",
                                    write_lease_factory=None):

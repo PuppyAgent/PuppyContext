@@ -119,6 +119,20 @@ class VersionRepoManager:
             raise RuntimeError("invalid repository authority metadata")
         return metadata
 
+    def get_native_operation_status(self, project_id: str, grant, request_key: str):
+        """Historical native result discovery, independent of current write policy.
+
+        Only the admitted SQL lookup is used: no cached facade, S3 backend,
+        repository enrollment, snapshot/read pin or legacy result fallback.
+        """
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            AdmittedRefAuthorityRepository,
+        )
+        from src.version_engine.read.operation_status import operation_status
+
+        control = AdmittedRefAuthorityRepository(self._supabase.client, lease_provider=lambda _: None)
+        return operation_status(control, project_id, grant, request_key)
+
     def get_native_service(self, project_id: str):
         """Select an explicitly native repository with mandatory checked admission.
 

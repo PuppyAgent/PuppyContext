@@ -5,6 +5,7 @@ is neither migration acceptance nor external PuppyPay/product-write acceptance.
 Selected Product read APIs use real JWT admission and the same native refs.
 """
 import base64
+import json
 import secrets
 import uuid
 from types import SimpleNamespace
@@ -142,6 +143,33 @@ def test_docker_native_git_canonical_auth_refs_policy_cold_restart(application, 
     assert app.client.get('/git/foreign.git/info/refs', params={'service': 'git-upload-pack'}, headers=headers).status_code == 401
     assert app.client.get(f'/git/{project}.git/info/refs', params={'service': 'git-upload-pack'}).status_code == 401
     assert pg.value(f"SELECT value FROM public.organization_usage_counters WHERE org_id={literal(org)} AND metric='storage.logical_bytes'") == '6'
+    # The supervisor discovers this stock-Git-generated key from owned SQL.
+    # This proves authenticated lookup of a known key, not Git wire negotiation
+    # or recovery of an unknown key after a client loses the entire response.
+    actor = 'runtime:'+issued['id']
+    recorded = json.loads(pg.value("SELECT to_jsonb(t) FROM public.version_ref_transactions t "
+                                  f"WHERE project_id={literal(project)} AND actor={literal(actor)} ORDER BY created_at,id LIMIT 1"))
+    status_path = f'/git/{project}.git/operations/{recorded["request_key"]}'
+    pg.sql(f"UPDATE public.access_surface_credentials SET grant_mode='r' WHERE id={literal(issued['id'])};"
+           f"UPDATE public.version_repository_file_policies SET initialized=false WHERE project_id={literal(project)};"
+           f"DELETE FROM public.organization_entitlements WHERE org_id={literal(org)}")
+    def inventory():
+        return [pg.value(f"SELECT count(*) FROM public.{table} WHERE project_id={literal(project)}") for table in (
+            'project_write_leases', 'version_object_pins', 'version_ref_transactions', 'version_ref_events',
+            'version_repository_capacity_inflight', 'version_product_operations')]
+    before_lookup = inventory()
+    response = app.client.get(status_path, headers=headers)
+    assert response.status_code == 200 and response.headers['cache-control'] == 'no-store'
+    status = response.json()['data']
+    assert status['result'] == recorded['result'] and status['ref_request_sha256'] == recorded['request_sha256']
+    assert status['input_sha256'] is None and status['product'] is None and status['status'] == 'committed'
+    assert app.client.get(status_path).status_code == 401
+    assert app.client.get(status_path, headers=read_headers).status_code == 404  # Different principal.
+    assert app.request('GET', status_path, expected=401).status_code == 401  # Human JWT is not Runtime authority.
+    assert app.client.get(f'/api/v1/content/{project}/operations/{recorded["request_key"]}', headers=headers).status_code == 401
+    assert app.client.get('/git/foreign.git/operations/'+recorded['request_key'], headers=headers).status_code == 401
+    assert inventory() == before_lookup
     app.api('DELETE', f'/projects/{project}/git-credentials/{issued["id"]}')
+    assert app.client.get(status_path, headers=headers).status_code == 401
     assert cold.run('ls-remote', remote, check=False).returncode != 0
     assert pg.value(f"SELECT target_oid FROM public.version_repository_refs WHERE project_id={literal(project)} AND name=decode({literal(b'refs/heads/trunk'.hex())},'hex')") == first

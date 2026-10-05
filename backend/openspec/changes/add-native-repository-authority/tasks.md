@@ -25,7 +25,7 @@ Consumer dependency map (all rows must close before cutover):
 
 | Consumer family | Shared boundary / prerequisite | Remaining acceptance |
 | --- | --- | --- |
-| `content_write` Product routes | Versioned normalized intent → native writer → ref transaction | Finish actual JWT/cold/replay checkpoint; preserve old omitted-base semantics via explicit old-entrypoint mapping, never guessed HEAD |
+| `content_write` Product routes | Versioned normalized intent → native writer → ref transaction | Five explicit routes have actual JWT/cold/replay evidence; remaining producers and old omitted-base semantics require explicit old-entrypoint mapping, never guessed HEAD |
 | `access_point_fs`, `internal/mcp_runtime`, content tables | Scope/view grant and stable old binding | No widening into full repository grants; base/result/audit compatibility |
 | Upload jobs/handlers, imports runner/database, synchronize write port | Persist request/base/actor before delayed work; staged-content identity | Independent attempts, current admission, pause/drain, no orphan-as-published proof |
 | Project seed/templates and template registry | Initializing lifecycle, explicit authority/profile | No automatic enrollment or quota initialization; interrupted initialization recovery |
@@ -227,6 +227,30 @@ Consumer dependency map (all rows must close before cutover):
 - [ ] Complete native Product writes, actual starting-base/target propagation,
   automatic producers, lifecycle, recovery and migration before activation.
 
+### Native operation discovery (M08, partial)
+
+- [x] Add a metadata-only checked lookup of the original canonical native result
+  for the current principal. Preparations without results remain pending and
+  expose no candidate. Unknown is not proof of absent remote I/O or safe retry.
+  No S3/Git work, native storage service, read/write pin, lease, entitlement
+  admission, charge, mutation or settlement occurs; no legacy-result fallback.
+- [x] Expose separate Human CONTENT_READ and Project-root Runtime credential
+  routes. Preserve principal/Project binding, read-only discovery after current
+  write policy loss, revocation and post-row-lock wall-clock credential expiry.
+  Mutation replay still validates the exact original input; lookup is not replay.
+- [x] Verify populated function-only Expand/rollback/old-result compatibility,
+  service-role-only RPC ACLs, actual Auth/PostgREST, real rotated-attempt S3
+  results with S3 disabled, and real JWT/Runtime application routes in both
+  formats. Final dirty connected selection: 164 passed +329 SQL, no skipped/
+  errors/gaps/resource failures (component37/PG97/Auth6/application4/S3 20).
+  Retain 14 missing-RPC reds, malformed-status 16/1, first connected153/1 from
+  a SHA-1-only upgrade fixture, and import-order-sensitive generic schema reds.
+  One named response envelope fixes the schema identity without exemptions.
+- [ ] Complete client/UI polling and durable producer input handoff; complete
+  remaining API families, Scope/old binding contracts and Git operation-key
+  negotiation. The Runtime test discovers a stock-Git-generated key through
+  owned SQL, not through a newly implemented public Git retry protocol.
+
 ### Git command conformance (M01/M18, partial)
 
 - [x] Add 78 native-bare-versus-production-HTTP recipes for history generation,
@@ -301,6 +325,8 @@ Consumer dependency map (all rows must close before cutover):
   tombstones, active result fencing and per-invocation uncertainty survive retry.
   Actual PG/S3 verifies expired/unacknowledged upload recovery and a real old PUT
   completing after the new ACK; the old worker recovers that result as a reader.
+  Clean 900c2761 frozen full: 1514 passed / unchanged original34 failed +329
+  SQL, no skips/errors/resource failures. This is not acceptance closure.
   Dirty connected115 +329 SQL includes original fixed-pin verified reuse and
   post-pin-wait lease expiry rollback; components559 and supplementary backend
   2773/27 skipped/76 deselected. These

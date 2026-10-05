@@ -28,6 +28,20 @@ Publication SHALL bind each operation key to the repository, admitted actor and 
 - **THEN** it receives the original result and no duplicate reflog, audit or outbox records are created
 - **AND** reuse of the key with a different request is rejected
 
+#### Scenario: Metadata-only operation discovery
+- **WHEN** a current reader queries its own native operation key without its original body
+- **THEN** the service returns the canonical committed/rejected result and original request digests, or marks a preparation without a result as pending
+- **AND** unknown means no recorded preparation/result, not proof that remote I/O is absent or a new operation is safe
+- **AND** lookup performs no object I/O, allocation, lease acquisition, publication, settlement or charge and rechecks current authority after lock waits
+- **AND** pending metadata exposes no unpublished candidate and gives no object-read authority
+- **AND** discovery does not replace exact-input validation when retrying a mutation
+
+#### Scenario: Principal-bound result discovery
+- **WHEN** a Human JWT or a Project-root Git credential queries a known native operation key
+- **THEN** its own authorization plane admits the current reader and queries only that exact principal's operation
+- **AND** another credential, a foreign locator or a revoked reader cannot borrow the original result identity
+- **AND** the status routes do not negotiate new Git request IDs or confer full-repository authority on a Scope credential
+
 ### Requirement: Fail-closed publication prerequisite
 A new direct target SHALL require a repository-, object-format-, generation- and GC-epoch-bound unexpired durable closure receipt. Only the trusted backend SHALL invoke publication; application roles SHALL NOT directly mutate canonical refs or enable repository authority.
 

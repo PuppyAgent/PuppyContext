@@ -111,6 +111,22 @@ def test_docker_native_product_commands_cold_git_and_read_only_replay(applicatio
         return [pg.value(f"SELECT count(*) FROM public.{table} WHERE project_id={literal(project)}") for table in (
             "project_write_leases", "version_object_pins", "version_ref_transactions", "version_ref_events")]
     before = inventory()
+    status_path = prefix+'/operations/'+original['native']['request_key']
+    response = app.request('GET', '/api/v1'+status_path)
+    assert response.headers['cache-control'] == 'no-store'
+    status = response.json()['data']
+    transaction = first['repository_transaction']
+    assert status['result'] == {k: v for k, v in transaction.items() if k != 'product'}
+    assert status['product'] == transaction['product'] and status['status'] == 'committed'
+    assert len(status['input_sha256']) == len(status['ref_request_sha256']) == 64
+    app.request('GET', '/api/v1'+status_path, token=False, expected=401)
+    app.request('GET', '/api/v1'+prefix+'/operations/'+str(uuid.uuid4()), expected=404)
+    app.auth = owner_auth
+    try:
+        app.request('GET', '/api/v1'+status_path, expected=404)  # Same Project, different actor.
+    finally:
+        app.auth = editor_auth
+    assert inventory() == before
     assert app.api("POST", prefix+"/write", json=original) == first
     assert inventory() == before
     modified = {**original, "content": "different input"}
@@ -123,3 +139,4 @@ def test_docker_native_product_commands_cold_git_and_read_only_replay(applicatio
     assert revision() == final_revision
     pg.sql(f"DELETE FROM public.org_members WHERE org_id={literal(org)} AND user_id={literal(editor)}")
     app.request("POST", "/api/v1"+prefix+"/write", json=original, expected=404)
+    app.request('GET', '/api/v1'+status_path, expected=404)
