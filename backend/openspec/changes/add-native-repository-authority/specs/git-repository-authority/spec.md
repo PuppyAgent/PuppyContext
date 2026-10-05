@@ -287,10 +287,10 @@ HEAD symref and target OID. Same-tree operations SHALL still check their base.
 - **AND** JSON display text does not replace the separate lossless identity
 
 ### Requirement: Native Product intent preparation is retry stable
-Native Product operations SHALL bind a caller-stable request identity to the complete normalized input and genuine starting revision. Server-generated commit identity inputs and the prepared ref request SHALL remain stable across retries. Prepared metadata SHALL NOT constitute publication, read authority, acknowledged object retention or settlement of uncertain I/O. Canonical results SHALL remain the atomic native ref transaction results.
+Native Product operations SHALL bind a caller-stable request identity to the complete normalized input and genuine starting revision. Server-generated commit identity inputs and the original prepared candidate SHALL remain immutable across retries. Each admitted physical attempt MAY derive a different receipt-bound ref-request digest without changing the candidate, ref edits or message. Prepared metadata SHALL NOT constitute publication, read authority, acknowledged object retention or settlement of uncertain I/O. Canonical results SHALL remain the atomic native ref transaction results.
 
 #### Scenario: A producer changes a prepared request
-- **WHEN** a producer reuses a Product request identity with different input or a different prepared ref request
+- **WHEN** a producer reuses a Product request identity with different input, ref edits, message or candidate
 - **THEN** it rejects without changing previously acknowledged refs, history, audit, outbox or logical usage
 - **AND** an unprepared journal identity cannot be used to publish an unrelated native ref transaction
 
@@ -304,6 +304,25 @@ Native Product operations SHALL bind a caller-stable request identity to the com
 - **WHEN** a new or uncommitted Product operation waits on metadata locks until its credential or write lease expires
 - **THEN** the operation fails after the wait and rolls back its preparation changes
 - **AND** a stored grant or journal row cannot substitute for current authority
+
+### Requirement: Product physical attempts preserve uncertain I/O
+A Product retry SHALL distinguish its logical operation, physical attempt and individual storage invocation. Only the active attempt SHALL publish a new canonical result once attempt inventory exists. A never-retired original preparation with no attempt inventory SHALL remain compatible. Retiring a pin, lease expiry, another attempt's success or worker death SHALL NOT settle uncertain remote I/O. A valid verified receipt MAY be reused for verification/publication without another PUT. Missing checked attempt capability SHALL fail closed.
+
+#### Scenario: A retired worker starts or finishes late
+- **WHEN** a fresh admitted attempt replaces a prior uploading attempt
+- **THEN** the previous worker cannot create a never-started retired pin, borrow the new lease or publish its old digest
+- **AND** old I/O claims remain unchanged while the new attempt proves and publishes its own bytes
+- **AND** a delayed old PUT cannot damage the new acknowledged candidate
+
+#### Scenario: A pre-attempt native preparation is already sealed
+- **WHEN** an original fixed native pin still has a matching live verified receipt and has never been retired
+- **THEN** a currently admitted invocation may reuse it without another splice or PUT
+- **AND** the original preparation remains unchanged and the canonical ref transaction remains the result authority
+
+#### Scenario: An acknowledged retry needs no physical attempt
+- **WHEN** an exactly matching operation already has a canonical result
+- **THEN** current read admission returns it without creating an attempt or requiring a lease
+- **AND** the result remains in the native ref transaction ledger, not the attempt inventory
 
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.

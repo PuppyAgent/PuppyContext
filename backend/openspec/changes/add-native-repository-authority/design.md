@@ -711,6 +711,51 @@ an advertised completed HTTP/producer integration.
 Candidate metadata includes the tree/commit identity and ordered byte-path
 changes; a matching changed-ref outbox event includes that immutable metadata.
 It is not a second publication authority or a completed derived-event consumer.
-Independent-attempt recovery, interrupted upload/expired pin handling, automatic
-producers, legacy/Scope mappings, rollback/conflict submission, other consumers
-and compatibility migration remain unfinished. Native activation stays fenced.
+The next recovery batch separates physical attempt pins from this immutable
+logical candidate. Its private attempt inventory has no Project/pin/lease cascade;
+only the currently selected attempt digest can publish. A never-started original
+pin is tombstoned too, so a delayed old worker cannot create it after rotation.
+Uploading pins cannot borrow another invocation's lease; live verified receipts
+(including never-retired original fixed native pins) may rebind for verification/
+ref publication, never for PUT. Another live lease
+reports busy. Once a prior lease is unavailable, a fresh attempt can proceed
+without treating expiry, worker death or retry as remote-I/O quiescence: old claims
+are untouched and continue fencing GC. The same lease can also start a distinct
+invocation, with a distinct pin rather than reusing its uncertain physical work.
+A late old worker may recover a different attempt's committed result through
+current read admission; it cannot publish with its retired digest or settle that
+other invocation's claims. Original clock, input and candidate bytes remain fixed.
+Selected actual PG/S3/application verification covers these transitions,
+including a late old PUT after the new ACK. This does not close independent-
+process/restore/resource acceptance or producer input handoff. Automatic producers, legacy/Scope mappings, rollback/conflict
+submission, other consumers and compatibility migration remain unfinished.
+Native activation stays fenced.
+
+### Contracts required before migrating remaining producers (M05/M09/M16)
+
+The explicit native v1 envelope is not an automatic legacy adapter. In particular:
+
+- Persist a producer's identity, complete immutable input/artifact references,
+  original base and destination before delayed work. A raw object OID, stored
+  `who`, cached grant or old lease is not staging/read/write authority.
+- Preserve omitted base versus explicit empty base and the existing legacy
+  conflict policy. A legacy reevaluation is not permission to change the base or
+  immutable candidate of an outstanding explicit native v1 request. Its logical
+  intent/evaluation/result binding must be specified before wiring it to refs.
+- Establish old Project/Scope/credential bindings and selected-ref semantics
+  before cutover. An old OID-only request cannot disambiguate a same-OID HEAD
+  switch by guessing current HEAD; choose an explicit compatibility contract.
+- Scope credentials must never be converted into full-repository grants. View
+  reconstruction, bounded tree changes, original submitted objects/history and
+  canonical publication require a checked, atomic compatibility path.
+- Human producers use canonical named Project actions. Runtime/automatic
+  producers must revalidate their current credential or existing binding/job
+  authority, lifecycle and pause/drain state; a historical creator ID is not an
+  unconditional service permission.
+- Derived view/event metadata and artifact staging are not new version/result
+  authorities. Missing bytes or mappings fail closed, not into empty roots.
+- Lifecycle cleanup must retain format/namespace/claim provenance after deletion;
+  the present retained inventory is not yet a completed deletion/settlement path.
+
+These prerequisites apply across uploads, imports, synchronize, MCP, content
+Tables, seed/templates and Workspace, not just the five explicit HTTP routes.

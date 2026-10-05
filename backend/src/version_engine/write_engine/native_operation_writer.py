@@ -134,7 +134,8 @@ class NativeOperationWriter:
         if (service.capacity is None or service.billing is None or service.policy is None
                 or service.backend.publication_project_id != service.project_id
                 or not callable(getattr(service.control, "begin_product_operation", None))
-                or not callable(getattr(service.control, "prepare_product_operation", None))):
+                or not callable(getattr(service.control, "prepare_product_operation", None))
+                or not callable(getattr(service.control, "open_product_attempt", None))):
             raise RuntimeError("complete native Product admission required")
         self.service = service
 
@@ -235,12 +236,29 @@ class NativeOperationWriter:
         updates = proposal["updates"]
         new_oid = updates[-1].get("new", {}).get("oid")
         edits = selected.edits(new_oid)
-        pin = publication_pin_id(self.service.project_id, actor, key) if new_oid else None
+        pin = str(uuid.UUID(proposal["receipt_id"])) if new_oid else None
         if (updates != [edit.wire(selected.object_format) for edit in edits]
                 or proposal["receipt_id"] != pin or proposal["message"] != message):
             raise RuntimeError("native Product candidate binding mismatch")
-        result = self.service.submit(grant, request_key=key, generation=selected.generation, edits=edits,
-                                     roots={new_oid: "commit"} if new_oid else {}, prepare=prepare, message=message)
+        try:
+            result = self.service.submit(grant, request_key=key, generation=selected.generation, edits=edits,
+                                         roots={new_oid: "commit"} if new_oid else {}, prepare=prepare,
+                                         message=message, publication_id=pin)
+        except Exception:
+            # A different physical attempt may have won while this worker was
+            # fenced. Recover only that committed result through current read
+            # admission; this does not settle this invocation's uncertain I/O.
+            try:
+                raced = self._record(self.service.control.read_product_operation(
+                    self.service.project_id, actor, key, record["input_sha256"], selected.generation),
+                    actor, key, selected, record["input_sha256"])
+            except Exception:
+                raced = None
+            if (raced is not None and raced["result"] is not None
+                    and raced["result"].get("status") == "committed"
+                    and raced["result"].get("receipt_id") not in {None, pin}):
+                return self._result(raced)
+            raise
         return self._result({**record, "result": result})
 
     def apply(self, grant, *, request_key, base, input_sha256, splice, message=""):
@@ -253,20 +271,31 @@ class NativeOperationWriter:
         if record["result"] is not None:
             return self._result(record)
         admitted_actor(grant, service.project_id, write=True)
+        attempt_id = str(uuid.uuid4())
+        def open_attempt():
+            return self._record(service.control.open_product_attempt(
+                service.project_id, actor, key, digest, selected.generation, attempt_id),
+                actor, key, selected, digest)
         try:
             if record["proposal"] is not None:
+                original_proposal = record["proposal"]
+                record = open_attempt()
+                if record["result"] is not None:
+                    return self._result(record)
                 def prepare():
                     with self._draft(grant, actor, key, selected, record, splice, message) as (draft, proposal):
-                        if proposal != record["proposal"]:
+                        if proposal != original_proposal:
                             raise ValueError("request_key_reused")
                         draft.publish(service.backend)
-                # A verified receipt resumes without another splice/PUT. An
-                # expired or differently owned uploading pin stays fenced;
-                # this is NOT independent-attempt or unknown-I/O settlement.
+                # Live verified receipts resume without splice/PUT. New upload
+                # attempts get distinct pins; retired I/O claims remain intact.
                 return self._submit(grant, actor, key, selected, record, prepare, message)
             with self._draft(grant, actor, key, selected, record, splice, message) as (draft, proposal):
                 record = self._record(service.control.prepare_product_operation(
                     service.project_id, actor, key, digest, proposal), actor, key, selected, digest)
+                if record["result"] is not None:
+                    return self._result(record)
+                record = open_attempt()
                 if record["result"] is not None:
                     return self._result(record)
                 return self._submit(grant, actor, key, selected, record,

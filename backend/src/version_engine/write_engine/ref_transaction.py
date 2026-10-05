@@ -127,6 +127,7 @@ class RefTransactionService:
     def submit(
         self, grant: ProjectGrant | RuntimeGrant, *, request_key: str, generation: int,
         edits: Sequence[RefEdit], roots: Mapping[str, str], prepare: Callable[[], None], message: str = "",
+        publication_id: str | None = None,
     ) -> dict:
         # Recovering the original result is a read, not a new publication.
         # The guarded control rechecks current facts and the original digest.
@@ -147,7 +148,10 @@ class RefTransactionService:
                     and (edit.name == b"HEAD" or edit.name.startswith(b"refs/heads/"))
                     and roots[edit.new.oid] != "commit"):
                 raise ValueError("branch and HEAD targets must be commits")
-        pin = publication_pin_id(self.project_id, actor, request_key) if roots else None
+        if publication_id is not None and not roots:
+            raise ValueError("check-only transactions have no publication attempt")
+        pin = (str(uuid.UUID(publication_id)) if publication_id is not None
+               else publication_pin_id(self.project_id, actor, request_key)) if roots else None
         args = (self.project_id, actor, request_key, generation, updates, pin, message)
         # Replay still calls apply: only the SQL request digest can prove that
         # this is the original request, including a previously rejected batch.

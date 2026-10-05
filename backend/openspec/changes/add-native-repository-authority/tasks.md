@@ -290,17 +290,26 @@ Consumer dependency map (all rows must close before cutover):
   Supabase API boundary (dirty selected 82 plus 329 SQL). Stored-actor proof is
   distinct from end-user authentication and S3 durability.
 - [ ] Close native revision/grant/request identity through Product operations,
-  staging, commit construction, replay and HTTP producers. Implementation now
-  reaches five explicit native routes; first connected batch proved S3-produced
-  commits/replay but caught stale-base error construction returning HTTP 500.
-  Preserve that failure. Subsequent batches exercise all five writes, quota
-  rejection, raw byte names, cold stock Git, sealed resume and lost-ACK replay.
-  The whole application test remains pending final regression: retained fixture
-  failures incorrectly downgraded a creator, omitted member org_id, then counted
-  its own explicit read pin against replay. Fix the fixtures without weakening
-  those safety assertions or calling these failed receipts acceptance.
-- [ ] Complete independent-attempt/expired-upload recovery without settling another
-  invocation's I/O. The fixed prepared identity is not that recovery capability.
+  staging, commit construction, replay and ALL HTTP/automatic producers.
+  The five explicit routes are verified at clean cb8480c6: actual JWT/PG/S3/cold
+  Git, both formats, raw names, no-op/base/quota, sealed/lost-ACK and current-read
+  replay/revocation. Frozen full 1484/original34 +329 SQL; failure set unchanged,
+  not whole-issue acceptance. Keep all four integration failures (stale HTTP500,
+  creator downgrade, missing member org_id, the test's own extra read pin).
+- [x] Separate physical attempts for explicit Product requests with the original
+  input available. Checked current admission, immutable candidate/clock, old-pin
+  tombstones, active result fencing and per-invocation uncertainty survive retry.
+  Actual PG/S3 verifies expired/unacknowledged upload recovery and a real old PUT
+  completing after the new ACK; the old worker recovers that result as a reader.
+  Dirty connected115 +329 SQL includes original fixed-pin verified reuse and
+  post-pin-wait lease expiry rollback; components559 and supplementary backend
+  2773/27 skipped/76 deselected. These
+  are selections, not a new frozen full result or process/restore acceptance.
+  Preserve missing-RPC8, PG81/2 ambiguous-name and connected99/12 invalid-qualifier
+  failures; the final expected_roots name fixes the SQL without relaxing guards.
+- [ ] Complete independent-attempt recovery across the remaining producer paths,
+  durable input handoff and independent-process/restore/resource gates. Another
+  invocation's unsettled I/O never becomes eligible merely because retry passed.
 - [ ] Complete other consumers, legacy/Scope mappings and migration before activation.
 
 ### Product object/tree interoperability (M03/M14/M16, partial)
