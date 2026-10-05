@@ -794,3 +794,21 @@ The explicit native v1 envelope is not an automatic legacy adapter. In particula
 
 These prerequisites apply across uploads, imports, synchronize, MCP, content
 Tables, seed/templates and Workspace, not just the five explicit HTTP routes.
+
+The existing Upload prestager is specifically a **legacy SHA-1** path. It must
+select fresh authority after acquiring its staging lease and after source and
+destination I/O; native authority rejects before canonical staging. A missing
+metadata RPC is not legacy absence. This prevents the current single/batch
+finalizers from bypassing native admission before their later writer rejects;
+it does not enable native Upload or constitute an atomic cutover protocol.
+Migration must still drain/fence every legacy producer and uncertain I/O.
+
+Legacy deduplication verifies fresh, bounded-decoded framing/body bytes against
+the input SHA-256, not object existence or encoded length. Alternate valid zlib
+encodings remain reusable; only explicit absence or proven invalid bytes permit
+replacement by the original input. Transport/permission failures propagate.
+After PUT the same physical verification is mandatory before returning a
+BlobRef. Raw input is retained; no refs/results/policies or native inventories
+are created by this helper. The encoder still retains the compressed object in
+memory, so this work does not close streaming, native producer handoff, current
+producer authorization, or long-I/O/resource acceptance.

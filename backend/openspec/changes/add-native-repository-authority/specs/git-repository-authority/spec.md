@@ -338,6 +338,24 @@ A Product retry SHALL distinguish its logical operation, physical attempt and in
 - **THEN** current read admission returns it without creating an attempt or requiring a lease
 - **AND** the result remains in the native ref transaction ledger, not the attempt inventory
 
+### Requirement: Legacy upload prestaging cannot bypass native authority
+Legacy Upload prestaging SHALL check fresh repository authority under its staging lease and after storage waits. It SHALL reject native authority rather than writing canonical objects outside admitted native publication. Metadata failures SHALL NOT become legacy fallback. A BlobRef SHALL require fresh physical framing/content verification before reuse and after PUT; encoded size or existence alone is insufficient. Failed reads SHALL NOT imply absence. This isolation SHALL NOT constitute native Upload support or migration quiescence.
+
+#### Scenario: A queued legacy upload reaches a native repository
+- **WHEN** legacy single-file or batch prestaging observes native authority
+- **THEN** it rejects without canonical staging or publication
+- **AND** old raw input and acknowledged objects/results remain intact
+
+#### Scenario: Destination bytes have the expected encoded length
+- **WHEN** an existing legacy object has the same encoded length but wrong bytes
+- **THEN** length alone cannot authorize deduplication
+- **AND** explicit staging can replace proven invalid bytes with verified input and must read back the result before returning a reference
+
+#### Scenario: Destination verification is unavailable
+- **WHEN** fresh destination reading fails with a transport or permission error
+- **THEN** staging propagates that failure without treating it as absence or issuing a replacement PUT
+- **AND** valid alternate encodings of the original Git framing/body can be reused without PUT
+
 ### Requirement: Expand is not cutover
 Schema expansion SHALL NOT switch existing repositories or rewrite user data. Native entrypoint implementations SHALL require explicitly enrolled native authority; no request flag, cached root or missing capability may select it or downgrade it to legacy. Existing repositories SHALL remain on their preserved authority until storage/GC, policy, lifecycle, consumers and migration gates pass. Legacy publication SHALL be fenced for any repository explicitly switched to native authority by a future reviewed migration.
 

@@ -246,6 +246,10 @@ Consumer dependency map (all rows must close before cutover):
   Retain 14 missing-RPC reds, malformed-status 16/1, first connected153/1 from
   a SHA-1-only upgrade fixture, and import-order-sensitive generic schema reds.
   One named response envelope fixes the schema identity without exemptions.
+  Clean edcdd3e3 frozen full: 1561 passed / unchanged original34 failed +329 SQL;
+  native18/component852+34/PG375/Auth138/application5/S3 173, no skips/errors or
+  resource failures. PID peak45, memory728301568 bytes. This includes 48f20dc4's
+  independent-worker case, not production durable input handoff or full acceptance.
 - [ ] Complete client/UI polling and durable producer input handoff; complete
   remaining API families, Scope/old binding contracts and Git operation-key
   negotiation. The Runtime test discovers a stock-Git-generated key through
@@ -333,6 +337,22 @@ Consumer dependency map (all rows must close before cutover):
   are selections, not a new frozen full result or process/restore acceptance.
   Preserve missing-RPC8, PG81/2 ambiguous-name and connected99/12 invalid-qualifier
   failures; the final expected_roots name fixes the SQL without relaxing guards.
+- [x] Fence legacy Upload single/batch prestaging before native canonical I/O;
+  read fresh authority after staging lease admission and source/destination waits.
+  Metadata failure is not absence. Replace encoded-length dedup with bounded
+  physical framing/content proof, preserve valid alternate encoding, propagate
+  uncertain reads, and verify after PUT before returning a BlobRef. Raw input is
+  retained. This does not implement native Upload, grant producer authority,
+  settle old I/O or close cutover/streaming/resource gates. Final connected
+  92+329 passes with no skips/errors/gaps/resource failures (component59/PG20/
+  Auth6/application2/S3 5); PID peak26, memory432099328 bytes. Initial84+329 and
+  91+329 remain separate; the latter's 21 new unit cases were unclassified, now
+  explicitly component-marked without altering any original target. The added
+  valid padded-deflate case proves verification-budget exhaustion cannot justify
+  replacement. Components593 and supplementary backend2773/27 skipped/76
+  deselected pass. Preserve14 missing-interface reds and unit13/1 from the invalid
+  transformation-error constructor. This dirty selection is not a new frozen full
+  or native Upload acceptance.
 - [ ] Complete independent-attempt recovery across the remaining producer paths,
   durable input handoff and independent-process/restore/resource gates. Another
   invocation's unsettled I/O never becomes eligible merely because retry passed.
