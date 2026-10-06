@@ -527,12 +527,19 @@ async def git_project_rebuild_cache(
     )
 
 
-async def _native_rpc(native, request, *, upload):
+async def _native_rpc(native, request, *, upload, project_id):
     # Admit before reading a request body. Keep the slot until a fetch response
     # is sent/aborted, so slow clients cannot accumulate disk spools.
     with admission() as retain:
         async with asyncio.timeout(MAX_SECONDS):
-            path = await _spool_git_request_body(request, max_body_bytes=(16 * 1024**2 if upload else MAX_PACK_BYTES))
+            if upload:
+                max_body_bytes = min(16 * 1024**2, settings.GIT_MAX_UPLOAD_PACK_BYTES or 16 * 1024**2)
+            else:
+                # The native worker budget supplements the existing deployment
+                # and plan admission; it must never replace a tighter limit.
+                effective_cap = await run_owned(_git_receive_max_body_bytes, project_id)
+                max_body_bytes = min(MAX_PACK_BYTES, effective_cap)
+            path = await _spool_git_request_body(request, max_body_bytes=max_body_bytes)
             try:
                 response = await _native_call(native.upload if upload else native.receive, path,
                                               disconnect=request.is_disconnected,
@@ -549,7 +556,7 @@ async def _git_receive_pack_for_target(
 ):
     native = await _native_endpoint(target, repo_manager)
     if native is not None:
-        return await _native_rpc(native, request, upload=False)
+        return await _native_rpc(native, request, upload=False, project_id=target.project_id)
     max_body_bytes = await asyncio.to_thread(_git_receive_max_body_bytes, target.project_id)
     request_path = await _spool_git_request_body(
         request,
@@ -620,7 +627,7 @@ async def _git_upload_pack_for_target(
     if native is not None:
         await _record_git_fetch_audit(repo=native, auth=target.auth, actor=actor,
                                     entry_point=target.entry_point, project_id=target.project_id)
-        return await _native_rpc(native, request, upload=True)
+        return await _native_rpc(native, request, upload=True, project_id=target.project_id)
     repo, facade = _repo_and_facade(target, repo_manager)
     request_path = await _spool_git_request_body(request, max_body_bytes=settings.GIT_MAX_UPLOAD_PACK_BYTES or None)
     try:

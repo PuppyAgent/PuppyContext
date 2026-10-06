@@ -77,6 +77,9 @@ or service-role execute grant.
 ## Bounded first-release profile
 
 `/git/{project_id}.git/health` publishes the supported profile and its limits.
+These are technical ceilings. Receive requests additionally retain the existing
+deployment and enforced plan batch limits, taking the smallest applicable cap;
+upload negotiation also respects a tighter deployment setting.
 
 | Resource | Limit |
 |---|---:|
