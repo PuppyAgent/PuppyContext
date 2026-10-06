@@ -8,7 +8,8 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from src.config import settings
-from src.version_engine.adapters.git.native_repository import NativeGitRepository
+from src.version_engine.adapters.git import execution as limits
+from src.version_engine.adapters.git.native_repository import NativeGitRepository, PublicationIndeterminateError
 from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.ref_transaction import admitted_actor
 
@@ -30,7 +31,12 @@ class NativeGitEndpoint:
         return self.repository.upload(self.grant, path, protocol=protocol)
 
     def receive(self, path):
-        return self.repository.receive(self.grant, path)
+        try:
+            return self.repository.receive(self.grant, path)
+        except PublicationIndeterminateError as exc:
+            # Do not emit an `ng` report for an operation that may be durable.
+            raise HTTPException(503, "Git publication outcome unavailable; fetch refs before retrying",
+                                headers={"Cache-Control": "no-store"}) from exc
 
     def health(self):
         service = self.repository.service
@@ -52,6 +58,14 @@ class NativeGitEndpoint:
                 "project_id": service.project_id, "scope_path": "", "scope_excludes": [],
                 "repository_profile": "native", "object_format": service.object_format,
                 "generation": wire["generation"], "ref_sequence": wire["ref_sequence"],
+                "capabilities": {"full_project_git": True, "scope_git": False,
+                                 "protocol_versions": [0, 1, 2], "object_format": service.object_format},
+                "limits": {"receive_pack_bytes": limits.MAX_PACK_BYTES,
+                           "object_body_bytes": limits.MAX_OBJECT_BYTES, "graph_body_bytes": limits.MAX_GRAPH_BYTES,
+                           "objects": limits.MAX_OBJECTS, "refs": limits.MAX_REFS,
+                           "worker_seconds": limits.MAX_SECONDS, "concurrent_workers_per_process": 2,
+                           "git_address_space_bytes": 768 * 1024**2,
+                           "temporary_bytes_excluding_input": limits.MAX_DISK_BYTES},
                 "health": "empty" if empty else "healthy",
                 "git_head": revision.commit_oid, "canonical_head": revision.commit_oid,
                 "history_cut": False, "git_usable": True, "clone_usable": True,

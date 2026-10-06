@@ -42,3 +42,13 @@ production DDL or migration of user repositories.
 owns M01–M20, the live-data plan (07) and test requirements (08). This change
 records implementation, not a replacement acceptance scope or a completed
 migration claim.
+
+## First-phase implementation amendment (2026-10-06)
+
+The user now explicitly requests completed implementation and acceptance of new
+full-Project bare hosting. [bare-hosting.md](bare-hosting.md) defines its additive
+creation/management API, lifecycle settlement, bounded execution and recovery
+profile. Only explicit newly created Projects enter native authority. New Scope
+projections remain a future final gate; legacy Scope migration/old OID mapping
+imports and old-client continuation are cancelled. Existing data is not removed
+or activated. No production rollout or qubits merge is authorized by this work.

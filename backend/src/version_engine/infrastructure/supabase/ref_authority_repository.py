@@ -27,6 +27,9 @@ class RefAuthorityRepository:
         return self.call("get_version_ref_transaction", p_project_id=project_id,
                          p_actor=actor, p_request_key=request_key)
 
+    def recover_result(self, project_id: str, actor: str, request_key: str):
+        return self.result(project_id, actor, request_key)
+
     def begin(self, project_id: str, actor: str, pin: str, generation: int, roots: dict):
         return self.call("begin_version_object_publication", p_project_id=project_id,
                          p_actor=actor, p_pin_id=pin, p_generation=generation, p_roots=roots)
@@ -77,6 +80,10 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
         if not isinstance(result, dict):
             raise RuntimeError("invalid admitted repository snapshot response")
         return result
+
+    def recover_result(self, project_id: str, actor: str, request_key: str):
+        status = self.operation_status(project_id, actor, request_key)
+        return status.get("result") if status else None
 
     def _lease(self, project_id):
         lease = self.lease_provider(project_id)

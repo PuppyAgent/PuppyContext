@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from postgrest.exceptions import APIError
+
 from src.exceptions import AppException, ErrorCode, NotFoundException
 from src.repo.models import RepositoryScope
 from src.repo.scope_repository import RepositoryScopeRepository
@@ -106,13 +108,17 @@ class ScopeService:
             current_count=len(self._repo.list_by_project(project_id)),
         )
 
-        return self._repo.insert(
-            project_id=project_id,
-            name=name,
-            path=canonical,
-            exclude=list(exclude or []),
-            max_mode=max_mode,
-        )
+        try:
+            return self._repo.insert(
+                project_id=project_id, name=name, path=canonical,
+                exclude=list(exclude or []), max_mode=max_mode,
+            )
+        except APIError as exc:
+            if exc.code == "0A000" and "native_scope_not_supported" in exc.message:
+                raise AppException(code=ErrorCode.BAD_REQUEST, status_code=409,
+                                   message="Scope is not available for native repositories yet",
+                                   details={"code": "native_scope_not_supported"}) from exc
+            raise
 
     def update(
         self,

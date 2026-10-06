@@ -23,7 +23,8 @@ async def test_head_authorizes_before_read_and_never_reads_history(allowed):
     auth = authorization_for(*(['p'] if allowed else []))
     auth.authorize = Mock(wraps=auth.authorize)
     admin = SimpleNamespace(get_project_head_commit_id=AsyncMock(return_value='a' * 40))
-    call = get_project_head('p', admin, auth, SimpleNamespace(user_id='user-1'))
+    manager = SimpleNamespace(get_native_service=Mock(return_value=None))
+    call = get_project_head('p', admin, auth, SimpleNamespace(user_id='user-1'), manager)
     if allowed:
         response = await call
         assert response.data == {'project_id': 'p', 'head_commit_id': 'a' * 40}

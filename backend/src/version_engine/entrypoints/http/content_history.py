@@ -62,8 +62,14 @@ async def get_project_head(
     version_admin: VersionAdminService = Depends(get_version_admin_service),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
+    repo_manager: VersionRepoManager = Depends(get_repo_manager),
 ):
-    await run_in_threadpool(authorization.authorize, project_id, current_user.user_id, ProjectAction.HISTORY_READ)
+    grant = await run_in_threadpool(authorization.authorize, project_id, current_user.user_id, ProjectAction.HISTORY_READ)
+    from src.version_engine.entrypoints.http.repository_management import read_native_head
+    from src.version_engine.infrastructure.owned_work import run_owned
+    native = await run_owned(read_native_head, repo_manager, grant)
+    if native is not None:
+        return ApiResponse.success(data=native)
     head = await version_admin.get_project_head_commit_id(project_id)
     return ApiResponse.success(data={"project_id": project_id, "head_commit_id": head})
 

@@ -172,6 +172,7 @@ class VersionRepoManager:
         return RefTransactionService(
             control, S3StorageBackend(self._s3, project_id, supabase=self._supabase),
             project_id=project_id, object_format=metadata["object_format"],
+            max_objects=100_000, max_bytes=256 * 1024**2,
             capacity=RepositoryCapacity(control), billing=RepositoryBilling(control),
             policy=RepositoryFilePolicy(control),
         )

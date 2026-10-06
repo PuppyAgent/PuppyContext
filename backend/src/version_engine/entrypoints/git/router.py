@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.common_schemas import ApiResponse
+from src.version_engine.adapters.git.execution import admission, run_owned, current_execution, MAX_PACK_BYTES, MAX_SECONDS
 from src.config import settings
 from src.exceptions import ErrorCode
 from src.platform.repository_target.auth_context import repository_target_from_auth
@@ -299,9 +300,12 @@ def _repo_and_facade(target: _ResolvedGitTarget, repo_manager: VersionRepoManage
     return repo, facade
 
 
-async def _native_call(function, *args, **kwargs):
+async def _native_call(function, *args, disconnect=None, **kwargs):
     try:
-        return await asyncio.to_thread(function, *args, **kwargs)
+        if current_execution.get() is None and function is not select_native_git_endpoint:
+            with admission() as retain:
+                return retain(await run_owned(function, *args, cancel_when=disconnect, **kwargs))
+        return await run_owned(function, *args, cancel_when=disconnect, **kwargs)
     except HTTPException:
         raise
     except PermissionError as exc:
@@ -523,12 +527,29 @@ async def git_project_rebuild_cache(
     )
 
 
+async def _native_rpc(native, request, *, upload):
+    # Admit before reading a request body. Keep the slot until a fetch response
+    # is sent/aborted, so slow clients cannot accumulate disk spools.
+    with admission() as retain:
+        async with asyncio.timeout(MAX_SECONDS):
+            path = await _spool_git_request_body(request, max_body_bytes=(16 * 1024**2 if upload else MAX_PACK_BYTES))
+            try:
+                response = await _native_call(native.upload if upload else native.receive, path,
+                                              disconnect=request.is_disconnected,
+                                              **({'protocol': request.headers.get('git-protocol', '')} if upload else {}))
+                return retain(response)
+            finally:
+                _unlink_temp(path)
+
+
 async def _git_receive_pack_for_target(
     target: _ResolvedGitTarget,
     request: Request,
     repo_manager: VersionRepoManager,
 ):
     native = await _native_endpoint(target, repo_manager)
+    if native is not None:
+        return await _native_rpc(native, request, upload=False)
     max_body_bytes = await asyncio.to_thread(_git_receive_max_body_bytes, target.project_id)
     request_path = await _spool_git_request_body(
         request,
@@ -536,8 +557,6 @@ async def _git_receive_pack_for_target(
     )
     actor = request_actor(request, target.auth)
     try:
-        if native is not None:
-            return await _native_call(native.receive, request_path)
         repo, facade = _repo_and_facade(target, repo_manager)
         return await receive_pack_response_from_path(
             repo_manager=repo_manager,
@@ -597,21 +616,13 @@ async def _git_upload_pack_for_target(
     repo_manager: VersionRepoManager,
 ):
     native = await _native_endpoint(target, repo_manager)
-    repo, facade = _repo_and_facade(target, repo_manager) if native is None else (None, None)
-    request_path = await _spool_git_request_body(
-        request,
-        max_body_bytes=settings.GIT_MAX_UPLOAD_PACK_BYTES or None,
-    )
     actor = request_actor(request, target.auth)
     if native is not None:
-        try:
-            await _record_git_fetch_audit(
-                repo=native, auth=target.auth, actor=actor,
-                entry_point=target.entry_point, project_id=target.project_id,
-            )
-            return await _native_call(native.upload, request_path, protocol=request.headers.get("git-protocol", ""))
-        finally:
-            _unlink_temp(request_path)
+        await _record_git_fetch_audit(repo=native, auth=target.auth, actor=actor,
+                                    entry_point=target.entry_point, project_id=target.project_id)
+        return await _native_rpc(native, request, upload=True)
+    repo, facade = _repo_and_facade(target, repo_manager)
+    request_path = await _spool_git_request_body(request, max_body_bytes=settings.GIT_MAX_UPLOAD_PACK_BYTES or None)
     try:
         await _record_git_fetch_audit(
             repo=repo,

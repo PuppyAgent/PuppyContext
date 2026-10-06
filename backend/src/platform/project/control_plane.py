@@ -74,8 +74,9 @@ class ProjectControlPlaneRepository:
         self._client = client or SupabaseClient().get_client()
 
     def create_project(self, params: dict[str, Any]) -> dict[str, Any]:
-        response = self._client.rpc("create_project_idempotent", params).execute()
-        return _rpc_object(response.data, operation="create_project_idempotent")
+        operation = "create_native_project_repository" if "p_object_format" in params else "create_project_idempotent"
+        response = self._client.rpc(operation, params).execute()
+        return _rpc_object(response.data, operation=operation)
 
     def get_project_create_replay(self, params: dict[str, Any]) -> dict[str, Any]:
         response = self._client.rpc(
@@ -261,6 +262,7 @@ class ProjectControlPlaneService:
         project_limit: int | float | None,
         request_fingerprint: dict[str, Any] | None = None,
         result_metadata: dict[str, Any] | None = None,
+        native_repository: dict[str, str] | None = None,
     ) -> IdempotentProjectResult:
         canonical_payload = {
             "description": description,
@@ -269,9 +271,10 @@ class ProjectControlPlaneService:
             "publication_mode": publication_mode,
             "source": source_fingerprint,
         }
+        if native_repository is not None:
+            canonical_payload["repository"] = native_repository
         maximum = _normalize_project_limit(project_limit)
-        outcome = self._repository.create_project(
-            {
+        params = {
                 "p_operation_key": operation_key,
                 "p_payload_hash": canonical_payload_hash(canonical_payload),
                 "p_project_id": generate_uuid_v7(),
@@ -287,7 +290,12 @@ class ProjectControlPlaneService:
                 ),
                 "p_result_metadata": result_metadata or {},
             }
-        )
+        if native_repository is not None:
+            if publication_mode != "empty":
+                raise ValueError("native repositories require empty publication")
+            params.update(p_object_format=native_repository["object_format"],
+                          p_default_branch=native_repository["default_branch"])
+        outcome = self._repository.create_project(params)
         result = str(outcome.get("outcome") or "")
         if result in {"conflict", "gone", "invalid"}:
             raise_idempotency_outcome(result, resource="project_create")
@@ -310,6 +318,7 @@ class ProjectControlPlaneService:
                 },
             )
         if result not in {
+            "native_created",
             "initializing_created",
             "initializing_replayed",
             "replayed",
@@ -320,8 +329,8 @@ class ProjectControlPlaneService:
             raise RuntimeError("Project create outcome did not include a Project")
         return IdempotentProjectResult(
             project=_project_from_row(project_data),
-            replayed=result != "initializing_created",
-            ready=result == "replayed",
+            replayed=result not in {"initializing_created", "native_created"},
+            ready=result in {"replayed", "native_created"},
         )
 
     def preflight_project_creation(

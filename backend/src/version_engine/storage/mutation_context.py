@@ -7,6 +7,7 @@ token when the actual mutation executes, including delayed requests.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 
@@ -17,6 +18,7 @@ class PublicationStorageContext:
     actor: str
     pin_id: str
     require_capacity: bool = False
+    progress: Callable[[], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -34,8 +36,8 @@ collection_context: ContextVar[CollectionStorageContext | None] = ContextVar(
 
 
 @contextmanager
-def publication_storage(project_id: str, actor: str, pin_id: str, *, require_capacity: bool = False):
-    token = publication_context.set(PublicationStorageContext(project_id, actor, pin_id, require_capacity))
+def publication_storage(project_id: str, actor: str, pin_id: str, *, require_capacity: bool = False, progress: Callable[[], None] | None = None):
+    token = publication_context.set(PublicationStorageContext(project_id, actor, pin_id, require_capacity, progress))
     try:
         yield
     finally:

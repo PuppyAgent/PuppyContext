@@ -97,6 +97,20 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
     for category in ("paths", "schemas"):
         assert not expected["contract"][category].keys() & refs[category].keys()
         expected["contract"][category].update(refs[category])
+    bare = json.loads(Path(__file__).with_name("native_bare_management_contract_delta.json").read_text())
+    assert bare["paths"] == {}
+    assert set(bare["changed_paths"]) == {"/api/v1/content/{project_id}/head"}
+    assert set(bare["schemas"]) == {"NativeRepositoryCreate", "RepositoryHeadState", "RepositoryHeadUpdate"}
+    assert set(bare["changed_schemas"]) == {"ProjectCreate"}
+    for name, change in bare["changed_paths"].items():
+        assert expected["contract"]["paths"][name] == change["before"]
+        expected["contract"]["paths"][name] = change["after"]
+    for name, change in bare["changed_schemas"].items():
+        assert expected["contract"]["schemas"][name] == change["before"]
+        expected["contract"]["schemas"][name] = change["after"]
+    for category in ("paths", "schemas"):
+        assert not expected["contract"][category].keys() & bare[category].keys()
+        expected["contract"][category].update(bare[category])
     assert contract(app.openapi()) == expected["contract"]
 
 

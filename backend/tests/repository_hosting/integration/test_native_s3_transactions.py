@@ -22,6 +22,33 @@ publication = publication_fixture
 native_http = native_http_fixture
 
 
+@pytest.mark.parametrize('lookup_available', [True, False])
+def test_native_git_lost_database_ack_never_reports_false_rejection(native_http, monkeypatch, lookup_available):
+    client, remote, auth, transport = native_http
+    client.run('remote', 'add', 'origin', remote)
+    commit = client.text('rev-parse', 'HEAD')
+    apply = transport.control.apply
+    attempts = []
+    def lose_ack(*args):
+        result = apply(*args)
+        attempts.append((args[2], result))
+        raise ConnectionError('database response lost after commit')
+    with monkeypatch.context() as patch:
+        patch.setattr(transport.control, 'apply', lose_ack)
+        if not lookup_available:
+            def unavailable(*args):
+                raise ConnectionError('lookup unavailable')
+            patch.setattr(transport.control, 'recover_result', unavailable)
+        pushed = client.run('push', 'origin', 'main', check=False)
+    assert len(attempts) == 1 and attempts[0][1]['status'] == 'committed'
+    assert (pushed.returncode == 0) == lookup_available
+    assert b'remote rejected' not in pushed.stderr
+    assert auth.state()['oid'] == commit
+    assert commit.encode() in client.run('ls-remote', 'origin', 'main').stdout
+    # A stock client recovers by rediscovering refs; it never needs a SQL key.
+    client.run('push', 'origin', 'main')
+
+
 @pytest.mark.parametrize("atomic", [True, False], ids=["atomic", "non-atomic"])
 def test_actual_server_batch_rejects_stale_head_without_false_ack(native_http, tmp_path, monkeypatch, atomic):
     client, remote, auth, transport = native_http

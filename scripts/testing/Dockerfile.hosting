@@ -11,11 +11,17 @@ RUN curl -fsS --connect-timeout 15 --max-time 120 --retry 2 \
     && tar -xJf /tmp/git.tar.xz -C /tmp \
     && make -C /tmp/git-2.50.1 -j4 prefix=/opt/git NO_GETTEXT=YesPlease NO_TCLTK=YesPlease all install
 
+FROM postgres:17.6-bookworm AS pg-tools
+
 FROM python:3.12.11-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client ca-certificates libcurl4 libexpat1 openssh-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=git-build /opt/git /opt/git
+# Match the owned Supabase PostgreSQL 17 server for real dump/restore drills.
+COPY --from=pg-tools /usr/lib/postgresql/17/bin/pg_dump /usr/lib/postgresql/17/bin/pg_restore /usr/lib/postgresql/17/bin/psql /opt/postgres/bin/
+COPY --from=pg-tools /usr/lib/*/libpq.so.5* /opt/postgres/lib/
+ENV LD_LIBRARY_PATH=/opt/postgres/lib
 RUN pip install --no-cache-dir uv==0.11.29
 WORKDIR /opt/dependencies
 COPY pyproject.toml uv.lock ./
@@ -23,7 +29,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 RUN --mount=type=cache,id=issue-062-uv-linux,target=/root/.cache/uv \
     UV_CONCURRENT_DOWNLOADS=4 UV_HTTP_TIMEOUT=60 UV_HTTP_RETRIES=2 \
     uv sync --frozen --no-install-project --no-dev
-ENV PATH="/opt/venv/bin:/opt/git/bin:/usr/local/bin:/usr/bin:/bin" \
+ENV PATH="/opt/postgres/bin:/opt/venv/bin:/opt/git/bin:/usr/local/bin:/usr/bin:/bin" \
     PYTHONPATH=/source/backend PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     PYTHONPYCACHEPREFIX=/tmp/pycache \
     AWS_EC2_METADATA_DISABLED=true HOME=/tmp/home

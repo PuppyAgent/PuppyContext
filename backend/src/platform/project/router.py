@@ -289,7 +289,11 @@ async def create_project(
         created_by=current_user.user_id,
         project_limit=project_limit,
         publication_mode="empty",
-        source_fingerprint={"kind": "empty-git-repository", "version": 1},
+        source_fingerprint=(
+            {"kind": "native-git-repository", "version": 1, **payload.repository.model_dump()}
+            if payload.repository else {"kind": "empty-git-repository", "version": 1}
+        ),
+        native_repository=payload.repository.model_dump() if payload.repository else None,
         write_lease_factory=write_lease_factory,
     )
     project = result.project

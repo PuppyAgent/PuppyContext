@@ -312,6 +312,9 @@ async def _init_version_trees() -> None:
             _writer = build_worker_version_engine_container().admin_service()
             for row in uninit_projects:
                 try:
+                    native = _sb.client.table("version_repositories").select("authority").eq("project_id", row["id"]).execute()
+                    if any(item["authority"] == "native" for item in (native.data or [])):
+                        continue
                     await _writer.init_tree(row["id"])
                 except Exception as init_err:
                     log_error(

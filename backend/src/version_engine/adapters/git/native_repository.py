@@ -15,7 +15,9 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
+from src.version_engine.adapters.git.execution import (run_git, checkpoint, OwnedGitResponse, MAX_OBJECT_BYTES, MAX_OBJECTS, MAX_REFS)
+from src.version_engine.storage.mutation_context import publication_context
 
 from src.version_engine.adapters.git.protocol import flush_pkt, pkt_line, read_pkt_lines
 from src.version_engine.read.repository_snapshot import repository_snapshot
@@ -27,6 +29,10 @@ from src.version_engine.write_engine.ref_transaction import (
     admitted_actor,
     validate_ref_name,
 )
+
+
+class PublicationIndeterminateError(RuntimeError):
+    """No definitive result was obtained; the client must rediscover refs."""
 
 
 def accepted_receive_refs(output: bytes, capabilities: set[str]) -> set[bytes]:
@@ -72,8 +78,8 @@ class NativeGitRepository:
                    "-c", "protocol.file.allow=never", "-c", "receive.fsckObjects=true",
                    "-c", "uploadpack.allowFilter=true", "-c", "uploadpack.allowAnySHA1InWant=true",
                    "-C", str(bare), *args]
-        result = subprocess.run(command, input=input, stdin=stdin, stdout=stdout,
-                                stderr=subprocess.PIPE, env=self.environment(protocol), timeout=self.timeout)
+        result = run_git(command, input=input, stdin=stdin, stdout=stdout,
+                         env=self.environment(protocol), directory=bare, timeout=self.timeout)
         if check and result.returncode:
             raise RuntimeError(result.stderr.decode("utf-8", "replace")[:2048])
         return result
@@ -82,6 +88,8 @@ class NativeGitRepository:
     def bare(self, snapshot):
         if snapshot.get("object_format") != self.format:
             raise ValueError("repository object format mismatch")
+        if len(snapshot["refs"]) > MAX_REFS:
+            raise ValueError("repository ref budget exceeded")
         with tempfile.TemporaryDirectory(prefix="puppyone-native-git-") as directory:
             path = Path(directory)
             self.git(path, "init", "--bare", "--initial-branch=main", "--object-format=" + self.format)
@@ -130,21 +138,25 @@ class NativeGitRepository:
                 roots = dict(read.roots)
                 if historical:
                     roots.update(self.control.call("get_version_repository_published_roots", p_project_id=self.project_id))
+                durable_oids = set()
                 def copy(oid, loose):
+                    durable_oids.add(oid)
                     path = bare / "objects" / oid[:2] / oid[2:]
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(loose)
                 if roots:
-                    self.service.verifier.verify(roots, progress=read.check_live, on_object=copy)
+                    self.service.verifier.verify(roots, progress=lambda: (checkpoint(), read.check_live()), on_object=copy)
                 if any(not (bare / "objects" / oid[:2] / oid[2:]).exists() for oid in requested):
                     # A GET advertisement or lazy-fetch base may precede a force
                     # update/delete. Serve retained *published* history, never
                     # arbitrary objects or uncommitted receipt roots.
                     roots.update(self.control.call("get_version_repository_published_roots", p_project_id=self.project_id))
                     if roots:
-                        self.service.verifier.verify(roots, progress=read.check_live, on_object=copy)
-                # Every subsequent Git read is private; no alternates or S3 I/O.
-                read.close()
+                        self.service.verifier.verify(roots, progress=lambda: (checkpoint(), read.check_live()), on_object=copy)
+                # Retain this read pin through publication. The producer may
+                # reuse these verified durable objects without rewriting them;
+                # GC cannot remove them between materialization and receipt.
+                snapshot["materialized_oids"] = durable_oids
                 yield bare, snapshot
 
     def upload_request(self, request_path):
@@ -192,13 +204,7 @@ class NativeGitRepository:
         except BaseException:
             output.close()
             raise
-        def stream():
-            try:
-                while chunk := output.read(64 * 1024):
-                    yield chunk
-            finally:
-                output.close()
-        return StreamingResponse(stream(), media_type="application/x-git-upload-pack-result", headers={"Cache-Control": "no-cache"})
+        return OwnedGitResponse(output)
 
     def commands(self, request_path):
         edits, capabilities = [], set()
@@ -275,20 +281,43 @@ class NativeGitRepository:
                     # Rev-list is transport-only; product writers never import
                     # this materializer. Gitlinks remain external dependencies.
                     ids = self.git(bare, "rev-list", "--objects", "--no-object-names", *roots).stdout.splitlines()
+                    if len(ids) > MAX_OBJECTS:
+                        raise ValueError("Git object count budget exceeded")
                     for raw_oid in ids:
+                        checkpoint()
+                        context = publication_context.get()
+                        if context is not None and context.progress is not None:
+                            context.progress()
                         oid = raw_oid.decode("ascii")
+                        if oid in snapshot["materialized_oids"]:
+                            continue
                         kind = self.git(bare, "cat-file", "-t", oid).stdout.strip().decode("ascii")
+                        size = int(self.git(bare, "cat-file", "-s", oid).stdout)
+                        if size > MAX_OBJECT_BYTES:
+                            raise ValueError("Git single-object budget exceeded")
                         body = self.git(bare, "cat-file", kind, oid).stdout
                         actual, loose = encode_object(kind, body, object_format=self.format)
                         if actual != oid:
                             raise ValueError("quarantine object hash mismatch")
                         self.service.backend.put_durable(oid, loose)
+                        snapshot["materialized_oids"].add(oid)
+                request_key = str(uuid.uuid4())
                 try:
-                    result = self.service.submit(grant, request_key=str(uuid.uuid4()), generation=snapshot["generation"],
+                    result = self.service.submit(grant, request_key=request_key, generation=snapshot["generation"],
                                                  edits=batch, roots=roots, prepare=prepare, message="git push")
-                    reason = None if result["status"] == "committed" else result["reason"]
                 except Exception as exc:
-                    reason = "publication failed: " + type(exc).__name__
+                    # A transport exception is not a database rejection. In
+                    # particular, apply may have committed before its response
+                    # was lost. Query this exact attempt without resubmitting
+                    # objects or allocating a new operation identity.
+                    actor = admitted_actor(grant, self.project_id, write=False)
+                    try:
+                        result = self.control.recover_result(self.project_id, actor, request_key)
+                    except Exception as lookup_error:
+                        raise PublicationIndeterminateError("Rediscover repository refs before retrying") from lookup_error
+                    if not result or result.get("status") not in {"committed", "rejected"}:
+                        raise PublicationIndeterminateError("Rediscover repository refs before retrying") from exc
+                reason = None if result["status"] == "committed" else result["reason"]
                 outcomes.update({edit.name: reason for edit in batch})
         report = pkt_line(b"unpack ok\n")
         for edit in edits:
