@@ -1,0 +1,28 @@
+{
+  "paths": {
+    "removed": {
+      "/api/v1/agents": "b1d6b26aaa689baa2a88c161eb86cd8d8ea96b285770829bb0900f667b8eb8e2"
+    },
+    "added": {
+      "/api/v1/agents/requests/{project_id}/{request_id}": "2c6662a69a11540dd8e7e82ef36fb66d99f742863b472c61e4db13bf5ba629fa",
+      "/api/v1/agents/runs": "9c128258d3251cd7472e770411b398e777bd64ae2c965bf79ddacb256d178289",
+      "/api/v1/agents/runs/{run_id}": "69659a3b58338c5a1c04c914ba4550f83258f85893e69d083e9ffbb171111c8c",
+      "/api/v1/agents/runs/{run_id}/approvals/{call_id}": "63293245015214b30af51770a961b27df968e1ef8e0f12c1533f3fce3e894b1d",
+      "/api/v1/agents/runs/{run_id}/events": "6149b57108212c56ecc1a6ccc6528a6bc57379c4c2077d56b0edff571bb24809",
+      "/api/v1/agents/runs/{run_id}/stop": "9ad7f43bcbad73a725c73534500001ef9840482e9c2427d648065b198823c7cb",
+      "/api/v1/agents/sessions/{session_id}/runs": "4bdfdc6c9e0278231c2d21a1aa256cbbfce53db1954b794a00427df81c3ac697"
+    },
+    "changed": {}
+  },
+  "schemas": {
+    "removed": {
+      "AgentRequest": "7ef60c4d12009ee5540370ba2ca0ff4e9b12aec9515a9ceda335d8fcc6f0d478",
+      "ChatHistoryItem": "2563ede3f4a9bf7e3e9584660f0e7c32c702cce619badbb141e01a07da764c39"
+    },
+    "added": {
+      "Approval": "49024b30bddb122f5f34c6c7157f4f829dee5c8b4b7bfa6144283f3594180f9b",
+      "SubmitRun": "207ec510e1a90da96bc209b9b4f36c10b7347589a8a574fe39889b3b76f9f86e"
+    },
+    "changed": {}
+  }
+}

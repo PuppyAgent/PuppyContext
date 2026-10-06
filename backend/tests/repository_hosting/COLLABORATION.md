@@ -58,7 +58,8 @@ From the repository root:
 # Focused collaboration/load run; isolated local services only.
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py \
   --live --s3 --docker --target --output /private/tmp/native-collaboration \
-  -k bare_collaboration --disable-warnings -x
+  -k 'bare_collaboration or test_stock_push_durable_native_refs_and_cold_clone' \
+  --disable-warnings -x
 
 # Release candidate: existing native protocol/PG/S3/application coverage plus additions.
 backend/.venv/bin/python scripts/testing/run_repository_hosting.py \
@@ -66,6 +67,11 @@ backend/.venv/bin/python scripts/testing/run_repository_hosting.py \
   -k 'native_s3 or bare_repository_application or docker_native_git_application or bare_resource_limits or direct_object_transport or native_transport_protocol or native_execution or bare_collaboration' \
   --disable-warnings -x
 ```
+
+The focused command includes the two existing S3-only cases as well as the 13
+application cases. The strict runner requires both reported layers; selecting
+only `bare_collaboration` passes its assertions but exits nonzero for missing
+standalone S3-layer evidence. Do not weaken that release gate.
 
 Also run the repository-required offline backend suite for API names, contracts,
 entrypoint boundaries and the rest of the merged application:

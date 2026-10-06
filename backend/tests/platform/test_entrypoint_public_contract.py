@@ -111,6 +111,27 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
     for category in ("paths", "schemas"):
         assert not expected["contract"][category].keys() & bare[category].keys()
         expected["contract"][category].update(bare[category])
+    # The independently merged Cloud Agent runtime replaces the old request-
+    # owned POST /agents with its reviewed durable-run protocol. Keep this
+    # explicit delta separate from native Git and every historical fixture.
+    agent = json.loads(Path(__file__).with_name("cloud_agent_runtime_contract_delta.json").read_text())
+    assert set(agent["paths"]["removed"]) == {"/api/v1/agents"}
+    assert set(agent["paths"]["added"]) == {
+        "/api/v1/agents/runs", "/api/v1/agents/runs/{run_id}",
+        "/api/v1/agents/requests/{project_id}/{request_id}",
+        "/api/v1/agents/sessions/{session_id}/runs",
+        "/api/v1/agents/runs/{run_id}/stop", "/api/v1/agents/runs/{run_id}/events",
+        "/api/v1/agents/runs/{run_id}/approvals/{call_id}",
+    }
+    assert set(agent["schemas"]["removed"]) == {"AgentRequest", "ChatHistoryItem"}
+    assert set(agent["schemas"]["added"]) == {"SubmitRun", "Approval"}
+    for category in ("paths", "schemas"):
+        assert agent[category]["changed"] == {}
+        for name, digest in agent[category]["removed"].items():
+            assert expected["contract"][category].pop(name) == digest
+        for name, digest in agent[category]["added"].items():
+            assert name not in expected["contract"][category]
+            expected["contract"][category][name] = digest
     assert contract(app.openapi()) == expected["contract"]
 
 
