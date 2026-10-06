@@ -7,8 +7,11 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from src.config import settings
-from src.version_engine.adapters.git.native_repository import NativeGitRepository
+from src.version_engine.adapters.git import execution as limits
+from src.version_engine.adapters.git.native_repository import (
+    NativeGitRepository,
+    PublicationIndeterminateError,
+)
 from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.ref_transaction import admitted_actor
 
@@ -18,7 +21,7 @@ class NativeGitEndpoint:
         self.actor = admitted_actor(grant, service.project_id, write=False)
         self.grant = grant
         self.audit = audit
-        self.repository = NativeGitRepository(service, timeout=settings.GIT_SUBPROCESS_TIMEOUT_SECONDS)
+        self.repository = NativeGitRepository(service)
 
     def record_audit(self, event_type, actor, detail):
         self.audit.record(event_type, actor, detail)
@@ -30,7 +33,12 @@ class NativeGitEndpoint:
         return self.repository.upload(self.grant, path, protocol=protocol)
 
     def receive(self, path):
-        return self.repository.receive(self.grant, path)
+        try:
+            return self.repository.receive(self.grant, path)
+        except PublicationIndeterminateError as exc:
+            # Do not emit an `ng` report for an operation that may be durable.
+            raise HTTPException(503, "Git publication outcome unavailable; fetch refs before retrying",
+                                headers={"Cache-Control": "no-store"}) from exc
 
     def health(self):
         service = self.repository.service
@@ -52,6 +60,15 @@ class NativeGitEndpoint:
                 "project_id": service.project_id, "scope_path": "", "scope_excludes": [],
                 "repository_profile": "native", "object_format": service.object_format,
                 "generation": wire["generation"], "ref_sequence": wire["ref_sequence"],
+                "capabilities": {"full_project_git": True, "scope_git": False,
+                                 "protocol_versions": [0, 1, 2], "object_format": service.object_format},
+                "limits": {"receive_pack_bytes": limits.MAX_PACK_BYTES,
+                           "object_body_bytes": limits.MAX_OBJECT_BYTES, "graph_body_bytes": limits.MAX_GRAPH_BYTES,
+                           "objects": limits.MAX_OBJECTS, "refs": limits.MAX_REFS,
+                           "worker_seconds": limits.MAX_SECONDS, "concurrent_workers_per_process": 2,
+                           "object_cache_bytes_per_request": 8 * 1024**2,
+                           "fetch_repository_scratch_bytes": 0,
+                           "temporary_bytes_excluding_input": limits.MAX_GRAPH_BYTES},
                 "health": "empty" if empty else "healthy",
                 "git_head": revision.commit_oid, "canonical_head": revision.commit_oid,
                 "history_cut": False, "git_usable": True, "clone_usable": True,
@@ -67,7 +84,8 @@ class NativeGitEndpoint:
         service.control.check_write(service.project_id, self.actor)
         self.health()
         service.control.check_write(service.project_id, self.actor)
-        # Every native transport cache is already request-owned and disposable.
+        # Native transport reads canonical objects directly; there is no bare
+        # repository to reconstruct and no cache required for correctness.
         return {"repository_profile": "native", "variants": []}
 
 

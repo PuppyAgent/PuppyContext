@@ -56,8 +56,8 @@ def test_stock_push_durable_native_refs_and_cold_clone(native_http, tmp_path):
     oid = client.text("rev-parse", "HEAD")
     client.run("push", "origin", "main")
     assert auth.state()["oid"] == oid
-    # Transport creates a fresh bare repository for every HTTP request: there
-    # is no server Git cache to keep an acknowledged but unpersisted object alive.
+    # Native transport reads canonical objects directly; no local repository
+    # can keep an acknowledged but unpersisted object alive.
     client.run("clone", "--mirror", remote, tmp_path / "cold.git")
     cold = Git(tmp_path / "cold.git")
     cold.run("fsck", "--full", "--strict")

@@ -561,3 +561,25 @@ Consumer dependency map (all rows must close before cutover):
 
 Known target gaps and absent environment evidence block full issue completion.
 No task here waives the original M01–M20 or 07/08 requirements.
+
+## 2026-10-06 new bare-repository delivery
+
+Scope: [bare-hosting.md](bare-hosting.md), ISSUE-062 09 B1–B6 and 10 §3.
+
+- [x] Add atomic formal native creation with real entitlement/usage prerequisites.
+- [x] Add admitted HEAD query/CAS management and final current-Admin check.
+- [x] Recover uncertain Git publication ACK by original attempt identity.
+- [x] Reject new native Scope configuration and skip legacy startup initialization.
+- [x] Integrate native I/O drain and logical/physical settlement into existing deletion.
+- [x] Bound Git subprocess/request/response ownership and renew preparation pins.
+- [x] Add formal-API Git oracle matrix, deletion, large-transfer and paired restore tests.
+- [x] Complete fixed-candidate B1–B6 and required shared-code regression evidence.
+- [x] Review implementation and record the phase verdict without closing deferred Scope.
+
+Earlier entries describe historical evidence; legacy Scope carry-over is no
+longer required. New Scope functionality, general legacy migration and the
+remaining full-issue gates stay open.
+
+Bare-phase frozen acceptance: `eba763d55fd2e9600c93b3787918fbe44516945b`, 1469 passed / 0 failed / 0 skipped / 0 xfailed + 329 pgTAP.
+See `bare-hosting.md` and the owning ISSUE-062 phase receipt; the earlier
+full-issue unfinished entries remain open.

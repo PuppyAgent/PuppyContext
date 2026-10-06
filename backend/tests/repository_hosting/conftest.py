@@ -47,17 +47,17 @@ def pytest_collection_modifyitems(config, items):
         gap = item.get_closest_marker("hosting_gap")
         if gap:
             item.user_properties.append(("known_gap", gap.args[0]))
-        if gap and not config.getoption("--hosting-target"):
+        if gap and not config.getoption("--hosting-target", default=False):
             item.add_marker(pytest.mark.xfail(strict=True, reason=gap.args[0]))
-        if item.get_closest_marker("hosting_live") and not config.getoption("--hosting-live"):
+        if item.get_closest_marker("hosting_live") and not config.getoption("--hosting-live", default=False):
             item.add_marker(
                 pytest.mark.skip(reason="real PG requires --hosting-live; not acceptance evidence")
             )
-        if item.get_closest_marker("hosting_application") and not config.getoption("--hosting-application"):
+        if item.get_closest_marker("hosting_application") and not config.getoption("--hosting-application", default=False):
             item.add_marker(pytest.mark.skip(reason="actual application acceptance requires --docker --live --s3"))
-        if item.get_closest_marker("hosting_s3") and not config.getoption("--hosting-s3"):
+        if item.get_closest_marker("hosting_s3") and not config.getoption("--hosting-s3", default=False):
             item.add_marker(pytest.mark.skip(reason="real object service requires --live --s3"))
-        if item.get_closest_marker("hosting_supabase") and not config.getoption("--hosting-supabase"):
+        if item.get_closest_marker("hosting_supabase") and not config.getoption("--hosting-supabase", default=False):
             item.add_marker(
                 pytest.mark.skip(reason="real Auth/PostgREST requires --live; not acceptance evidence")
             )

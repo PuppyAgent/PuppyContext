@@ -94,6 +94,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
         }.items()
     },
     ("GET", "/api/v1/content/{project_id}/refs"): _human(ProjectAction.CONTENT_READ),
+    ("PUT", "/api/v1/content/{project_id}/head"): _human(ProjectAction.PROJECT_MANAGE),
     ("GET", "/api/v1/content/{project_id}/operations/{request_key}"): _human(ProjectAction.CONTENT_READ),
     ("GET", "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}"): _human(ProjectAction.HISTORY_READ),
     ("POST", "/api/v1/content/{project_id}/download/sign"): _human(ProjectAction.CONTENT_READ),

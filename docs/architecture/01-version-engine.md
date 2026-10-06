@@ -1,5 +1,10 @@
 # PuppyOne Version Engine
 
+Native full-Project repositories now use PG refs and direct S3 object transport;
+see [Native Git object transport](17-native-git-object-transport.md). They do not
+reconstruct a local bare repository. The root/projection architecture below
+also describes the retained legacy profile; it is not the native ref authority.
+
 PuppyOne is now Git-native at the version layer. Product features such as
 scope boundaries, optimistic merge, hosted conflict review, audit, projection,
 and outbox repair live above Git in the Version Engine. The server does not

@@ -13,7 +13,7 @@ import pytest
 from tests.repository_hosting.harness.postgres import literal
 from tests.repository_hosting.harness.ref_authority import Authority, symbolic, update
 from tests.repository_hosting.harness.transaction import transaction, wait_for_lock
-from tests.repository_hosting.integration.test_repository_write_admission import seed_credential
+from tests.repository_hosting.integration.test_repository_write_admission import seed_credential, seed_legacy_scope
 
 pytestmark = pytest.mark.hosting_live
 DIGEST = "1" * 64
@@ -23,6 +23,7 @@ DIGEST = "1" * 64
 def journal_actor(pg_project, request):
     pg, project = pg_project
     fmt = request.param
+    scope_id = seed_legacy_scope(pg, project)
     authority = Authority(pg, project, object_format=fmt,
                           roots={"a" * (40 if fmt == "sha1" else 64): "commit"})
     org = pg.value(f"SELECT org_id FROM public.projects WHERE id={literal(project)}")
@@ -39,7 +40,8 @@ def journal_actor(pg_project, request):
         SELECT public.acquire_project_write_lease({literal(project)},{literal(lease)},'product-test','native-product',120);
     """)
     return SimpleNamespace(pg=pg, project=project, org=org, user=user, actor="user:"+user,
-                           authority=authority, lease=lease, holder="product-test", fmt=fmt)
+                           authority=authority, lease=lease, holder="product-test", fmt=fmt,
+                           scope_id=scope_id)
 
 
 def begin_query(a, key, digest=DIGEST):

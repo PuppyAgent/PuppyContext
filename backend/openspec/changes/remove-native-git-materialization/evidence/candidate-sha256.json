@@ -1,0 +1,14 @@
+{
+  "pyproject.toml": "50dd57a5fa921ab1e5a47d93bc34fd2cdae57571bbd1353d5a6cfcf6915c870a",
+  "uv.lock": "a6f2e106736b725c50e05d676f5cf8c1e579da63d9214d2f14f35c17b341a493",
+  "src/version_engine/adapters/git/native_repository.py": "c497fffd7fdbdaed36a837a3fc6c924cba80ee78794aa237dd91679417c3a1e7",
+  "src/version_engine/adapters/git/native_wire.py": "bd2a1b992f5e687f8193c6f14807a210fa585918782349ded7eba9f99c552d28",
+  "src/version_engine/adapters/git/native_fetch.py": "250562faf2773cec4996e62de2b8a1412224b2a59087e3f553055fb8e0d52bf6",
+  "src/version_engine/adapters/git/object_reader.py": "2e69205727d784e15d5e90279269adbe052d63b723a71d44e145edb1406b7f41",
+  "src/version_engine/adapters/git/object_pack.py": "3c60db99b1c9b038bce32d65049aeb46583c1cd36e10563734aa818db6adf216",
+  "src/version_engine/adapters/git/execution.py": "9fd0c4639ae91691c8197919a1fca592e9ec65ce1262b09d8683f999414aea04",
+  "src/version_engine/entrypoints/git/native.py": "0b15e03bc10ab0ac42eee712660855941bb6670df06bc75fa80124d30c8a2183",
+  "src/version_engine/entrypoints/git/router.py": "390ebf6ca0657f7976640f8bf2aacf5c7b67eff02a6a47d8e9a8e20c6d143c94",
+  "tests/repository_hosting/unit/test_direct_object_transport.py": "f24e42dcb2ca1ef88e6bacf41e1b0985f68cf02b89b3b8261fcb882139415df5",
+  "tests/repository_hosting/unit/test_native_transport_protocol.py": "d743dc6ab4108f00e13dec6efeb5c80ab6cd0c6d0836950fd4214112cd7074c5"
+}

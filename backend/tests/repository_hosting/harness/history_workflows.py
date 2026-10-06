@@ -231,7 +231,7 @@ def pull_workflow(git, *, mode):
 
 
 def submodule_pointer(git):
-    external = Git.init(git.path.parent / (git.path.name + "-external"))
+    external = Git.init(git.path.parent / (git.path.name + "-external"), format=git.text("rev-parse", "--show-object-format"))
     oid = external.commit({"external.txt": b"not in hosted repository\n"}, "external root")
     (git.path / ".gitmodules").write_bytes(
         b'[submodule "vendor/sdk"]\n\tpath = vendor/sdk\n\turl = https://example.invalid/sdk.git\n',
@@ -268,7 +268,7 @@ def client_export(git, *, mode):
     remote = git.text("remote", "get-url", "origin")
     mirror = clone_client(remote, git.path.parent / (git.path.name + "-mirror"), git, "--mirror")
     expected = mirror.refs(), reachable_objects(mirror)
-    restored = Git.init(git.path.parent / (git.path.name + "-restored"), bare=True)
+    restored = Git.init(git.path.parent / (git.path.name + "-restored"), bare=True, format=git.text("rev-parse", "--show-object-format"))
     if mode == "bundle":
         bundle = git.path.parent / (git.path.name + ".bundle")
         mirror.run("bundle", "create", bundle, "--all")

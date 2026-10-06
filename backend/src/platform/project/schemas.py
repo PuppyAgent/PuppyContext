@@ -46,6 +46,25 @@ class ProjectDeletionOut(BaseModel):
     status: Literal["pending", "running", "failed", "completed"]
 
 
+class NativeRepositoryCreate(BaseModel):
+    """Explicit new-repository profile; never a legacy activation request."""
+
+    model_config = ConfigDict(extra="forbid")
+    profile: Literal["native"]
+    object_format: Literal["sha1", "sha256"] = "sha1"
+    default_branch: str = Field(default="main", min_length=1, max_length=1000)
+
+    @field_validator("default_branch")
+    @classmethod
+    def validate_branch(cls, value: str) -> str:
+        from src.version_engine.write_engine.ref_transaction import validate_ref_name
+
+        if value.startswith("-") or value == "HEAD":
+            raise ValueError("invalid initial branch")
+        validate_ref_name(("refs/heads/" + value).encode("utf-8"))
+        return value
+
+
 class ProjectCreate(BaseModel):
     """Strict empty-Project creation request.
 
@@ -58,6 +77,7 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
     org_id: str = Field(min_length=1, max_length=200)
+    repository: NativeRepositoryCreate | None = None
 
     @field_validator("org_id")
     @classmethod
