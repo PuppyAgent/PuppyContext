@@ -1,5 +1,9 @@
 # 仓库托管测试
 
+当前新建 native 仓库的双客户端竞争、Git/Product 交错、断流恢复、名称往返和
+分档负载用例见 [协作与性能验收](COLLABORATION.md)。以下早期记录按当时的
+测试层与 profile 保留；旧 Scope/legacy 目标的缺口不等同于当前 native bare 阶段。
+
 ISSUE-062 的隔离实施从 `qubits@dc273f48` 开始；初始测试复制自原工作区已有、未提交的测试底座，本分支核验并继续修改，原文件未被覆盖。此目录不是 M01–M20 已全部交付的声明。
 
 这里是可执行测试，不是迁移方案。测试直接调用现有 Version Engine；Git HTTP 测试会启动本机服务，再用系统 Git 实际 clone / push / fetch。
