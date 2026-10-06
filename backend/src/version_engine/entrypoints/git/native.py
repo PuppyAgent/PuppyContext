@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from src.config import settings
 from src.version_engine.adapters.git import execution as limits
-from src.version_engine.adapters.git.native_repository import NativeGitRepository, PublicationIndeterminateError
+from src.version_engine.adapters.git.native_repository import (
+    NativeGitRepository,
+    PublicationIndeterminateError,
+)
 from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.ref_transaction import admitted_actor
 
@@ -19,7 +21,7 @@ class NativeGitEndpoint:
         self.actor = admitted_actor(grant, service.project_id, write=False)
         self.grant = grant
         self.audit = audit
-        self.repository = NativeGitRepository(service, timeout=settings.GIT_SUBPROCESS_TIMEOUT_SECONDS)
+        self.repository = NativeGitRepository(service)
 
     def record_audit(self, event_type, actor, detail):
         self.audit.record(event_type, actor, detail)
@@ -64,8 +66,9 @@ class NativeGitEndpoint:
                            "object_body_bytes": limits.MAX_OBJECT_BYTES, "graph_body_bytes": limits.MAX_GRAPH_BYTES,
                            "objects": limits.MAX_OBJECTS, "refs": limits.MAX_REFS,
                            "worker_seconds": limits.MAX_SECONDS, "concurrent_workers_per_process": 2,
-                           "git_address_space_bytes": 768 * 1024**2,
-                           "temporary_bytes_excluding_input": limits.MAX_DISK_BYTES},
+                           "object_cache_bytes_per_request": 8 * 1024**2,
+                           "fetch_repository_scratch_bytes": 0,
+                           "temporary_bytes_excluding_input": limits.MAX_GRAPH_BYTES},
                 "health": "empty" if empty else "healthy",
                 "git_head": revision.commit_oid, "canonical_head": revision.commit_oid,
                 "history_cut": False, "git_usable": True, "clone_usable": True,
@@ -81,7 +84,8 @@ class NativeGitEndpoint:
         service.control.check_write(service.project_id, self.actor)
         self.health()
         service.control.check_write(service.project_id, self.actor)
-        # Every native transport cache is already request-owned and disposable.
+        # Native transport reads canonical objects directly; there is no bare
+        # repository to reconstruct and no cache required for correctness.
         return {"repository_profile": "native", "variants": []}
 
 

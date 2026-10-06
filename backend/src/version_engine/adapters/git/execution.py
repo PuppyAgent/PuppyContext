@@ -1,4 +1,4 @@
-"""Bounded, cancellable disposable Git workers; never cancel remote I/O by fiat."""
+"""Bounded native streams and retained legacy subprocess execution helpers."""
 
 from __future__ import annotations
 
@@ -83,6 +83,57 @@ class OwnedGitResponse(StreamingResponse):
                 await super().__call__(scope, receive, send)
         finally:
             self.close()
+
+
+class ObjectGitResponse(OwnedGitResponse):
+    """Pull one pack chunk at a time, retaining the read pin and worker slot.
+
+    There is no output file or producer queue. Cancellation joins the current
+    storage read before closing the generator and releasing its snapshot.
+    """
+
+    def __init__(self, chunks, snapshot_context):
+        self.iterator = iter(chunks)
+        self.snapshot_context = snapshot_context
+        self.execution = current_execution.get() or Execution()
+        self.on_close = None
+        self.closed = False
+        StreamingResponse.__init__(self, self.chunks(), media_type="application/x-git-upload-pack-result",
+                                   headers={"Cache-Control": "no-cache"})
+
+    async def chunks(self):
+        sentinel = object()
+        token = current_execution.set(self.execution)
+        try:
+            while True:
+                chunk = await run_owned(next, self.iterator, sentinel)
+                if chunk is sentinel:
+                    break
+                if chunk:
+                    yield chunk
+        finally:
+            current_execution.reset(token)
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.iterator.close()
+        finally:
+            try:
+                self.snapshot_context.__exit__(None, None, None)
+            finally:
+                if self.on_close is not None:
+                    release, self.on_close = self.on_close, None
+                    release()
+
+    async def __call__(self, scope, receive, send):
+        try:
+            async with asyncio.timeout(MAX_SECONDS):
+                await StreamingResponse.__call__(self, scope, receive, send)
+        finally:
+            await run_owned(self.close)
 
 
 def run_git(command, *, env, directory, timeout, input=None, stdin=None, stdout=subprocess.PIPE):

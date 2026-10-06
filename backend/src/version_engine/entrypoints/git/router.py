@@ -529,7 +529,7 @@ async def git_project_rebuild_cache(
 
 async def _native_rpc(native, request, *, upload, project_id):
     # Admit before reading a request body. Keep the slot until a fetch response
-    # is sent/aborted, so slow clients cannot accumulate disk spools.
+    # is sent/aborted, bounding slow clients' object buffers and snapshot pins.
     with admission() as retain:
         async with asyncio.timeout(MAX_SECONDS):
             if upload:

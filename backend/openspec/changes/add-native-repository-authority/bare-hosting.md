@@ -1,5 +1,11 @@
 # New full-Project bare hosting (2026-10-06)
 
+Transport follow-up: `remove-native-git-materialization` replaces the disposable
+stock-Git adapter described by this historical acceptance receipt. Native Git
+now reads S3 objects directly and streams packs without a server-side bare repo.
+See `docs/architecture/17-native-git-object-transport.md` and that change's own
+verification receipt; the frozen candidate and results below remain historical.
+
 The user authorized implementation and local isolated acceptance of the first
 bare-hosting phase. New native Scope projections remain a future requirement;
 legacy Scope migration, old projection-OID imports and old-client continuation
