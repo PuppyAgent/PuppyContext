@@ -168,17 +168,41 @@ hosting tests (`puppyone-entrypoint-minio-build:local`, `/go/bin/minio`). It nev
 uses an existing remote database. This is real local storage/process evidence,
 not Supabase-hosted/E2B/provider-billing deployment acceptance.
 
+The regression suite checks these persistence guarantees:
+
+| Scenario | Required outcome |
+| --- | --- |
+| Three consecutive turns on SHA-1 and SHA-256 repositories | Each writing turn starts from the prior cloud commit; original parents survive; an unchanged turn creates no commit. |
+| Rename/delete, Unicode paths, binary attachments, executable modes and ignored scratch files | Published bytes and modes match Git; deletions persist; ignored files remain in recovery without entering the cloud tree. |
+| Two Agents publish from the same base | Exactly one succeeds; the other reports a conflict and retains its own commit and files. |
+| Cloud HEAD changes or the captured branch is deleted | Publication cannot switch targets or recreate the deleted branch. |
+| Truncated/corrupt pack, mismatched tip/branch or rewritten ancestry | Cloud refs stay unchanged and the original recovery checkpoint remains available. |
+| Stop, timeout or permission revocation at publication | The final database fence rejects the write even after the model finished. |
+| Crash after model completion or final commit checkpoint | Takeover completes without another model call; a durable commit keeps its original ID. |
+| Object storage fails after sandbox commit | The sandbox survives until that exact commit and files are durably captured; cleanup cannot erase the only copy. |
+| Repeated sandbox destruction/recreation | Merge parents, annotated tags, independent histories, index-only objects and dirty files survive. |
+| Recovery object is damaged or used by another Project/run | Checksum and owner binding reject restoration; retries cannot overwrite an earlier checkpoint. |
+
+The scripted model fixture checks the latest tool result before reporting
+completion, so a shell error cannot pass merely because an earlier turn succeeded.
+These are deterministic persistence tests; they do not evaluate model quality.
+
 ### Git workspace verification (2026-10-07)
 
-Source `5161a778` was verified with the locally built `git-workspace-v1` artifact:
+Runtime implementation `5161a778` was verified with the locally built
+`git-workspace-v1` artifact and the expanded regression suite:
 
-- Real Git helper suite: 3 passing cases, SHA-1/SHA-256, independent histories,
-  non-main branch, staged versus dirty content, unborn HEAD and no empty commits.
-- Full Agent runtime suite: 46 passed; after the final error-checkpoint change,
-  17 focused native/failure cases passed, including the newly added model-error
-  crash case. These use real Pi/Docker, owned PostgreSQL/PostgREST and MinIO.
+- Real Git helper suite: 8 passed on both the host and the pinned Linux worker
+  image (Node 22.22.3), including repeated recovery, merge/tag identity, binary
+  files, modes, hook suppression and corrupt-pack rejection.
+- Full Agent runtime suite: 74 passed, using real Pi/Docker, owned PostgreSQL/
+  PostgREST and MinIO. Both SHA-1 and SHA-256 complete three sequential turns;
+  fault tests cover concurrent publication, changed refs, invalid packs,
+  authorization changes, crash windows and storage outages.
+- This follow-up adds 32 cases: 27 runtime cases and 5 Git helper cases. It
+  changes tests and verification documentation without changing the runtime artifact.
 - Backend non-integration regression command: 3,726 passed, 904 skipped,
-  34 expected failures and 110 deselected.
+  34 expected failures and 150 deselected.
 - Ruff, whitespace checks and strict OpenSpec validation passed.
 - Canonical documentation was updated in `puppy-issues/document/puppyone/agent-runtime/`.
   Its global validator still reports the two pre-existing lifecycle metadata
