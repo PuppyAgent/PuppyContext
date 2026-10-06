@@ -88,3 +88,19 @@ repository/output spool; incoming push data retains fixed byte/object/delta
 budgets. Output packs currently omit delta compression, so bandwidth can exceed
 stock Git. Durable publication still performs conservative full-closure reads.
 This acceptance makes no deployment or 1000-concurrent-client throughput claim.
+
+## Local Qubits integration acceptance — 2026-10-06
+
+The implementation is committed as `664dd1e6` and merged into local `qubits` at
+`ddf4a378`. Commit `5b237fb5` adds 13 real application collaboration/load cases.
+Final native acceptance on that clean candidate passed **371 tests and 329 SQL
+assertions**, with zero failures/skips/xfails and runner exit 0. The full offline
+backend regression passed **3,726 tests** after `c3cd0105` supplied the missing
+explicit contract delta for the already-merged Cloud Agent API; 904 skips,
+34 xfails and 110 deselections remain separate from passed acceptance.
+
+The runtime, dependencies, migrations and runner are identical between those
+two tested commits. [Integration evidence and performance baseline](../../../../artifacts/tests/native-git-qubits/README.md)
+record exact Git identities, results, resources and the bounded 1/2/4/8-client
+load profile. This is local development acceptance; no remote push or hosted
+load was performed. The original implementation receipts above remain intact.

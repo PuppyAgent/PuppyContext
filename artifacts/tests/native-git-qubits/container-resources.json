@@ -1,0 +1,71 @@
+{
+  "init_process": "docker-init",
+  "before": {
+    "pids.current": "5",
+    "pids.max": "1024",
+    "memory.peak": "64778240",
+    "memory.max": "4294967296",
+    "pids.events": {
+      "max": 0
+    },
+    "memory.events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  },
+  "after": {
+    "pids.current": "4",
+    "pids.max": "1024",
+    "memory.peak": "982605824",
+    "memory.max": "4294967296",
+    "pids.events": {
+      "max": 0
+    },
+    "memory.events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  },
+  "failures": [],
+  "observed_peak": {
+    "pids": 58,
+    "processes": [
+      {
+        "Name": "docker-init",
+        "Pid": "1",
+        "PPid": "0",
+        "State": "S (sleeping)",
+        "Threads": "1"
+      },
+      {
+        "Name": "python",
+        "Pid": "7",
+        "PPid": "1",
+        "State": "S (sleeping)",
+        "Threads": "15"
+      },
+      {
+        "Name": "python",
+        "Pid": "16",
+        "PPid": "7",
+        "State": "S (sleeping)",
+        "Threads": "9"
+      },
+      {
+        "Name": "python",
+        "Pid": "495",
+        "PPid": "16",
+        "State": "S (sleeping)",
+        "Threads": "33"
+      }
+    ]
+  }
+}
