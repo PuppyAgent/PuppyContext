@@ -15,6 +15,28 @@ from src.version_engine.adapters.git.execution import admission, run_git, run_ow
 pytestmark = pytest.mark.hosting_component
 
 
+@pytest.mark.parametrize("cancelled", [False, True], ids=["deadline", "disconnect"])
+def test_snapshot_progress_stops_expensive_reads_after_owned_execution_ends(cancelled):
+    from src.version_engine.infrastructure.owned_work import Execution, current_execution
+    from src.version_engine.read.repository_snapshot import RepositorySnapshot
+
+    # Health and graph walks use this same snapshot progress callback. They
+    # must stop even when they never invoke a Git child or publish a ref.
+    snapshot = object.__new__(RepositorySnapshot)
+    snapshot._closed = False
+    snapshot._next_renewal = float("inf")
+    execution = Execution(deadline=time.monotonic() - 1 if not cancelled else float("inf"))
+    if cancelled:
+        execution.cancelled.set()
+    token = current_execution.set(execution)
+    try:
+        with pytest.raises(RuntimeError if cancelled else TimeoutError):
+            snapshot.check_live()
+    finally:
+        current_execution.reset(token)
+    snapshot.check_live()  # unrelated non-owned readers retain their contract
+
+
 @pytest.mark.asyncio
 async def test_disconnected_caller_stops_owned_work_before_releasing_its_scope():
     from src.version_engine.infrastructure.owned_work import checkpoint

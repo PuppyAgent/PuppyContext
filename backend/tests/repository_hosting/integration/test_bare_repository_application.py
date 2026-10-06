@@ -138,6 +138,12 @@ def test_bare_formal_creation_git_head_replay_and_cold_read(bare_application, tm
     client.run("remote", "add", "origin", remote)
     first = client.commit({"readme": b"bare\n"})
     client.run("push", "-u", "origin", "trunk")
+    auth = (
+        "http.extraHeader=Authorization: Basic "
+        + base64.b64encode(("x:" + secret).encode()).decode()
+    )
+    client.run("-c", auth, "clone", remote, tmp_path / "before-head-change")
+    assert Git(tmp_path / "before-head-change").text("symbolic-ref", "HEAD") == "refs/heads/trunk"
     client.run("branch", "feature")
     client.run("tag", "-a", "v1", "-m", "annotated")
     client.run("push", "--atomic", "origin", "feature", "refs/tags/v1")
@@ -155,6 +161,8 @@ def test_bare_formal_creation_git_head_replay_and_cold_read(bare_application, tm
     current_head = app.api("GET", f"/content/{project}/head")
     assert current_head["head_commit_id"] == first
     assert current_head["head"]["target_b64"] == base64.b64encode(b"refs/heads/feature").decode()
+    client.run("-c", auth, "clone", remote, tmp_path / "after-head-change")
+    assert Git(tmp_path / "after-head-change").text("symbolic-ref", "HEAD") == "refs/heads/feature"
     assert app.api("PUT", f"/content/{project}/head", json=payload) == result
     app.request(
         "PUT",
