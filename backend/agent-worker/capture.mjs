@@ -1,6 +1,5 @@
 /** Trusted provider control operation; never exposed as an Agent tool. */
-import { readdir, readFile, lstat } from 'node:fs/promises';
-import path from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
 const own = process.pid;
 for (let attempt = 0; attempt < 8; attempt++) {
   let running = false;
@@ -17,20 +16,11 @@ for (let attempt = 0; attempt < 8; attempt++) {
   if (attempt === 7) throw new Error('Could not quiesce sandbox processes');
   await new Promise(resolve => setTimeout(resolve, 25));
 }
-let size = 0;
-const files = {};
-async function walk(directory) {
-  for (const entry of await readdir(directory, {withFileTypes: true})) {
-    const name = path.join(directory, entry.name);
-    const stat = await lstat(name);
-    if (stat.isDirectory()) await walk(name);
-    else {
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unsupported recovery file');
-      size += stat.size;
-      if (size > 64 * 1024 * 1024 || Object.keys(files).length >= 10000) throw new Error('Recovery byte limit exceeded');
-      files[path.relative('/workspace', name)] = (await readFile(name)).toString('base64');
-    }
-  }
-}
-await walk('/workspace');
-process.stdout.write(JSON.stringify(files));
+const root = '/workspace';
+const { captureGit, commitGit, knowledgeFiles } = await import('./git-workspace.mjs');
+const state = await captureGit(root);
+if (process.argv[2] === '--commit' && state) await commitGit(root, process.argv[3]);
+const workspace = await knowledgeFiles(root);
+if (process.argv.includes('--workspace')) {
+  process.stdout.write(JSON.stringify({ ...workspace, ...(state ? { git: await captureGit(root) } : {}) }));
+} else process.stdout.write(JSON.stringify(workspace.files));

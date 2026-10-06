@@ -161,8 +161,11 @@ class RunSupervisor:
                     raise ValueError("Missing initial recovery checkpoint")
                 worker = worker or await PiWorker.attach(resource, self.run["project_id"])
                 if self.value.get("reason") != "settled":
-                    files = await worker.capture()
-                    await self.save({**self.value, "files": files}, "interrupted")
+                    if "git" in self.value:
+                        workspace = await worker.capture(workspace=True)
+                    else:
+                        workspace = {"files": await worker.capture()}
+                    await self.save({**self.value, **workspace}, "interrupted")
             except WorkerLost:
                 await self.write("recovery", {"code": "unconfirmed_workspace_lost"})
             except Exception:
@@ -224,6 +227,8 @@ class RunSupervisor:
             if self.value["reason"] == "settled":
                 await self.publish(grant)
                 return
+            if self.value["reason"] == "model_failed":
+                raise EndRun("failed", "model_failed")
             # A model stream can die after partial UI text but before its Pi
             # message is acknowledged. Rebuild this run's visible text from
             # durable entries before continuing, avoiding duplicated prefixes.
@@ -288,7 +293,9 @@ class RunSupervisor:
                     key: self.value[key]
                     for key in ("version", "pi_version", "entries", "leaf_id", "files")
                 },
+                **{key: self.value[key] for key in ("git", "modes") if key in self.value},
                 "prompt": self.run["prompt"],
+                "finalize_only": self.value.get("agent_settled", False),
                 "resume": resume and self.value["reason"] != "prepared",
                 "tools": definitions,
                 "receipts": tools,
@@ -310,11 +317,17 @@ class RunSupervisor:
                 await self.write("text", {"delta": delta[:100000]}, snapshot=snapshot)
             elif kind == "checkpoint":
                 supplied = frame["checkpoint"]
+                if "git" in self.value and not isinstance(supplied.get("git"), dict):
+                    raise ValueError("Sandbox artifact did not checkpoint Git state")
                 value = {
                     key: supplied[key]
                     for key in ("version", "pi_version", "entries", "leaf_id", "files")
                 }
-                await self.save({**self.value, **value}, frame["reason"])
+                value.update({key: supplied[key] for key in ("git", "modes") if key in supplied})
+                reason = "agent_settled" if frame["reason"] == "settled" else frame["reason"]
+                if reason == "agent_settled":
+                    value["agent_settled"] = True
+                await self.save({**self.value, **value}, reason)
                 await self.worker.send({"type": "reply", "id": frame["id"]})
             elif kind == "tool_start":
                 await self.tool_start(frame)
@@ -334,14 +347,25 @@ class RunSupervisor:
                 if frame.get("error"):
                     raise EndRun("failed", "model_failed")
                 self.finished = True
-                files = await self.worker.capture()
-                await self.save({**self.value, "files": files}, "settled")
+                await self.check()
+                if "git" in self.value:
+                    workspace = await self.worker.capture(
+                        workspace=True,
+                        commit=None
+                        if self.run["policy"]["readonly"]
+                        else "Agent run " + self.run["id"],
+                    )
+                else:
+                    workspace = {"files": await self.worker.capture()}
+                await self.save({**self.value, **workspace}, "settled")
                 return
             elif kind in {"failed", "disconnected"}:
                 raise EndRun("failed", "worker_disconnected")
             elif kind == "ready":
                 if frame.get("pi_version") != "0.85.1" or frame.get("node_version") != "v22.22.3":
                     raise ValueError("Unexpected worker artifact")
+                if "git" in self.value and frame.get("workspace_version") != 1:
+                    raise ValueError("Sandbox artifact does not support Git workspaces")
                 await self.write(
                     "ready", {key: frame[key] for key in ("pi_version", "node_version")}
                 )
@@ -423,8 +447,11 @@ class RunSupervisor:
         )
 
     async def tool_end(self, frame):
+        if "git" in self.value and not isinstance(frame.get("git"), dict):
+            raise ValueError("Missing tool Git checkpoint")
         validate_files(frame["files"])
         value = {**self.value, "files": frame["files"], "reason": "after_tool"}
+        value.update({key: frame[key] for key in ("git", "modes") if key in frame})
         manifest = await self.checkpoints.save(self.run, value)
         await asyncio.to_thread(
             self.repo.tool,

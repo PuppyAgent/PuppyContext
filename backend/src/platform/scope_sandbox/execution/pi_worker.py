@@ -7,13 +7,14 @@ expose the same framed channel. This module does not own Agent run state.
 import asyncio
 import codecs
 import json
+import shlex
 import time
 from contextlib import suppress
 
 from src.config import settings
 from src.platform.scope_sandbox.execution.store import ExecutionSession, durable_execution_store
 
-MAX_FRAME = 96 * 1024 * 1024
+MAX_FRAME = 192 * 1024 * 1024
 
 
 class WorkerLost(RuntimeError):
@@ -95,7 +96,7 @@ class PiWorker:
                 "--memory=768m",
                 "--cpus=1",
                 "--user=1000:1000",
-                "--tmpfs=/workspace:rw,nosuid,nodev,size=128m,uid=1000,gid=1000",
+                "--tmpfs=/workspace:rw,nosuid,nodev,size=256m,uid=1000,gid=1000",
                 "--tmpfs=/tmp:rw,nosuid,nodev,size=128m,uid=1000,gid=1000",
                 "--tmpfs=/home/node:rw,nosuid,nodev,size=8m,uid=1000,gid=1000",
                 "-i",
@@ -219,13 +220,18 @@ class PiWorker:
         if self.process:
             await self.process.wait()
 
-    async def capture(self):
+    async def capture(self, *, workspace=False, commit=None):
         """Freeze all tool processes, read the actual mounted filesystem, then
         leave it frozen until its immutable checkpoint permits cleanup.
 
         Docker's archive API cannot read tmpfs contents. A trusted image helper
         reads them inside the mount namespace; no archive is extracted on host.
         """
+        command = ["node", "/opt/puppyone-agent/capture.mjs"]
+        if commit is not None:
+            command += ["--commit", commit]
+        if workspace:
+            command.append("--workspace")
         if self.provider == "docker":
             try:
                 state = json.loads(
@@ -245,8 +251,7 @@ class PiWorker:
                 "exec",
                 "--user=1000:1000",
                 self.resource["resource_id"],
-                "node",
-                "/opt/puppyone-agent/capture.mjs",
+                *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -263,16 +268,19 @@ class PiWorker:
                     "Cannot capture interrupted workspace: " + error.decode(errors="replace")[:300]
                 )
         else:
-            result = await self.sandbox.commands.run(
-                "node /opt/puppyone-agent/capture.mjs", user="node", timeout=30
-            )
+            result = await self.sandbox.commands.run(shlex.join(command), user="node", timeout=120)
             if result.exit_code:
                 raise RuntimeError("Cannot capture interrupted workspace")
             output = result.stdout
-        files = json.loads(output)
-        from src.platform.access.adapters.agent.runtime.checkpoints import validate_files
+        value = json.loads(output)
+        if workspace and (not isinstance(value, dict) or not isinstance(value.get("git"), dict)):
+            raise ValueError("Sandbox artifact did not return Git recovery state")
+        from src.platform.access.adapters.agent.runtime.checkpoints import (
+            validate_files,
+            validate_workspace,
+        )
 
-        return validate_files(files)
+        return validate_workspace(value) if workspace else validate_files(value)
 
     @staticmethod
     async def resolve_resources(resource):

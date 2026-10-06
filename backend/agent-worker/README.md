@@ -10,7 +10,7 @@ scheduled execution; `POST /agents` and the old runtime DTO are removed.
 Build from the repository root:
 
 ```sh
-docker build -t puppyone-cloud-agent:pi-0.85.1-node-22.22.3 backend/agent-worker
+docker build -t puppyone-cloud-agent:git-workspace-v1 backend/agent-worker
 ```
 
 Apply the two `20261006060000` / `20261006060100` migrations through the existing
@@ -33,7 +33,7 @@ Agent, must be supported by the existing managed inference gateway.
 Docker requires a Docker-enabled worker host. Railway's hosted worker should use
 `SANDBOX_TYPE=e2b` and a separately built, immutable
 `CLOUD_AGENT_E2B_TEMPLATE` containing this artifact, `/workspace`, user `node`,
-Node 22.22.3 and both `.mjs` entrypoints. The E2B transport disables Internet
+Node 22.22.3, Git and all three runtime `.mjs` files. The E2B transport disables Internet
 access and binds resources to execution/project metadata. E2B template creation
 and hosted behavior have **not** been verified by the local Docker tests.
 
@@ -43,6 +43,30 @@ prevents root overrides from replacing two nested dependencies; the build runs
 brace-expansion 5.0.12 into those exact locations. It does not patch Pi source.
 Production image configuration should use the built registry digest. Docker
 resolves and records its immutable image ID before allocating each execution.
+
+## Knowledge repository workspace
+
+For a native full Project, the backend captures the selected cloud branch and
+complete reachable Git history under the existing read pin. A standard Git bundle
+travels over the provider control channel; the sandbox runs `git clone` on it.
+This is an offline Git transport, not a backend checkout or a file-only export.
+No E2B template start command or cloud write credential is needed for each run.
+The template contains the tools; the supervisor starts each actual writing task.
+
+After a successful turn, the provider's trusted capture command freezes Agent
+processes, stages changes and creates a Git commit. The backend publishes that
+original commit graph through the existing fenced native ref transaction, with
+the same semantics as a push to the captured branch. This implementation does
+not execute an unrestricted HTTP `git push` from an Agent tool. Unchanged turns
+create no commit. Concurrent edits reject publication and retain the local commit.
+
+Full native Project views are supported. Restricted native Agent views reject
+before receiving broader history; native Scope projections remain a separate
+capability. The selected branch must have a UTF-8 name; detached HEAD rejects.
+Checkpoints are bounded to 32 MiB of packed Git data, 64 MiB of working files and
+10,000 files. Current workspace files must be regular files (no symlinks or
+submodules); their executable modes are retained. No limit truncates history:
+an oversized repository fails preparation explicitly.
 
 ## Client contract
 
@@ -92,7 +116,10 @@ automatic approval. Approvals never widen the saved Project/Scope view.
 
 Runs, execution generations, tool receipts and bounded events live in PostgreSQL.
 Checksummed gzip objects store full Pi session entries (including compaction and
-inactive branches), the captured repository base and bounded workspace files.
+inactive branches), the captured repository base, original Git objects/refs,
+staged index and bounded working files. Git metadata is never published as a
+knowledge file. A completed model turn is recorded separately from the final
+frozen/committed checkpoint so a crash between those stages can be recovered.
 An old execution cannot write after takeover. Completed receipts can restore
 missing tool results without re-execution; an `executing` receipt is unknown and
 is never replayed. The trusted capture helper freezes tool processes before
@@ -106,8 +133,9 @@ chat into a resumable Pi session. A new session is required when the previous
 run requires resolution; operator recovery uses the retained base/files/receipts.
 
 Publication reuses the canonical Version Engine, original base and SQL fencing.
-Agent submissions opt into its existing `manual_review` policy for unsafe
-overlaps; safe deterministic merges still use the same engine.
+Native Git publication conditionally updates its fixed ref and preserves original
+commit IDs; it never regenerates commits or force-pushes over another author.
+The pre-existing legacy projection path retains its `manual_review` policy.
 The native publication adapter has real PostgreSQL/S3 coverage with synthetic
 native enrollment/readiness; the current Project readiness service still owns
 its existing first-root-Git-push gate. Native readiness rollout belongs to
@@ -128,6 +156,7 @@ From `backend/`:
 
 ```sh
 uv run pytest tests/agent/runtime -q
+node --test agent-worker/git-workspace.test.mjs
 uv run pytest tests/agent --ignore=tests/agent/runtime tests/security tests/scheduler tests/platform/billing -q
 ```
 

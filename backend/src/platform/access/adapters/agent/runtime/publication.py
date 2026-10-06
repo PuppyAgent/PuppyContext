@@ -5,6 +5,11 @@ import base64
 
 from src.platform.access.adapters.agent.runtime.admission import clean_path, digest
 from src.platform.access.adapters.agent.runtime.checkpoints import validate_files
+from src.platform.access.adapters.agent.runtime.git_workspace import (
+    capture_git,
+    full_project,
+    publish_git,
+)
 from src.platform.project.write_lease import ProjectWriteLease
 from src.platform.repository_target.models import RepositoryPathProjection
 from src.version_engine.adapters.batch.in_process_client import InProcessVersionClient
@@ -34,8 +39,13 @@ class Publication:
     def capture(self, run, grant):
         policy, project = run["policy"], run["project_id"]
         files = {}
+        workspace = {}
         with self.ops.open_read(project, grant) as reader:
             native = reader.get_read_revision(project)
+            if native:
+                full_project(run)
+                workspace["git"] = capture_git(reader)
+                workspace["modes"] = {}
             before = reader.get_head_commit_id(project)
             if policy["materialize"]:
                 prefix = policy["path_prefix"]
@@ -55,12 +65,15 @@ class Publication:
                         )
                     name = item.path[len(mount) + 1 :] if mount else item.path
                     files[name] = base64.b64encode(reader.read_file(project, item.path)).decode()
+                    if native:
+                        workspace["modes"][name] = getattr(item, "git_mode", None) or "100644"
                     validate_files(files)
             else:
                 mount = policy["path_prefix"]
             if reader.get_head_commit_id(project) != before:
                 raise RuntimeError("Repository changed during workspace capture; retry submission")
         return {
+            **workspace,
             "version": 1,
             "pi_version": "0.85.1",
             "files": files,
@@ -73,6 +86,25 @@ class Publication:
         }
 
     async def publish(self, run, checkpoint, grant):
+        if "git" in checkpoint:
+            service = await asyncio.to_thread(
+                self.container.repo_manager.get_native_service, run["project_id"]
+            )
+            if service is None:
+                raise PublicationRejected("Native Agent repository is unavailable")
+            lease = ProjectWriteLease(run["project_id"], "agent.git.publish", reuse_active=False)
+            lease.holder_id = actor(run)
+            async with lease:
+                task = asyncio.create_task(
+                    asyncio.to_thread(publish_git, service, run, checkpoint, grant)
+                )
+                try:
+                    return await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    try:
+                        await task
+                    finally:
+                        raise
         try:
             files = validate_files(checkpoint["files"])
             original = validate_files(checkpoint["base_files"])

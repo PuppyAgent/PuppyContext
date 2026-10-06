@@ -76,6 +76,12 @@ class ModelFixture:
         return InferenceRun(str(uuid4()), events(), close)
 
 
+def read_case(case, path):
+    grant = case.admission.authorization.resolve_project_grant(case.project, case.user)
+    with case.ops.open_read(case.project, grant) as reader:
+        return reader.read_file(case.project, path)
+
+
 def worker_factory(execution, project):
     return PiWorker(execution, project, provider="docker", store=InMemoryExecutionSessionStore())
 
@@ -220,7 +226,7 @@ async def test_real_run_publishes_and_survives_no_subscriber(prepared):
         case, asyncio.create_task(case.supervisor().run_claim(case.run))
     )
     assert completed["state"] == "succeeded", completed
-    assert case.ops.read_file(case.project, "result.txt") == b"durable result"
+    assert read_case(case, "result.txt") == b"durable result"
     checkpoint = await case.checkpoints.load(completed, completed["checkpoint"])
     assert any(e.get("message", {}).get("role") == "toolResult" for e in checkpoint["entries"])
     assert not case.repo.executions(case.run["id"])
@@ -228,6 +234,7 @@ async def test_real_run_publishes_and_survives_no_subscriber(prepared):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("after_commit", [False, True])
+@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
 async def test_publication_response_loss_keeps_original_material(prepared, after_commit):
     case = prepared
 
@@ -249,14 +256,15 @@ async def test_publication_response_loss_keeps_original_material(prepared, after
     checkpoint = await case.checkpoints.load(completed, completed["checkpoint"])
     assert base64.b64decode(checkpoint["files"]["result.txt"]) == b"durable result"
     if after_commit:
-        assert case.ops.read_file(case.project, "result.txt") == b"durable result"
+        assert read_case(case, "result.txt") == b"durable result"
     else:
         with pytest.raises(FileNotFoundError):
-            case.ops.read_file(case.project, "result.txt")
+            read_case(case, "result.txt")
     assert not case.repo.executions(case.run["id"])
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
 async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
     case = prepared
     first = case.supervisor()
@@ -280,11 +288,12 @@ async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
     assert case.repo.tools(claimed["id"])[0]["state"] == "waiting"
     completed = await approve_to_completion(case, task)
     assert completed["state"] == "succeeded", completed
-    assert case.ops.read_file(case.project, "result.txt") == b"durable result"
+    assert read_case(case, "result.txt") == b"durable result"
     assert len(case.repo.tools(claimed["id"])) == 1
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
 async def test_stop_waiting_approval_has_no_tool_effect(prepared):
     case = prepared
     task = asyncio.create_task(case.supervisor().run_claim(case.run))
@@ -295,11 +304,12 @@ async def test_stop_waiting_approval_has_no_tool_effect(prepared):
     assert completed["state"] == "stopped", completed
     assert case.repo.tools(case.run["id"])[0]["state"] == "waiting"
     with pytest.raises(FileNotFoundError):
-        case.ops.read_file(case.project, "result.txt")
+        read_case(case, "result.txt")
     assert not case.repo.executions(case.run["id"])
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
 async def test_completed_tool_receipt_recovers_before_manifest_ack(prepared, monkeypatch):
     case = prepared
     original = case.repo.write
@@ -324,11 +334,12 @@ async def test_completed_tool_receipt_recovers_before_manifest_ack(prepared, mon
     model.calls = 1
     await case.supervisor(model=model).run_claim(next_run)
     assert case.repo.get(case.run["id"])["state"] == "succeeded"
-    assert case.ops.read_file(case.project, "result.txt") == b"durable result"
+    assert read_case(case, "result.txt") == b"durable result"
     assert len(case.repo.tools(case.run["id"])) == 1
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
 async def test_unknown_tool_is_not_replayed(prepared, monkeypatch):
     case = prepared
     original = case.repo.tool
@@ -361,6 +372,7 @@ async def test_unknown_tool_is_not_replayed(prepared, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
 async def test_checkpoint_outage_retains_workspace_until_retry(prepared, monkeypatch):
     case = prepared
     save = case.checkpoints.save
@@ -456,6 +468,10 @@ async def test_native_canonical_publication_and_receipt(prepared):
     grant = case.admission.authorization.resolve_project_grant(case.project, case.user)
     with case.ops.open_read(case.project, grant) as reader:
         assert reader.read_file(case.project, "result.txt") == b"durable result"
+        cloud_tip = reader.get_head_commit_id(case.project)
+    checkpoint = await case.checkpoints.load(completed, completed["checkpoint"])
+    assert checkpoint["git"]["tip"] == cloud_tip
+    assert not any(name.startswith(".git/") for name in checkpoint["files"])
     assert (
         case.postgres.sql(
             f"SELECT count(*) FROM version_ref_transactions WHERE request_key='{case.run['id']}'"
@@ -466,6 +482,217 @@ async def test_native_canonical_publication_and_receipt(prepared):
         case.postgres.sql(f"SELECT count(*) FROM version_commits WHERE project_id='{case.project}'")
         == "0"
     )
+
+
+async def native_write(case, name, content):
+    from src.version_engine.adapters.product.tree_patch import splice_batch
+
+    grant = case.admission.authorization.resolve_project_grant(case.project, case.user)
+    with case.ops.open_read(case.project, grant) as reader:
+        base = reader.get_read_revision(case.project)
+    return await case.ops.apply_native_command(
+        case.project,
+        grant,
+        request_key=str(uuid4()),
+        base=base,
+        input_sha256="b" * 64,
+        splice=lambda store, tree: splice_batch(store, tree, [("put", name, content)]),
+        message="Human knowledge edit",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native"], indirect=True)
+async def test_native_history_and_non_main_branch_survive_next_turn(prepared):
+    import base64
+
+    case = prepared
+    case.postgres.sql(
+        f"UPDATE version_repository_refs SET symbolic_target=convert_to('refs/heads/knowledge','UTF8') "
+        f"WHERE project_id='{case.project}' AND name=convert_to('HEAD','UTF8')"
+    )
+    await native_write(case, "notes.md", b"first version")
+    await native_write(case, "notes.md", b"second version")
+    first = await approve_to_completion(
+        case, asyncio.create_task(case.supervisor().run_claim(case.run))
+    )
+    assert first["state"] == "succeeded", first
+    saved = await case.checkpoints.load(first, first["checkpoint"])
+    assert base64.b64decode(saved["git"]["head"]) == b"refs/heads/knowledge"
+
+    class HistoryModel(ModelFixture):
+        async def completion(self, user, request, body):
+            if self.calls:
+                assert "second version" in body.model_dump_json()
+                assert "Human knowledge edit" in body.model_dump_json()
+            result = await super().completion(user, request, body)
+
+            async def events():
+                async for event in result.events:
+                    if isinstance(event, ModelChunk):
+                        for choice in event.frame.get("choices", []):
+                            for call in choice.get("delta", {}).get("tool_calls", []):
+                                call["function"] = {
+                                    "name": "bash",
+                                    "arguments": json.dumps(
+                                        {"command": "git log --format=%s; git show HEAD:notes.md"}
+                                    ),
+                                }
+                    yield event
+
+            return InferenceRun(
+                result.request_id if hasattr(result, "request_id") else str(uuid4()),
+                events(),
+                result.aclose,
+            )
+
+    second = await asyncio.to_thread(
+        case.service.submit,
+        case.user,
+        SubmitRun(
+            project_id=case.project,
+            agent_id=case.agent,
+            session_id=first["session_id"],
+            request_id=str(uuid4()),
+            prompt="Read the saved writing history",
+        ),
+    )
+    case.run = case.repo.rpc("claim", worker="history-second-turn")
+    assert case.run["id"] == second["id"]
+    completed = await approve_to_completion(
+        case, asyncio.create_task(case.supervisor(model=HistoryModel()).run_claim(case.run))
+    )
+    assert completed["state"] == "succeeded", completed
+    assert completed["publication"]["status"] == "no_changes"
+    restored = await case.checkpoints.load(completed, completed["checkpoint"])
+    assert restored["git"]["tip"] == saved["git"]["tip"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native"], indirect=True)
+async def test_native_git_race_keeps_original_commit_without_overwrite(prepared):
+    case = prepared
+    await native_write(case, "notes.md", b"original")
+
+    class RacingPublisher:
+        capture = case.publication.capture
+
+        async def publish(self, run, checkpoint, grant):
+            await native_write(case, "notes.md", b"concurrent human edit")
+            return await case.publication.publish(run, checkpoint, grant)
+
+    completed = await approve_to_completion(
+        case,
+        asyncio.create_task(case.supervisor(publication=RacingPublisher()).run_claim(case.run)),
+    )
+    assert completed["state"] == "conflict", completed
+    saved = await case.checkpoints.load(completed, completed["checkpoint"])
+    assert saved["git"]["tip"] != saved["base"]["expected_oid"]
+    grant = case.admission.authorization.resolve_project_grant(case.project, case.user)
+    with case.ops.open_read(case.project, grant) as reader:
+        assert reader.read_file(case.project, "notes.md") == b"concurrent human edit"
+        assert reader.get_head_commit_id(case.project) != saved["git"]["tip"]
+        assert reader.stat(case.project, "result.txt") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native"], indirect=True)
+async def test_native_restricted_agent_never_receives_full_history(prepared):
+    case = prepared
+    grant = case.admission.authorization.resolve_project_grant(case.project, case.user)
+    restricted = {**case.run, "policy": {**case.run["policy"], "excludes": ["private"]}}
+    with pytest.raises(ValueError, match="unrestricted Project-root"):
+        case.publication.capture(restricted, grant)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native"], indirect=True)
+async def test_native_stop_at_publication_cannot_advance_ref(prepared):
+    case = prepared
+
+    class StoppedPublisher:
+        capture = case.publication.capture
+
+        async def publish(self, run, checkpoint, grant):
+            case.service.command(case.user, run["id"], "stop")
+            return await case.publication.publish(run, checkpoint, grant)
+
+    completed = await approve_to_completion(
+        case,
+        asyncio.create_task(case.supervisor(publication=StoppedPublisher()).run_claim(case.run)),
+    )
+    assert completed["state"] != "succeeded"
+    assert not completed["publication"]
+    with pytest.raises(FileNotFoundError):
+        read_case(case, "result.txt")
+    saved = await case.checkpoints.load(completed, completed["checkpoint"])
+    assert saved["git"]["tip"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native"], indirect=True)
+async def test_native_settled_model_recovers_without_running_model_again(prepared, monkeypatch):
+    case = prepared
+    original = case.repo.write
+
+    def crash(run, kind, payload=None, **patch):
+        result = original(run, kind, payload, **patch)
+        if kind == "checkpoint" and payload == {"reason": "agent_settled"}:
+            raise asyncio.CancelledError()
+        return result
+
+    monkeypatch.setattr(case.repo, "write", crash)
+    first = case.supervisor()
+    with pytest.raises(asyncio.CancelledError):
+        await approve_to_completion(case, asyncio.create_task(first.run_claim(case.run)))
+    await first.worker.stop()
+    monkeypatch.setattr(case.repo, "write", original)
+    case.postgres.sql(
+        f"UPDATE agent_runs SET lease_until=now()-interval '1 second' WHERE id='{case.run['id']}'"
+    )
+    model = ModelFixture()
+    await case.supervisor(model=model).run_claim(case.repo.rpc("claim", worker="settled-recovery"))
+    assert model.calls == 0
+    assert case.repo.get(case.run["id"])["state"] == "succeeded"
+    assert read_case(case, "result.txt") == b"durable result"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native"], indirect=True)
+async def test_native_model_error_checkpoint_never_becomes_success_after_crash(
+    prepared, monkeypatch
+):
+    case = prepared
+    original = case.repo.write
+
+    def crash(run, kind, payload=None, **patch):
+        result = original(run, kind, payload, **patch)
+        if kind == "checkpoint" and payload == {"reason": "model_failed"}:
+            raise asyncio.CancelledError()
+        return result
+
+    async def failed_model(*args):
+        raise ConnectionError("Injected model failure")
+
+    model = ModelFixture()
+    model.completion = failed_model
+    monkeypatch.setattr(case.repo, "write", crash)
+    first = case.supervisor(model=model)
+    with pytest.raises(asyncio.CancelledError):
+        await first.run_claim(case.run)
+    await first.worker.stop()
+    monkeypatch.setattr(case.repo, "write", original)
+    case.postgres.sql(
+        f"UPDATE agent_runs SET lease_until=now()-interval '1 second' WHERE id='{case.run['id']}'"
+    )
+    replacement = ModelFixture()
+    await case.supervisor(model=replacement).run_claim(
+        case.repo.rpc("claim", worker="error-recovery")
+    )
+    result = case.repo.get(case.run["id"])
+    assert result["state"] == "failed", result
+    assert not result["publication"]
+    assert replacement.calls == 0
 
 
 @pytest.mark.asyncio
@@ -499,7 +726,7 @@ async def test_conflict_keeps_unpublished_files(prepared):
         asyncio.create_task(case.supervisor(publication=RacingPublisher()).run_claim(case.run)),
     )
     assert completed["state"] == "conflict", completed
-    assert case.ops.read_file(case.project, "result.txt") == b"concurrent human content"
+    assert read_case(case, "result.txt") == b"concurrent human content"
     import base64
 
     checkpoint = await case.checkpoints.load(completed, completed["checkpoint"])

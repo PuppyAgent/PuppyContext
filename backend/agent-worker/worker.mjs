@@ -2,7 +2,8 @@
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile, readdir, readFile, lstat, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
+import { captureGit, knowledgeFiles, restoreFiles, restoreGit } from './git-workspace.mjs';
 import path from 'node:path';
 import {
   createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager,
@@ -12,7 +13,6 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 const root = process.cwd();
-const maxBytes = 64 * 1024 * 1024;
 const pending = new Map();
 const models = new Map();
 let session;
@@ -45,29 +45,13 @@ async function safePath(value, allowMissing = false) {
 }
 
 async function workspace() {
-  const files = {};
-  let bytes = 0;
-  async function walk(dir) {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const name = path.join(dir, entry.name);
-      const stat = await lstat(name);
-      if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) throw new Error('Unsupported workspace file type');
-      if (stat.isDirectory()) await walk(name);
-      else {
-        bytes += stat.size;
-        if (bytes > maxBytes || Object.keys(files).length >= 10000) throw new Error('Workspace checkpoint limit exceeded');
-        files[path.relative(root, name)] = (await readFile(name)).toString('base64');
-      }
-    }
-  }
-  await walk(root);
-  return files;
+  return { ...await knowledgeFiles(root), ...(config.git ? { git: await captureGit(root) } : {}) };
 }
 
 async function checkpoint(reason) {
   // All session entries, not just rendered messages: retains compactions and branches.
   const value = { version: 1, pi_version: VERSION, entries: [manager.getHeader(), ...manager.getEntries()],
-    leaf_id: manager.getLeafId(), files: await workspace() };
+    leaf_id: manager.getLeafId(), ...await workspace() };
   await request('checkpoint', { reason, checkpoint: value });
 }
 
@@ -85,7 +69,7 @@ function wrap(definition) {
     try { result = await execute(id, input, signal, update, context); }
     catch (error) { result = { content: [{ type: 'text', text: String(error.message) }], isError: true }; }
     // Receipt + modified files become durable before Pi is allowed to continue.
-    await request('tool_end', { call_id: id, name: definition.name, input, result, files: await workspace() });
+    await request('tool_end', { call_id: id, name: definition.name, input, result, ...await workspace() });
     return result;
   }};
 }
@@ -93,13 +77,15 @@ function wrap(definition) {
 async function start(value) {
   config = value;
   if (VERSION !== '0.85.1' || process.version !== 'v22.22.3') throw new Error('Worker version mismatch');
-  for (const [name, content] of Object.entries(config.files || {})) {
-    const target = await safePath(name, true);
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, Buffer.from(content, 'base64'));
-  }
+  if (config.git) await restoreGit(root, config.git);
+  await restoreFiles(root, config.files || {}, config.modes || {});
   manager = SessionManager.inMemory(root, undefined, config.entries);
   if (config.leaf_id) manager.branch(config.leaf_id);
+  if (config.finalize_only) {
+    send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 1 });
+    send({ type: 'finished', stopped: false, error: null });
+    return;
+  }
   const server = createServer(async (req, res) => {
     if (req.url !== '/v1/chat/completions' || req.method !== 'POST') { res.writeHead(404).end(); return; }
     try {
@@ -161,7 +147,7 @@ async function start(value) {
       send({ type: 'text', delta: event.assistantMessageEvent.delta });
   });
   session.agent.toolExecution = 'sequential';
-  send({ type: 'ready', pi_version: VERSION, node_version: process.version });
+  send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 1 });
   try {
     if (config.resume) {
       // Reconcile completed/approved calls explicitly. Agent.continue() needs
@@ -191,8 +177,8 @@ async function start(value) {
       await session.agent.continue();
     }
     else await session.prompt(config.prompt, { expandPromptTemplates: false });
-    await checkpoint('settled');
     const last = [...session.agent.state.messages].reverse().find(m => m.role === 'assistant');
+    await checkpoint(last?.stopReason === 'error' ? 'model_failed' : 'settled');
     send({ type: 'finished', stopped, error: last?.stopReason === 'error' ? last.errorMessage || 'Model failed' : null });
   } finally {
     session.dispose();
@@ -204,7 +190,7 @@ async function start(value) {
 const lines = createInterface({ input: process.stdin });
 lines.on('line', line => {
   try {
-    if (Buffer.byteLength(line) > 96 * 1024 * 1024) throw new Error('Control frame too large');
+    if (Buffer.byteLength(line) > 192 * 1024 * 1024) throw new Error('Control frame too large');
     const message = JSON.parse(line);
     if (message.type === 'start' && !config) {
       start(message.config).catch(error => send({ type: 'failed', error: error.message }));
