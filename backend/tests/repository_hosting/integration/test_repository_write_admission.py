@@ -16,9 +16,23 @@ from tests.repository_hosting.harness.transaction import transaction, wait_for_l
 pytestmark = pytest.mark.hosting_live
 
 
+def seed_legacy_scope(pg, project):
+    """Negative fixture: a bounded legacy view predates synthetic enrollment.
+
+    This is not a supported migration. Native creation now rejects new Scope
+    configuration; the admission tests must still prove that even a persisted
+    bounded credential cannot be widened by an owner-installed authority row.
+    """
+    scope_id = 'scope-' + uuid.uuid4().hex
+    pg.sql(f"INSERT INTO public.repository_scopes(id,project_id,name,path,max_mode) "
+           f"VALUES({literal(scope_id)},{literal(project)},'private','private','rw')")
+    return scope_id
+
+
 @pytest.fixture
 def admission(pg_project):
     pg, project = pg_project
+    scope_id = seed_legacy_scope(pg, project)
     authority = Authority(pg, project)
     org = pg.value(f"SELECT org_id FROM public.projects WHERE id={literal(project)}")
     user, lease = str(uuid.uuid4()), str(uuid.uuid4())
@@ -32,7 +46,8 @@ def admission(pg_project):
         SELECT public.acquire_project_write_lease({literal(project)},{literal(lease)},'native-test-holder','native-test',120);
     """)
     return SimpleNamespace(pg=pg, authority=authority, project=project, org=org, user=user,
-                           actor='user:'+user, lease=lease, holder='native-test-holder')
+                           actor='user:'+user, lease=lease, holder='native-test-holder',
+                           scope_id=scope_id)
 
 
 def check_query(a, actor=None, *, lease=None, holder=None):
@@ -51,10 +66,7 @@ def apply_query(a, *, actor=None, key=None):
 
 def seed_credential(a, *, scope=False):
     surface, credential = 'surface-'+uuid.uuid4().hex, 'credential-'+uuid.uuid4().hex
-    scope_id = 'scope-'+uuid.uuid4().hex if scope else None
-    if scope:
-        a.pg.sql(f"INSERT INTO public.repository_scopes(id,project_id,name,path,max_mode) "
-                 f"VALUES({literal(scope_id)},{literal(a.project)},'private','private','rw')")
+    scope_id = a.scope_id if scope else None
     a.pg.sql(f"""
         INSERT INTO public.access_surfaces(id,org_id,project_id,scope_id,kind,name,config,status)
         VALUES({literal(surface)},{literal(a.org)},{literal(a.project)},{literal(scope_id)},'git_remote','test','{{"mode":"rw"}}','active');

@@ -5,6 +5,7 @@ Scope, worker, billing provider or Desktop acceptance is implied.
 """
 import base64
 import secrets
+import time
 import uuid
 
 import pytest
@@ -110,6 +111,13 @@ def test_docker_native_product_commands_cold_git_and_read_only_replay(applicatio
     def inventory():
         return [pg.value(f"SELECT count(*) FROM public.{table} WHERE project_id={literal(project)}") for table in (
             "project_write_leases", "version_object_pins", "version_ref_transactions", "version_ref_events")]
+    # Receiving the last response byte can precede ASGI dependency cleanup.
+    # Establish a quiescent baseline for the completed cold fetch; otherwise
+    # its legitimate lease release is falsely attributed to read-only replay.
+    deadline = time.monotonic() + 5
+    while pg.value(f"SELECT count(*) FROM public.project_write_leases WHERE project_id={literal(project)}") != "0":
+        assert time.monotonic() < deadline, "cold fetch lease did not finish cleanup"
+        time.sleep(0.05)
     before = inventory()
     status_path = prefix+'/operations/'+original['native']['request_key']
     response = app.request('GET', '/api/v1'+status_path)

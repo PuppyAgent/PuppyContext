@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -99,9 +100,19 @@ def test_timed_out_native_subprocess_and_child_are_reaped(tmp_path):
     child = int(pid.read_text())
     # A reparented zombie may remain until the container's init reaps it; it is
     # no longer executing and cannot hold a file or issue remote I/O.
-    state = subprocess.run(
-        ["ps", "-o", "stat=", "-p", str(child)], capture_output=True, text=True
-    ).stdout.strip()
+    if sys.platform == "linux":
+        try:
+            status = Path(f"/proc/{child}/status").read_text()
+        except FileNotFoundError:
+            state = ""
+        else:
+            state = next(
+                (line.split()[1] for line in status.splitlines() if line.startswith("State:")), ""
+            )
+    else:
+        state = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(child)], capture_output=True, text=True
+        ).stdout.strip()
     assert not state or state.startswith("Z")
 
 
