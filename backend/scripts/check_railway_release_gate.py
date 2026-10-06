@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-REQUIRED_ROLES = {"api", "upload_worker", "import_worker", "synchronize_worker", "mcp_server"}
+REQUIRED_ROLES = {"api", "agent_worker", "upload_worker", "import_worker", "synchronize_worker", "mcp_server"}
 
 
 def validate_contract(repo_root: Path) -> list[str]:

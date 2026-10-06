@@ -91,6 +91,23 @@ class InProcessVersionClient:
     def files(self) -> dict[str, bytes]:
         return dict(self._files)
 
+    def restore_base(self, *, head_commit_id: str, files: dict[str, bytes]) -> None:
+        """Restore a caller-owned durable base without silently recloning HEAD.
+
+        The adapter still applies its fixed projection and canonical conflict
+        policy. Callers must authenticate/checksum the recovery object first.
+        """
+        from src.version_engine.write_engine.path_utils import normalize_path
+
+        for path, content in files.items():
+            if not path or normalize_path(path) != path or not isinstance(content, bytes):
+                raise ValueError("Invalid restored version base")
+        self._head_commit_id = head_commit_id
+        self._scope = self._projection.as_engine_projection()
+        self._files = dict(files)
+        self._file_hashes = None
+        self._object_hashes = set()
+
     def _get_server_repo(self) -> PuppyOneServerRepo:
         return self._repo_manager.get_server_repo(self._project_id)
 
@@ -314,6 +331,7 @@ class InProcessVersionClient:
         deleted: list[str] | None = None,
         message: str = "",
         who: str | None = None,
+        policy_override: str | None = None,
     ) -> dict:
         """Push changes back to the server.
 
@@ -384,10 +402,13 @@ class InProcessVersionClient:
             scope_excludes=scope.get("exclude") or [],
             audit_detail={"snapshots": len(body.get("snapshots", []))},
             defer_projection=True,
+            policy_override=policy_override,
         )
         engine_result = _run_async_from_sync(engine.submit_version(intent))
         result = {
             "status": engine_result.status,
+            "pending_conflict_id": engine_result.pending_conflict_id,
+            "reason": engine_result.reason,
             "commit_id": engine_result.commit_id,
             "pushed": len(body.get("snapshots", [])),
             "root": engine_result.new_scope_hash,

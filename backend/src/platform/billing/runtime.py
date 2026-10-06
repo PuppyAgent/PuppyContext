@@ -340,6 +340,55 @@ class RuntimeMeteringService:
         )
         return run_id
 
+    async def resume_session(self, run_id: str, *, project_id: str, actor_id: str) -> str | None:
+        """Reattach an independently fenced execution to its existing meter.
+
+        This does not reserve again or reset started_at. The caller must own
+        the Agent run lease; expired/settled reservations fail closed.
+        """
+        if settings.RUNTIME_METERING_MODE == "disabled":
+            return None
+        run = await asyncio.to_thread(self._repo.get, run_id)
+        if (
+            run is None
+            or run.project_id != project_id
+            or run.metadata.get("actor_id") != actor_id
+            or run.status != "running"
+            or not run.reservation_id
+        ):
+            raise ValueError("Runtime reservation cannot be resumed")
+        response = await self._gateway.request(
+            "POST",
+            f"/internal/v1/billing/runtime/reservations/{run.reservation_id}/heartbeat",
+            body={"extend_seconds": min(3600, settings.RUNTIME_BILLING_HEARTBEAT_SECONDS * 2)},
+        )
+        await asyncio.to_thread(
+            self._repo.update,
+            run_id,
+            {
+                "heartbeat_at": datetime.now(UTC).isoformat(),
+                "expires_at": response["expires_at"],
+            },
+        )
+        await self._stop_heartbeat(run_id)
+        self._heartbeat_tasks[run_id] = asyncio.create_task(
+            self._heartbeat_loop(run_id, run.reservation_id)
+        )
+        return run_id
+
+    async def check_session(self, run_id: str) -> None:
+        """Fail closed when a durable runtime reservation is no longer live."""
+        if settings.RUNTIME_METERING_MODE == "disabled":
+            return
+        run = await asyncio.to_thread(self._repo.get, run_id)
+        if (run is None or run.status != "running" or not run.expires_at
+                or run.expires_at <= datetime.now(UTC)):
+            raise ValueError("Runtime reservation expired or was exhausted")
+
+    async def detach_session(self, run_id: str) -> None:
+        """A fenced owner stops its local heartbeat without settling the run."""
+        await self._stop_heartbeat(run_id)
+
     async def finish_session(self, run_id: str) -> None:
         """Settle a successfully started provider resource exactly once."""
 

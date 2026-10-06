@@ -466,7 +466,7 @@ def get_execution_history(
     service: AgentConfigService = Depends(get_agent_config_service),
     limit: int = 10,
 ):
-    executions = service.get_execution_history(agent.id, limit)
+    executions = service.get_execution_history(agent.id, current_user.user_id, limit)
     return ApiResponse.success(
         data=executions,
         message="Execution history retrieved successfully",

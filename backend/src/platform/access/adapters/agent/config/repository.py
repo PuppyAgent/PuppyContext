@@ -881,13 +881,15 @@ class AgentRepository:
     # Execution History
     # ============================================
 
-    def get_execution_history(self, agent_id: str, limit: int = 10) -> list[dict]:
+    def get_execution_history(self, agent_id: str, user_id: str, limit: int = 10) -> list[dict]:
         response = (
-            self._client.table("agent_execution_logs")
+            self._client.table("agent_runs")
             .select("*")
             .eq("agent_id", agent_id)
-            .order("started_at", desc=True)
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
             .limit(limit)
             .execute()
         )
-        return response.data or []
+        from src.platform.access.adapters.agent.runtime.models import public_run
+        return [public_run(row) for row in response.data or []]

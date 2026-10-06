@@ -164,7 +164,13 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("GET", "/api/v1/tools/{tool_id}/search-index"): _human(ProjectAction.AGENT_READ),
 
     # Agent control plane and chat sessions.
-    ("POST", "/api/v1/agents"): _human(ProjectAction.AGENT_RUN),
+    ("POST", "/api/v1/agents/runs"): _human(ProjectAction.AGENT_RUN),
+    ("GET", "/api/v1/agents/requests/{project_id}/{request_id}"): _human(ProjectAction.AGENT_RUN),
+    ("GET", "/api/v1/agents/runs/{run_id}"): _human(ProjectAction.AGENT_READ),
+    ("GET", "/api/v1/agents/sessions/{session_id}/runs"): _human(ProjectAction.AGENT_READ),
+    ("GET", "/api/v1/agents/runs/{run_id}/events"): _human(ProjectAction.AGENT_READ),
+    ("POST", "/api/v1/agents/runs/{run_id}/stop"): _human(ProjectAction.AGENT_RUN),
+    ("POST", "/api/v1/agents/runs/{run_id}/approvals/{call_id}"): _human(ProjectAction.AGENT_RUN),
     ("GET", "/api/v1/agent-config/"): _human(ProjectAction.AGENT_READ),
     ("GET", "/api/v1/agent-config/default"): _human(ProjectAction.AGENT_READ),
     ("GET", "/api/v1/agent-config/{agent_id}"): _human(ProjectAction.AGENT_READ),
