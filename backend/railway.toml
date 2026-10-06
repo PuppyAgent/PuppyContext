@@ -31,13 +31,15 @@ builder = "NIXPACKS"
 # - Upload Worker (completion / file ETL / OCR): SERVICE_ROLE=upload_worker
 # - Import Worker (one-shot external imports): SERVICE_ROLE=import_worker
 # - Synchronize Worker (generic + GitHub pulls): SERVICE_ROLE=synchronize_worker
+# - Cloud Agent supervisor: SERVICE_ROLE=agent_worker
 # - MCP Server (AI Agent protocol): SERVICE_ROLE=mcp_server
 #
 # Environment variables:
-# - SERVICE_ROLE: api | upload_worker | import_worker | synchronize_worker | mcp_server
+# - SERVICE_ROLE: api | agent_worker | upload_worker | import_worker | synchronize_worker | mcp_server
 # - API service sets MCP_SERVER_URL to the MCP Server service URL
+# - Cloud Agent supervisor: SERVICE_ROLE=agent_worker
 # - MCP Server service sets MAIN_SERVICE_URL to the API service URL
 # - API and MCP Server services share INTERNAL_API_SECRET
-startCommand = "sh -c 'case \"${SERVICE_ROLE:-api}\" in upload_worker) arq src.platform.upload.worker.WorkerSettings ;; import_worker) arq src.platform.imports.worker.WorkerSettings ;; synchronize_worker) arq src.platform.synchronize.worker.WorkerSettings ;; mcp_server) uvicorn mcp_service.server:app --host 0.0.0.0 --port ${PORT} --no-access-log ;; api) uvicorn src.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-2} --no-access-log ;; *) echo \"Unsupported SERVICE_ROLE; upgrade worker configuration\" >&2; exit 64 ;; esac'"
+startCommand = "sh -c 'case \"${SERVICE_ROLE:-api}\" in agent_worker) python -m src.platform.access.adapters.agent.runtime.worker ;; upload_worker) arq src.platform.upload.worker.WorkerSettings ;; import_worker) arq src.platform.imports.worker.WorkerSettings ;; synchronize_worker) arq src.platform.synchronize.worker.WorkerSettings ;; mcp_server) uvicorn mcp_service.server:app --host 0.0.0.0 --port ${PORT} --no-access-log ;; api) uvicorn src.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-2} --no-access-log ;; *) echo \"Unsupported SERVICE_ROLE; upgrade worker configuration\" >&2; exit 64 ;; esac'"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

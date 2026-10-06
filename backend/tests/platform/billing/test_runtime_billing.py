@@ -31,8 +31,8 @@ class _Repository:
         return self.rows[run_id], True
 
     def update(self, run_id: str, values):
-        self.rows[run_id] = self.rows[run_id].model_copy(
-            update={**values, "updated_at": datetime.now(UTC)}
+        self.rows[run_id] = RuntimeBillingRun.model_validate(
+            {**self.rows[run_id].model_dump(), **values, "updated_at": datetime.now(UTC)}
         )
         return self.rows[run_id]
 
@@ -587,3 +587,29 @@ async def test_concurrent_settlement_has_one_fenced_transport_call(monkeypatch) 
     assert second is False
     assert len(gateway.calls) == 1
     assert repository.rows[run.run_id].status == "settled"
+
+
+@pytest.mark.asyncio
+async def test_agent_takeover_reuses_reservation_and_checks_expiry(monkeypatch):
+    monkeypatch.setattr(settings, "RUNTIME_METERING_MODE", "required")
+    repository, gateway = _Repository(), _Gateway()
+    first = RuntimeMeteringService(repository=repository, gateway=gateway)
+    run_id = await first.start_session(audit_context=_context())
+    started = repository.get(run_id).started_at
+    await first.detach_session(run_id)
+    second = RuntimeMeteringService(repository=repository, gateway=gateway)
+    try:
+        assert await second.resume_session(run_id, project_id="project-1", actor_id="user-1") == run_id
+        assert repository.get(run_id).started_at == started
+        assert len([call for call in gateway.calls if call[1].endswith('/runtime/reservations')]) == 1
+        await second.check_session(run_id)
+        with pytest.raises(ValueError):
+            await second.resume_session(run_id, project_id="project-1", actor_id="other-user")
+        repository.update(run_id, {"expires_at": datetime.now(UTC) - timedelta(seconds=1)})
+        with pytest.raises(ValueError):
+            await second.check_session(run_id)
+        await second.finish_session(run_id)
+        await second.finish_session(run_id)
+        assert len([call for call in gateway.calls if call[1].endswith('/settle')]) == 1
+    finally:
+        await second.detach_session(run_id)
