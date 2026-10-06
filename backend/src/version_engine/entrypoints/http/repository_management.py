@@ -85,7 +85,7 @@ def change_head(manager, grant, payload):
         RefState(target=("refs/heads/" + payload.target_branch).encode()),
     )
     edit.wire(service.object_format)
-    try:
+    def submit():
         return service.submit(
             grant,
             request_key=str(payload.request_key),
@@ -95,12 +95,19 @@ def change_head(manager, grant, payload):
             prepare=lambda: None,
             message="change repository HEAD",
         )
-    except Exception:
+    try:
+        return submit()
+    except Exception as exc:
+        if isinstance(exc, APIError) and exc.code == "22023":
+            raise
         actor = admitted_actor(grant, grant.project_id, write=False)
         result = service.control.recover_result(grant.project_id, actor, str(payload.request_key))
         if result is None:
             raise
-        return result
+        # A stored result proves an outcome exists, not that this request has
+        # the same contents. Replay through the engine so SQL validates the
+        # original digest before returning a recovered acknowledgement.
+        return submit()
 
 
 @management_router.put(
@@ -121,6 +128,13 @@ async def update_repository_head(
     except PermissionError as exc:
         raise HTTPException(403, "Repository action denied") from exc
     except APIError as exc:
+        if exc.code == "22023":
+            raise HTTPException(
+                409 if exc.message == "request_key_reused" else 422,
+                "Request key already used for different contents"
+                if exc.message == "request_key_reused"
+                else "Invalid repository management request",
+            ) from exc
         raise HTTPException(
             403 if exc.code == "42501" else 503, "Repository management unavailable"
         ) from exc

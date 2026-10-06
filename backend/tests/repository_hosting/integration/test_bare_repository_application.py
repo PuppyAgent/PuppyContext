@@ -164,6 +164,14 @@ def test_bare_formal_creation_git_head_replay_and_cold_read(bare_application, tm
     client.run("-c", auth, "clone", remote, tmp_path / "after-head-change")
     assert Git(tmp_path / "after-head-change").text("symbolic-ref", "HEAD") == "refs/heads/feature"
     assert app.api("PUT", f"/content/{project}/head", json=payload) == result
+    for changed in ({"target_branch": "trunk"}, {"generation": 2}):
+        app.request(
+            "PUT",
+            f"/api/v1/content/{project}/head",
+            json={**payload, **changed},
+            expected=409,
+        )
+    assert app.api("GET", f"/content/{project}/head") == current_head
     app.request(
         "PUT",
         f"/api/v1/content/{project}/head",
