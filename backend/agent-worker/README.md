@@ -167,3 +167,21 @@ built worker image and the same local MinIO fixture image used by repository
 hosting tests (`puppyone-entrypoint-minio-build:local`, `/go/bin/minio`). It never
 uses an existing remote database. This is real local storage/process evidence,
 not Supabase-hosted/E2B/provider-billing deployment acceptance.
+
+### Git workspace verification (2026-10-07)
+
+Source `5161a778` was verified with the locally built `git-workspace-v1` artifact:
+
+- Real Git helper suite: 3 passing cases, SHA-1/SHA-256, independent histories,
+  non-main branch, staged versus dirty content, unborn HEAD and no empty commits.
+- Full Agent runtime suite: 46 passed; after the final error-checkpoint change,
+  17 focused native/failure cases passed, including the newly added model-error
+  crash case. These use real Pi/Docker, owned PostgreSQL/PostgREST and MinIO.
+- Backend non-integration regression command: 3,726 passed, 904 skipped,
+  34 expected failures and 110 deselected.
+- Ruff, whitespace checks and strict OpenSpec validation passed.
+- Canonical documentation was updated in `puppy-issues/document/puppyone/agent-runtime/`.
+  Its global validator still reports the two pre-existing lifecycle metadata
+  errors in the unrelated Rust-native-frontend README, with no new errors.
+
+No hosted API, E2B template or paid model was created or deployed by this validation.
