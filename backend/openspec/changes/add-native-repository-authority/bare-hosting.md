@@ -33,7 +33,10 @@ an empty `head_commit_id`. Legacy responses retain their existing shape.
 RefTransactionService, with `request_key`, `generation`, exact expected HEAD
 state and `target_branch`. PostgreSQL rechecks current Admin membership inside
 the transaction. A mismatched expected state is 409; identical replay returns
-the original result. The existing operation-status API can recover that key.
+the original result. Reusing a key with a different request body returns 409.
+Uncertain ACK recovery replays through the same service to validate the original
+SQL request digest; a result lookup alone is not sufficient. The existing
+operation-status API can recover that key.
 
 ## Publication and lifetime
 
@@ -122,3 +125,19 @@ cover committed/lost ACK, native CAS/concurrency, process death, GC/pins, resour
 cancellation and deletion. Historical legacy-profile failures remain recorded.
 Final B1–B6 status and the frozen candidate receipt belong to ISSUE-062; Scope
 S1–S5 and full ISSUE-062 completion are not inferred from this phase.
+
+## Phase acceptance receipt
+
+The frozen runtime and test candidate `eba763d55fd2e9600c93b3787918fbe44516945b` passed all 1469
+selected integration/unit cases in the owned strict Linux PG/S3/application
+run, with no failures, skips or expected failures, plus 329 pgTAP assertions.
+The formal application matrix contains 78 workflows in each object format.
+The same candidate's required backend regression completed with
+`3701 passed, 891 skipped, 76 deselected, 34 xfailed, 54 warnings in 502.31s (0:08:22)`.
+These counts are independent and are not added together. Original legacy known
+gaps are retained; this receipt does not close Scope S1–S5 or the full issue.
+
+The durable node index, raw runner/JUnit, resource, recovery-point and backend
+receipts are stored under ISSUE-062 `evidence/2026-10-06-bare-*` in the issues
+repository. B1–B6 and the reserved Scope boundary review passed. No qubits merge,
+remote push, production deployment or user-data migration was performed.
