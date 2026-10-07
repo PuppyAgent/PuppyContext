@@ -18,6 +18,15 @@
 > Schema changes use `supabase/migrations`; non-transactional/application-code
 > data changes use immutable `supabase/data_migrations` artifacts through the
 > portable runner. Never hide an external script between schema migrations.
+> Before merging database-affecting work, apply that document's **Migration
+> merge admission** rules: refresh the target, inspect the entire release diff
+> and applied-version set, explain any older missing migrations, and prove the
+> relevant populated upgrade. `--include-all` is not dependency validation.
+> Keep unready cleanup in `contract.pending.sql`; do not activate final-only
+> application/Contract changes before their real cutover prerequisites exist.
+> Distinguish tested, merged, database-ready, deployed and accepted evidence.
+> The document's enforcement snapshot lists gaps; prose does not configure
+> GitHub branch protection or prove a hosted release.
 
 ## Current Version Engine contract (2026-10-07)
 
