@@ -155,6 +155,15 @@ acceptance scope is schema compatibility, synthetic regression fixtures and a
 bounded set of real project flows. Unrelated historical corruption belongs to
 separate repair work and must not become an implicit CI/CD dependency.
 
+The one-time Qubits entrypoint cutover can run its existing owner commands via
+`Qubits Entrypoint Cutover`, using the protected staging connection. Its default
+inspection is read-only and reports hashed identities and recovery metadata.
+Explicit preparation consumes reviewed decision/process evidence from staging
+secrets, validates an available PITR point after the recorded writer stop, and
+calls the existing approval/freeze commands. It does not stop processes, invent
+queue evidence, classify rows, execute data copying, or create receipts. The
+ordinary deployment workflow resumes the portable data migration afterward.
+
 Native adoption can use an explicit project selection with its own immutable
 receipt. The [Qubits Agent rollout](../../supabase/data_migrations/20261008_qubits_agent_project/README.md)
 keeps selected full history and sibling data intact, while using the existing
