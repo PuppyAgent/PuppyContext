@@ -14,12 +14,12 @@ from src.version_engine.adapters.git.native_repository import NativeGitRepositor
 from tests.repository_hosting.harness.conformance import remote_snapshot
 from tests.repository_hosting.harness.git import Git
 from tests.repository_hosting.harness.http import clone_client
+from tests.repository_hosting.harness.http_server import _serve_git_app
+from tests.repository_hosting.harness.workflows import WORKFLOWS
 from tests.repository_hosting.integration.test_ref_transaction_service import grant
 from tests.repository_hosting.integration.test_s3_publication import (
     publication as publication_fixture,
 )
-from tests.repository_hosting.transport.test_git_conformance import WORKFLOWS
-from tests.version_engine.test_write_engine import _serve_git_app
 
 pytestmark = pytest.mark.hosting_s3
 publication = publication_fixture
@@ -31,9 +31,13 @@ def native_http(publication, tmp_path):
     transport = NativeGitRepository(service)
     admitted = grant(auth.project)
     app = FastAPI()
+
     @app.get("/repo.git/info/refs")
     async def info(service: str, request: Request):
-        return await asyncio.to_thread(transport.info_refs, admitted, service, protocol=request.headers.get("git-protocol", ""))
+        return await asyncio.to_thread(
+            transport.info_refs, admitted, service, protocol=request.headers.get("git-protocol", "")
+        )
+
     @app.post("/repo.git/{command}")
     async def rpc(command: str, request: Request):
         spool = tmp_path / ("rpc-" + uuid.uuid4().hex)
@@ -42,9 +46,12 @@ def native_http(publication, tmp_path):
             if command == "git-receive-pack":
                 return await asyncio.to_thread(transport.receive, admitted, spool)
             assert command == "git-upload-pack"
-            return await asyncio.to_thread(transport.upload, admitted, spool, protocol=request.headers.get("git-protocol", ""))
+            return await asyncio.to_thread(
+                transport.upload, admitted, spool, protocol=request.headers.get("git-protocol", "")
+            )
         finally:
             spool.unlink()
+
     with _serve_git_app(app) as address:
         yield original, address + "/repo.git", auth, transport
 
@@ -61,7 +68,9 @@ def test_stock_push_durable_native_refs_and_cold_clone(native_http, tmp_path):
     client.run("clone", "--mirror", remote, tmp_path / "cold.git")
     cold = Git(tmp_path / "cold.git")
     cold.run("fsck", "--full", "--strict")
-    assert cold.refs() == {name: value for name, value in client.refs().items() if not name.startswith("refs/remotes/")}
+    assert cold.refs() == {
+        name: value for name, value in client.refs().items() if not name.startswith("refs/remotes/")
+    }
     assert cold.objects() == client.objects()
 
 
@@ -85,7 +94,9 @@ def test_native_http_atomic_refs_tags_rewrites_and_delete(native_http, tmp_path)
     cold = Git(tmp_path / "cold.git")
     cold.run("fsck", "--full", "--strict")
     assert cold.refs() == {"refs/heads/main": old}
-    assert cold.run("cat-file", "commit", old).stdout == client.run("cat-file", "commit", old).stdout
+    assert (
+        cold.run("cat-file", "commit", old).stdout == client.run("cat-file", "commit", old).stdout
+    )
 
 
 @pytest.fixture
@@ -101,12 +112,20 @@ def native_reference(native_http, workflow, tmp_path):
 
 
 @pytest.mark.parametrize("workflow", WORKFLOWS, ids=lambda workflow: workflow.name)
-def test_workflow_on_real_s3_and_pg_matches_native(native_http, workflow, native_reference, tmp_path, request):
+def test_workflow_on_real_s3_and_pg_matches_native(
+    native_http, workflow, native_reference, tmp_path, request
+):
     source, remote, _auth, _transport = native_http
-    request.node.user_properties.extend([
-        ("git_workflow", workflow.name), ("git_profile", "native-full-project-sha1"),
-        ("storage_evidence", "real owned Supabase S3-compatible service + PostgREST/PG; explicit admitted grant"),
-    ])
+    request.node.user_properties.extend(
+        [
+            ("git_workflow", workflow.name),
+            ("git_profile", "native-full-project-sha1"),
+            (
+                "storage_evidence",
+                "real owned Supabase S3-compatible service + PostgREST/PG; explicit admitted grant",
+            ),
+        ]
+    )
     source.run("push", remote, "main")
     client = clone_client(remote, tmp_path / "hosted-client", source)
     workflow.execute(client)

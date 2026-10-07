@@ -1,0 +1,47 @@
+{
+  "started_at": "2026-10-06T18:23:27.132842+00:00",
+  "finished_at": "2026-10-06T18:24:30.505717+00:00",
+  "execution_environment": "docker",
+  "database_environment": "supabase",
+  "object_environment": "owned_supabase_s3",
+  "application": false,
+  "migration": true,
+  "git_version": "git version 2.50.1",
+  "python_version": "3.12.11 (main, Sep 30 2025, 00:41:12) [GCC 12.2.0]",
+  "product_commit": "86f64f11ee295fde0c7f580e954d2483ba5542df",
+  "worktree_dirty": true,
+  "supabase_cli_version": "2.67.1",
+  "supabase_sql_counts": {
+    "files": 9,
+    "tests": 329
+  },
+  "pytest_exit": 0,
+  "sql_exit": 0,
+  "layers": {
+    "hosting_s3": {
+      "passed": 16
+    }
+  },
+  "exit_code": 0,
+  "artifact_id": "20261007_native_repository_inventory",
+  "artifact_checksum": "273f69ea9de1ed14494e69ed9dd5a6386431938ba08d7bdc9057825de457b49d",
+  "source_sha256": {
+    "supabase/migrations/20261007010000_expand_native_inventory_migration.sql": "da16ee4a7cf3a776054f60b8911c02cf2ab8702b0ca1dc63bdffdb0ec1bf763e",
+    "supabase/data_migrations/20261007_native_repository_inventory/run.py": "3d57def4ed31a8484fd3030de212ddbdaf07abd667b79d9f0640684bd3724900",
+    "supabase/data_migrations/20261007_native_repository_inventory/verify.sql": "b94adfda1187e914d91bd33c6a5cbd160a5a15f5d15ab8b48367535b197beb0d",
+    "backend/src/version_engine/derived/object_gc.py": "dc35a756f895166ddc63d6a9999819a0d2f699c3fbc82cfd1b4c4b0bfa6700a3",
+    "scripts/testing/run_native_inventory_migration.py": "7f3f67b8f6e81955d72c38326eeb2990bae3cea4d7f81a00597d7caad3eb26be",
+    "scripts/testing/run_repository_hosting.py": "f5c144f0d6e05af18da7f208ff3a6a8f912b870051f3965acb779d50a07581db",
+    "backend/tests/repository_hosting/integration/test_native_inventory_migration.py": "76b1f2fa534ba44ae1e25d9ad0628cc658dee31e69c41a1224a4dd40f5d15ecb",
+    ".github/workflows/native-inventory-migration-tests.yml": "c4a9efe4cee4a039867e2f466af40f543a0cd7b132bb37429b3e952c7acff258"
+  },
+  "hosted_mutations": false,
+  "hosted_project_data_downloaded": false,
+  "additional_checks": {
+    "migration_framework_and_policy": 39,
+    "runner_and_workflow": 91,
+    "openspec_strict": "passed",
+    "ruff": "passed",
+    "new_artifact_policy": "passed"
+  }
+}

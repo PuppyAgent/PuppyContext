@@ -18,7 +18,7 @@
  *   - ``pending-review`` — agent-claimed conflict awaiting human OK
  *   - ``conflict``       — manual three-way conflict awaiting human resolve
  *
- * Both pull from the same ``mut_conflicts`` backend table, split by
+ * Both pull from the same ``version_conflicts`` backend table, split by
  * ``resolver_kind`` + ``policy``. See ``items/pendingReviewKind.ts``
  * and ``items/conflictKind.ts`` for the concrete entries.
  */
@@ -61,7 +61,7 @@ export interface FailedSyncItem {
 
 /** A commit whose ``audit_detail`` / ``changes`` show a mass deletion
  *  (PUP-5 §4 "risky delete / mass edit", Gap G2). Sourced from version
- *  history, not ``mut_conflicts`` — it's an after-the-fact heads-up with
+ *  history, not ``version_conflicts`` — it's an after-the-fact heads-up with
  *  an undo affordance, not a blocking resolution. */
 export interface RiskyDeleteItem {
   kind: 'risky-delete';

@@ -1,26 +1,23 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import pytest
 from fastapi import HTTPException
 
 from src.platform.auth.models import CurrentUser
-from src.version_engine.domain.intents import ProjectWriteState
 from src.version_engine.entrypoints.http import content_write
 from src.version_engine.entrypoints.http.schemas import MoveRequest
+from tests.authorization_fakes import authorization_for
 
 
 class _FakeOps:
-    def get_project_write_state(
-        self,
-        project_id: str,
-        user_id: str,
-    ) -> ProjectWriteState:
-        return ProjectWriteState(
-            project_id=project_id,
-            project_name="Test Project",
-            role="editor",
-            can_write=True,
-        )
+    def open_read(self, project_id, grant):
+        assert grant.project_id == project_id
+        return nullcontext(self)
+
+    def get_read_revision(self, _project_id):
+        return {"captured": "base"}
 
 
 class _FakeCommands:
@@ -28,11 +25,9 @@ class _FakeCommands:
         self.ops = _FakeOps()
         self.move_args: tuple[str, str, str] | None = None
 
-    def normalize_path(self, path: str) -> str:
-        return path.strip("/")
-
-    async def move(self, project_id: str, old_path: str, new_path: str, **kwargs):
-        self.move_args = (project_id, old_path, new_path)
+    async def native_operation(self, project_id, grant, *, operation, arguments, base, **kwargs):
+        assert base == {"captured": "base"} and operation == "move"
+        self.move_args = (project_id, arguments["old_path"], arguments["new_path"])
         raise ValueError("cannot move 'old' into its own subtree: 'old/sub/old'")
 
 
@@ -45,6 +40,7 @@ async def test_move_route_returns_400_for_invalid_move_destination():
             "test-proj",
             MoveRequest(old_path="old", new_path="old/sub/old"),
             commands=commands,
+            authorization=authorization_for("test-proj"),
             current_user=CurrentUser(user_id="u1", role="authenticated"),
         )
 

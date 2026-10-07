@@ -1,4 +1,5 @@
 """Location-index changes must not invalidate an earlier acknowledged closure."""
+
 from __future__ import annotations
 
 import uuid
@@ -25,7 +26,9 @@ publication = publication_fixture
 
 @pytest.mark.parametrize("publication", ["sha1", "sha256"], indirect=True)
 @pytest.mark.parametrize("fault", ["missing", "corrupt"])
-def test_rejected_new_bundle_cannot_break_previously_acknowledged_objects(publication, monkeypatch, fault):
+def test_rejected_new_bundle_cannot_break_previously_acknowledged_objects(
+    publication, monkeypatch, fault
+):
     _pg, auth, s3, db, backend, service, git, oid, prepare = publication
     assert request(service, oid, prepare)["status"] == "committed"
     before = service.control.snapshot(auth.project)
@@ -35,7 +38,9 @@ def test_rejected_new_bundle_cannot_break_previously_acknowledged_objects(public
     }
     original_locations = backend._inner._lookup_many_object_locations(list(objects))
     original_keys = {location.pack_key for location in original_locations.values()}
-    extra, loose = encode_object("blob", b"extra unreferenced proposal bytes", object_format=service.object_format)
+    extra, loose = encode_object(
+        "blob", b"extra unreferenced proposal bytes", object_format=service.object_format
+    )
     proposal = {**objects, extra: loose}  # Different immutable bundle key.
     uploaded = []
     upload = backend._inner._async_upload_physical_objects
@@ -65,7 +70,11 @@ def test_rejected_new_bundle_cannot_break_previously_acknowledged_objects(public
     assert all(_run_async(s3.file_exists(key)) for key in original_keys)
     after = service.control.snapshot(auth.project)
     assert after["refs"] == before["refs"] and after["ref_sequence"] == before["ref_sequence"]
-    fresh = S3StorageBackend(s3, auth.project, supabase=db, allow_deferred_namespace_reads=False)
+    fresh = S3StorageBackend(
+        s3,
+        auth.project,
+        supabase=db,
+    )
     assert ClosureVerifier(fresh, object_format=service.object_format).verify({oid: "commit"})
     assert {h: fresh.get_durable(h) for h in objects} == objects
 
@@ -83,15 +92,19 @@ def test_late_index_completion_after_pin_expiry_cannot_break_newer_ack(publicati
         raise ConnectionError("paused old location writer")
 
     with monkeypatch.context() as patch:
-        patch.setattr(backend._inner, "_async_upsert_object_locations", suspend_after_first_index_row)
+        patch.setattr(
+            backend._inner, "_async_upsert_object_locations", suspend_after_first_index_row
+        )
         with pytest.raises(ConnectionError, match="paused old location writer"):
             request(service, oid, prepare)
     assert auth.state() is None
     # Owner-controlled clock-expiry injection in this disposable repository.
     # The old producer still has an outstanding continuation; expiry is not
     # proof of its process or index I/O quiescence.
-    pg.sql(f"UPDATE public.version_object_pins SET expires_at=clock_timestamp()-interval '1 second' "
-           f"WHERE project_id={literal(auth.project)} AND state='uploading'")
+    pg.sql(
+        f"UPDATE public.version_object_pins SET expires_at=clock_timestamp()-interval '1 second' "
+        f"WHERE project_id={literal(auth.project)} AND state='uploading'"
+    )
     repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
     assert not result.errors and not result.sweep_skipped_for_safety
@@ -108,7 +121,11 @@ def test_late_index_completion_after_pin_expiry_cannot_break_newer_ack(publicati
 
     assert request(service, oid, prepare_loose)["status"] == "committed"
     before = service.control.snapshot(auth.project)
-    fresh = S3StorageBackend(s3, auth.project, supabase=db, allow_deferred_namespace_reads=False)
+    fresh = S3StorageBackend(
+        s3,
+        auth.project,
+        supabase=db,
+    )
     assert ClosureVerifier(fresh, object_format=service.object_format).verify({oid: "commit"})
     rejected = None
     try:
@@ -135,14 +152,23 @@ def test_retry_after_sealing_does_not_mutate_sealed_locations(publication, monke
         with pytest.raises(ConnectionError, match="before ref transaction"):
             request(service, oid, prepare, key=key)
     assert auth.state() is None
-    assert pg.value(f"SELECT state FROM public.version_object_pins WHERE project_id={literal(auth.project)}") == "verified"
+    assert (
+        pg.value(
+            f"SELECT state FROM public.version_object_pins WHERE project_id={literal(auth.project)}"
+        )
+        == "verified"
+    )
 
     def forbidden_prepare():
         pytest.fail("sealed pin retried physical preparation")
 
     result = request(service, oid, forbidden_prepare, key=key)
     assert result["status"] == "committed"
-    fresh = S3StorageBackend(s3, auth.project, supabase=db, allow_deferred_namespace_reads=False)
+    fresh = S3StorageBackend(
+        s3,
+        auth.project,
+        supabase=db,
+    )
     assert ClosureVerifier(fresh).verify({oid: "commit"})
     assert auth.count("version_ref_transactions") == 1
 
@@ -152,9 +178,15 @@ def test_native_gc_rejects_foreign_bundle_without_physical_deletion(publication,
     assert request(service, oid, prepare)["status"] == "committed"
     other_project = pg.create_project()
     foreign = f"version/{other_project}/object-bundles/ff/{'f' * 64}.pob"
-    _run_async(s3.upload_file(foreign, b"foreign owned-fixture bytes", content_type="application/octet-stream"))
-    pg.sql("INSERT INTO public.version_object_locations(project_id,object_id,pack_key,offset_bytes,size_bytes) "
-           f"VALUES({literal(auth.project)},{literal('d' * 40)},{literal(foreign)},0,26)")
+    _run_async(
+        s3.upload_file(
+            foreign, b"foreign owned-fixture bytes", content_type="application/octet-stream"
+        )
+    )
+    pg.sql(
+        "INSERT INTO public.version_object_locations(project_id,object_id,pack_key,offset_bytes,size_bytes) "
+        f"VALUES({literal(auth.project)},{literal('d' * 40)},{literal(foreign)},0,26)"
+    )
 
     async def forbidden_delete(*_args, **_kwargs):
         pytest.fail("foreign placement authorized a physical DELETE")
@@ -162,7 +194,7 @@ def test_native_gc_rejects_foreign_bundle_without_physical_deletion(publication,
     monkeypatch.setattr(s3, "delete_file", forbidden_delete)
     repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
-    assert result.errors and "outside its Project namespace" in " ".join(result.errors)
+    assert result.errors and "outside its canonical Project namespace" in " ".join(result.errors)
     assert result.deleted_count == 0
     assert service.control.snapshot(auth.project)["gc_token"] is not None
     assert _run_async(s3.download_file(foreign)) == b"foreign owned-fixture bytes"
@@ -170,7 +202,9 @@ def test_native_gc_rejects_foreign_bundle_without_physical_deletion(publication,
 
 
 @pytest.mark.parametrize("context", ["absent", "wrong-token", "finished-token", "foreign-project"])
-def test_native_physical_delete_requires_current_matching_gc_context(publication, monkeypatch, context):
+def test_native_physical_delete_requires_current_matching_gc_context(
+    publication, monkeypatch, context
+):
     _pg, auth, s3, db, backend, service, git, oid, _prepare = publication
     objects = {h: encode_object(kind, body)[1] for h, (kind, body) in git.objects().items()}
 
@@ -192,8 +226,14 @@ def test_native_physical_delete_requires_current_matching_gc_context(publication
         if context == "absent":
             backend.delete(oid)
         else:
-            with collection_storage("another-project" if context == "foreign-project" else auth.project, token):
+            with collection_storage(
+                "another-project" if context == "foreign-project" else auth.project, token
+            ):
                 backend.delete(oid)
-    fresh = S3StorageBackend(s3, auth.project, supabase=db, allow_deferred_namespace_reads=False)
+    fresh = S3StorageBackend(
+        s3,
+        auth.project,
+        supabase=db,
+    )
     assert ClosureVerifier(fresh).verify({oid: "commit"})
     assert {h: fresh.get_durable(h) for h in objects} == objects

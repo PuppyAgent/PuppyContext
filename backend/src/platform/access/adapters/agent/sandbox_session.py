@@ -1,25 +1,10 @@
-"""
-Request-scoped agent sandbox write-back state.
-
-Each AgentSandboxSession holds a InProcessVersionClient that was cloned once at
-request start. Before the response ends, it pushes modified files through the
-Write Engine and destroys the sandbox.
-
-Lifecycle:
-  1. Agent chat starts → clone version scope → mount in sandbox → register session
-  2. Request completion → read changed files → client.push()
-  3. Destroy sandbox; the next turn starts from the new canonical head
-"""
+"""File preparation utilities for native Agent sandbox execution."""
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any
-
-from src.version_engine.adapters.batch.in_process_client import InProcessVersionClient
 
 
 @dataclass
@@ -29,6 +14,7 @@ class SandboxFile:
     ``base_commit_id`` snapshots the Git commit this file was cloned at
     so write-back can be traced to a specific point-in-time snapshot.
     """
+
     path: str
     content: str | None = None
     s3_key: str | None = None
@@ -41,6 +27,7 @@ class SandboxFile:
 @dataclass
 class SandboxData:
     """Prepared sandbox data from a version scope clone."""
+
     files: list[SandboxFile] = field(default_factory=list)
     node_type: str = "json"
     root_path: str = ""
@@ -74,47 +61,43 @@ async def prepare_sandbox_data(
                 continue
             relative = child.path
             if relative.startswith(path + "/"):
-                relative = relative[len(path) + 1:]
+                relative = relative[len(path) + 1 :]
             try:
                 raw = ops.read_file(project_id, child.path)
                 text = raw.decode("utf-8", errors="replace")
             except Exception:
                 continue
-            files.append(SandboxFile(
-                path=f"/workspace/{relative}",
-                content=text,
-                content_type="application/json" if child.type == "json" else "text/markdown" if child.type == "markdown" else "text/plain",
-                version_path=child.path,
-                node_type=child.type,
-            ))
-        return SandboxData(files=files, node_type="folder", root_path=path, root_node_name=node_name)
+            files.append(
+                SandboxFile(
+                    path=f"/workspace/{relative}",
+                    content=text,
+                    content_type="application/json"
+                    if child.type == "json"
+                    else "text/markdown"
+                    if child.type == "markdown"
+                    else "text/plain",
+                    version_path=child.path,
+                    node_type=child.type,
+                )
+            )
+        return SandboxData(
+            files=files, node_type="folder", root_path=path, root_node_name=node_name
+        )
 
     raw = ops.read_file(project_id, path)
     text = raw.decode("utf-8", errors="replace")
     sf = SandboxFile(
         path=f"/workspace/{node_name}" if node_type != "json" else "/workspace/data.json",
         content=text,
-        content_type="application/json" if node_type == "json" else "text/markdown" if node_type == "markdown" else "text/plain",
+        content_type="application/json"
+        if node_type == "json"
+        else "text/markdown"
+        if node_type == "markdown"
+        else "text/plain",
         version_path=path,
         node_type=node_type,
     )
     return SandboxData(files=[sf], node_type=node_type, root_path=path, root_node_name=node_name)
-
-
-@dataclass
-class AgentSandboxSession:
-    sandbox_session_id: str
-    chat_session_id: str
-    agent_id: str
-    version_client: InProcessVersionClient
-    cloned_files: dict[str, bytes]
-    scope_path: str
-    created_at: float
-    last_active: float
-    readonly: bool = False
-    project_id: str = ""
-    parent_path: str = ""
-    repo_manager: Any = None
 
 
 async def _read_modified_files(
@@ -139,8 +122,7 @@ async def _read_modified_files(
     scope_path = scope_path.strip("/") if scope_path else ""
 
     hash_result = await sandbox_service.exec(
-        sandbox_session_id,
-        f"find {scan_path} -type f -exec sha256sum {{}} \\; 2>/dev/null"
+        sandbox_session_id, f"find {scan_path} -type f -exec sha256sum {{}} \\; 2>/dev/null"
     )
     if not hash_result.get("success"):
         return {}, []
@@ -164,7 +146,7 @@ async def _read_modified_files(
         if not sandbox_path.startswith(scan_path + "/"):
             continue
 
-        relative = sandbox_path[len(scan_path) + 1:]
+        relative = sandbox_path[len(scan_path) + 1 :]
         if any(part.startswith(".") for part in relative.split("/")):
             continue
 

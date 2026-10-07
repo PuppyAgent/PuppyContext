@@ -7,6 +7,7 @@ shape, then delegates protocol work to receive-pack/upload-pack modules.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 import tempfile
@@ -16,27 +17,21 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.common_schemas import ApiResponse
-from src.version_engine.adapters.git.execution import admission, run_owned, current_execution, MAX_PACK_BYTES, MAX_SECONDS
 from src.config import settings
-from src.exceptions import ErrorCode
 from src.platform.repository_target.auth_context import repository_target_from_auth
 from src.platform.repository_target.models import repository_target_scope_id
 from src.utils.logger import log_info
-from src.version_engine.adapters.git.health import git_view_health_payload
-from src.version_engine.adapters.git.receive_pack import (
-    receive_pack_response_from_path,
-)
-from src.version_engine.adapters.git.upload_pack import (
-    info_refs_response,
-    upload_pack_streaming_response,
+from src.version_engine.adapters.git.execution import (
+    MAX_PACK_BYTES,
+    MAX_SECONDS,
+    admission,
+    current_execution,
+    run_owned,
 )
 from src.version_engine.admission.repo_facade import (
-    RepositoryViewResolutionError,
     repo_facade_from_auth,
 )
-from src.version_engine.admission.target import admit_target
 from src.version_engine.bootstrap.dependencies import get_repo_manager
-from src.version_engine.derived.git_transport_cache import rebuild_git_transport_view
 from src.version_engine.entrypoints.git.auth import (
     request_actor,
     resolve_git_project_auth,
@@ -180,7 +175,7 @@ async def _spool_git_request_body(
                 ),
             )
 
-    tmp = tempfile.NamedTemporaryFile(
+    tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 -- Owned until request spooling completes.
         prefix="puppyone-git-rpc-",
         delete=False,
     )
@@ -200,18 +195,14 @@ async def _spool_git_request_body(
     except BaseException:
         name = tmp.name
         tmp.close()
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(name)
-        except FileNotFoundError:
-            pass
         raise
 
 
 def _unlink_temp(path: Path) -> None:
-    try:
+    with contextlib.suppress(FileNotFoundError):
         os.unlink(path)
-    except FileNotFoundError:
-        pass
 
 
 async def _resolve_canonical_git_auth(
@@ -274,32 +265,6 @@ def _telemetry_ref(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
-def _repo_and_facade(target: _ResolvedGitTarget, repo_manager: VersionRepoManager):
-    repo = repo_manager.get_server_repo(target.project_id)
-    try:
-        facade = repo_facade_from_auth(
-            target.project_id,
-            target.auth,
-            kind=target.facade_kind,
-            scope_backend=(
-                repo_manager.get_scope_backend(target.project_id)
-                if target.entry_point == "access_key_git_remote"
-                else None
-            ),
-        )
-    except RepositoryViewResolutionError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Repository view is temporarily unavailable",
-            headers={
-                "X-PuppyOne-Error-Code": str(
-                    ErrorCode.REPOSITORY_STORAGE_UNAVAILABLE.value
-                )
-            },
-        ) from exc
-    return repo, facade
-
-
 async def _native_call(function, *args, disconnect=None, **kwargs):
     try:
         if current_execution.get() is None and function is not select_native_git_endpoint:
@@ -318,7 +283,10 @@ async def _native_call(function, *args, disconnect=None, **kwargs):
 
 async def _native_endpoint(target, repo_manager):
     return await _native_call(
-        select_native_git_endpoint, repo_manager, target.project_id, target.auth,
+        select_native_git_endpoint,
+        repo_manager,
+        target.project_id,
+        target.auth,
         legacy_route=target.entry_point == "access_key_git_remote",
     )
 
@@ -330,16 +298,7 @@ async def _git_info_refs_for_target(
     protocol: str = "",
 ):
     native = await _native_endpoint(target, repo_manager)
-    if native is not None:
-        return await _native_call(native.info_refs, service, protocol=protocol)
-    repo, facade = _repo_and_facade(target, repo_manager)
-    return await asyncio.to_thread(
-        info_refs_response,
-        repo,
-        service,
-        facade.scope_path,
-        list(facade.excludes),
-    )
+    return await _native_call(native.info_refs, service, protocol=protocol)
 
 
 @router.get("/{project_id}.git/info/refs")
@@ -383,18 +342,8 @@ async def _git_health_for_target(
     repo_manager: VersionRepoManager,
 ):
     native = await _native_endpoint(target, repo_manager)
-    if native is not None:
-        return ApiResponse.success(data=await _native_call(native.health), message="Git view health loaded")
-    repo, facade = _repo_and_facade(target, repo_manager)
     return ApiResponse.success(
-        data=git_view_health_payload(
-            repo,
-            project_id=target.project_id,
-            scope_path=facade.scope_path,
-            scope_excludes=list(facade.excludes),
-            read_only=facade.read_only,
-        ),
-        message="Git view health loaded",
+        data=await _native_call(native.health), message="Git view health loaded"
     )
 
 
@@ -436,54 +385,15 @@ async def git_project_health(
     )
 
 
-async def _rebuild_both_variants(repo, facade) -> dict:
-    """Rebuild both cache variants for one view and return the combined payload.
-
-    Each view has two cache shapes: full-history-with-blobs (clone/fetch
-    serves this) and receive-boundary-without-blobs (push advertisement
-    serves this). If we only rebuilt one, the other would stay cold and
-    the next request in that direction would re-warm — making the
-    rebuild endpoint only partially effective.
-    """
-    rebuilt_full = await asyncio.to_thread(
-        rebuild_git_transport_view,
-        repo,
-        scope_path=facade.scope_path,
-        scope_excludes=list(facade.excludes),
-        follow_history=True,
-        include_blobs=True,
-    )
-    rebuilt_boundary = await asyncio.to_thread(
-        rebuild_git_transport_view,
-        repo,
-        scope_path=facade.scope_path,
-        scope_excludes=list(facade.excludes),
-        follow_history=False,
-        include_blobs=False,
-    )
-    return {"variants": [rebuilt_full, rebuilt_boundary]}
-
-
 async def _git_rebuild_for_target(
     target: _ResolvedGitTarget,
     request: Request,
     repo_manager: VersionRepoManager,
 ):
     native = await _native_endpoint(target, repo_manager)
-    if native is not None:
-        return ApiResponse.success(data=await _native_call(native.rebuild), message="Native disposable caches require no persistent rebuild")
-    repo, facade = _repo_and_facade(target, repo_manager)
-    admit_target(
-        target.auth,
-        facade,
-        action="write",
-        source_channel="access_git",
-        channel_header=request.headers.get("x-puppy-client"),
-        log_prefix=f"{target.log_prefix}[rebuild]",
-    )
     return ApiResponse.success(
-        data=await _rebuild_both_variants(repo, facade),
-        message="Git view caches rebuilt from canonical facts",
+        data=await _native_call(native.rebuild),
+        message="Native disposable caches require no persistent rebuild",
     )
 
 
@@ -533,7 +443,9 @@ async def _native_rpc(native, request, *, upload, project_id):
     with admission() as retain:
         async with asyncio.timeout(MAX_SECONDS):
             if upload:
-                max_body_bytes = min(16 * 1024**2, settings.GIT_MAX_UPLOAD_PACK_BYTES or 16 * 1024**2)
+                max_body_bytes = min(
+                    16 * 1024**2, settings.GIT_MAX_UPLOAD_PACK_BYTES or 16 * 1024**2
+                )
             else:
                 # The native worker budget supplements the existing deployment
                 # and plan admission; it must never replace a tighter limit.
@@ -541,9 +453,12 @@ async def _native_rpc(native, request, *, upload, project_id):
                 max_body_bytes = min(MAX_PACK_BYTES, effective_cap)
             path = await _spool_git_request_body(request, max_body_bytes=max_body_bytes)
             try:
-                response = await _native_call(native.upload if upload else native.receive, path,
-                                              disconnect=request.is_disconnected,
-                                              **({'protocol': request.headers.get('git-protocol', '')} if upload else {}))
+                response = await _native_call(
+                    native.upload if upload else native.receive,
+                    path,
+                    disconnect=request.is_disconnected,
+                    **({"protocol": request.headers.get("git-protocol", "")} if upload else {}),
+                )
                 return retain(response)
             finally:
                 _unlink_temp(path)
@@ -555,34 +470,7 @@ async def _git_receive_pack_for_target(
     repo_manager: VersionRepoManager,
 ):
     native = await _native_endpoint(target, repo_manager)
-    if native is not None:
-        return await _native_rpc(native, request, upload=False, project_id=target.project_id)
-    max_body_bytes = await asyncio.to_thread(_git_receive_max_body_bytes, target.project_id)
-    request_path = await _spool_git_request_body(
-        request,
-        max_body_bytes=max_body_bytes,
-    )
-    actor = request_actor(request, target.auth)
-    try:
-        repo, facade = _repo_and_facade(target, repo_manager)
-        return await receive_pack_response_from_path(
-            repo_manager=repo_manager,
-            repo=repo,
-            project_id=target.project_id,
-            scope_path=facade.scope_path,
-            scope_excludes=list(facade.excludes),
-            actor=actor,
-            request_path=request_path,
-            read_only=facade.read_only,
-            audit_detail=_git_audit_detail(
-                auth=target.auth,
-                entry_point=target.entry_point,
-                actor=actor,
-                project_id=target.project_id,
-            ),
-        )
-    finally:
-        _unlink_temp(request_path)
+    return await _native_rpc(native, request, upload=False, project_id=target.project_id)
 
 
 @router.post("/{project_id}.git/git-receive-pack")
@@ -624,29 +512,14 @@ async def _git_upload_pack_for_target(
 ):
     native = await _native_endpoint(target, repo_manager)
     actor = request_actor(request, target.auth)
-    if native is not None:
-        await _record_git_fetch_audit(repo=native, auth=target.auth, actor=actor,
-                                    entry_point=target.entry_point, project_id=target.project_id)
-        return await _native_rpc(native, request, upload=True, project_id=target.project_id)
-    repo, facade = _repo_and_facade(target, repo_manager)
-    request_path = await _spool_git_request_body(request, max_body_bytes=settings.GIT_MAX_UPLOAD_PACK_BYTES or None)
-    try:
-        await _record_git_fetch_audit(
-            repo=repo,
-            auth=target.auth,
-            actor=actor,
-            entry_point=target.entry_point,
-            project_id=target.project_id,
-        )
-        return await upload_pack_streaming_response(
-            repo,
-            facade.scope_path,
-            list(facade.excludes),
-            request_path,
-        )
-    except BaseException:
-        _unlink_temp(request_path)
-        raise
+    await _record_git_fetch_audit(
+        repo=native,
+        auth=target.auth,
+        actor=actor,
+        entry_point=target.entry_point,
+        project_id=target.project_id,
+    )
+    return await _native_rpc(native, request, upload=True, project_id=target.project_id)
 
 
 @router.post("/{project_id}.git/git-upload-pack")

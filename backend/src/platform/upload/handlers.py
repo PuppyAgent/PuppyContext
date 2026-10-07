@@ -12,6 +12,7 @@ Dual-layer routing architecture:
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import os
@@ -30,16 +31,30 @@ from fastapi import (
 )
 
 from src.exceptions import AppException
+from src.infra.file_formats import detect_ingest_type as detect_file_ingest_type
 from src.infra.file_formats import detect_mime, detect_node_type
+from src.infra.file_processing.exceptions import RuleNotFoundError
 from src.infra.s3.dependencies import get_s3_service
 from src.infra.s3.exceptions import S3Error, S3FileSizeExceededError, S3MultipartError
 from src.infra.s3.service import S3Service
+from src.infra.task_presentation import (
+    IngestSubmitItem,
+    IngestSubmitResponse,
+    IngestType,
+    SourceType,
+)
+from src.infra.task_status import IngestStatus
+from src.platform.auth.dependencies import get_current_user
+from src.platform.auth.models import CurrentUser
+from src.platform.authorization.dependencies import get_authorization_service
+from src.platform.authorization.models import ProjectAction
+from src.platform.authorization.service import AuthorizationService
+from src.platform.billing.runtime import guard_unmetered_hosted_runtime
+from src.platform.entitlements.dependencies import get_entitlement_service
+from src.platform.entitlements.service import EntitlementService
 
 # Import underlying services for file processing
 from src.platform.upload.dependencies import get_etl_service
-from src.infra.file_processing.exceptions import RuleNotFoundError
-from src.platform.upload.service import ETLService
-from src.platform.upload.tasks.models import ETLTaskStatus
 from src.platform.upload.policy import (
     PER_BATCH_MAX_BYTES as POLICY_PER_BATCH_MAX_BYTES,
 )
@@ -50,13 +65,7 @@ from src.platform.upload.policy import (
     evaluate_batch_limits,
     path_has_blocked_segment,
 )
-from src.infra.task_status import IngestStatus
-from src.infra.task_presentation import (
-    IngestSubmitItem,
-    IngestSubmitResponse,
-    IngestType,
-    SourceType,
-)
+from src.platform.upload.repository import UploadJobRepository
 from src.platform.upload.schemas import (
     UploadAbortRequest,
     UploadAbortResponse,
@@ -70,16 +79,8 @@ from src.platform.upload.schemas import (
     UploadInitResponse,
     UploadPartResponse,
 )
-from src.infra.file_formats import detect_ingest_type as detect_file_ingest_type
-from src.platform.upload.repository import UploadJobRepository
-from src.platform.auth.dependencies import get_current_user
-from src.platform.auth.models import CurrentUser
-from src.platform.authorization.dependencies import get_authorization_service
-from src.platform.authorization.models import ProjectAction
-from src.platform.authorization.service import AuthorizationService
-from src.platform.billing.runtime import guard_unmetered_hosted_runtime
-from src.platform.entitlements.dependencies import get_entitlement_service
-from src.platform.entitlements.service import EntitlementService
+from src.platform.upload.service import ETLService
+from src.platform.upload.tasks.models import ETLTaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +219,9 @@ async def submit_file_ingest(
 
     from src.platform.project.write_lease import build_leased_worker_write_commands
 
-    commands = build_leased_worker_write_commands()
+    commands = build_leased_worker_write_commands(
+        project_id=project_id, user_id=current_user.user_id
+    )
 
     target_parent_path = (parent_path or parent_id or "").strip("/")
 
@@ -964,20 +967,16 @@ async def init_multipart_upload(
     # orphans.
     first_error: HTTPException | BaseException | None = None
     for r in raw_results:
-        if isinstance(r, HTTPException):
-            first_error = first_error or r
-        elif isinstance(r, BaseException):
+        if isinstance(r, (HTTPException, BaseException)):
             first_error = first_error or r
 
     if first_error is not None:
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.to_thread(
                 upload_job_repo.mark_job_failed,
                 upload_job_id,
                 f"upload/init failed: {first_error}",
             )
-        except Exception:
-            pass
 
         async def _cleanup_successful_init(r) -> None:
             if not isinstance(r, UploadInitFileResponse):

@@ -13,12 +13,11 @@ from fastapi import HTTPException
 
 from src.exceptions import ErrorCode
 from src.infra.supabase.dependencies import get_supabase_client
-from src.repo.access_credentials import AccessCredentialRepository
 from src.platform.access.surface_repository import AccessSurfaceRepository
+from src.repo.access_credentials import AccessCredentialRepository
 from src.repo.scope_repository import RepositoryScopeRepository
 
 from .context import ScopedFsContext
-from .policy import resolve_mcp_fs_allowed_tools
 
 
 @dataclass(frozen=True)
@@ -38,11 +37,7 @@ def _list_project_scopes(project_id: str) -> list[dict]:
         raise HTTPException(
             status_code=503,
             detail="Repository view could not be resolved",
-            headers={
-                "X-PuppyOne-Error-Code": str(
-                    ErrorCode.REPOSITORY_STORAGE_UNAVAILABLE.value
-                )
-            },
+            headers={"X-PuppyOne-Error-Code": str(ErrorCode.REPOSITORY_STORAGE_UNAVAILABLE.value)},
         ) from exc
 
 
@@ -56,6 +51,7 @@ def _merge_scope_excludes(user_excludes, scope_path: str, all_scopes: list[dict]
     intentionally carves nothing.
     """
     from src.version_engine.admission.repo_facade import compute_carved_excludes
+
     carved = list(compute_carved_excludes(scope_path, all_scopes))
     return list(dict.fromkeys(list(user_excludes) + carved))
 
@@ -93,73 +89,14 @@ def resolve_mcp_runtime(api_key: str) -> ResolvedMcpRuntime:
     if not key.startswith("mcp_"):
         raise HTTPException(status_code=401, detail="Invalid MCP API key")
 
-    surface, policy = _resolve_surface(key)
+    _resolve_surface(key)
 
-    scope_id = surface.get("scope_id")
-    if not scope_id:
-        raise HTTPException(status_code=403, detail="MCP access surface is not bound to a scope")
-
-    sb = get_supabase_client()
-    scope_model = RepositoryScopeRepository(sb).get(scope_id)
-    if not scope_model:
-        raise HTTPException(status_code=403, detail="MCP endpoint scope not found")
-    scope = {
-        "id": scope_model.id,
-        "project_id": scope_model.project_id,
-        "name": scope_model.name,
-        "path": scope_model.path,
-        "exclude": scope_model.exclude,
-        "mode": scope_model.max_mode,
-    }
-
-    fs_policy = policy.get("fs_policy") or {}
-    accesses = fs_policy.get("accesses") or []
-    # Agent permissions are exactly its bound repo scope. MCP endpoints may
-    # further reduce that upper bound through their access policy.
-    access_writable = surface.get("kind") == "agent" or any(
-        not bool(access.get("readonly", True)) for access in accesses
-    )
-    mode = "rw" if scope.get("mode") == "rw" and access_writable else "ro"
-    allowed_tools = resolve_mcp_fs_allowed_tools(
-        policy.get("tools_policy") if surface.get("kind") == "mcp" else None,
-        writable=mode == "rw",
-    )
-
-    user_id = surface.get("created_by") or ""
-    if not user_id:
-        project_resp = (
-            sb.table("projects")
-            .select("created_by")
-            .eq("id", surface["project_id"])
-            .limit(1)
-            .execute()
-        )
-        project_rows = project_resp.data or []
-        user_id = project_rows[0].get("created_by") if project_rows else ""
-
-    scope_path = (scope.get("path") or "").strip("/")
-    exclude = _merge_scope_excludes(
-        scope.get("exclude") or [],
-        scope_path,
-        _list_project_scopes(surface["project_id"]),
-    )
-
-    context = ScopedFsContext(
-        api_key=key,
-        endpoint_id=surface["id"],
-        endpoint_name=surface.get("name") or "MCP Access Surface",
-        project_id=surface["project_id"],
-        user_id=user_id or "",
-        scope_id=scope["id"],
-        scope_path=scope_path,
-        mode=mode,
-        exclude=exclude,
-        allowed_tools=allowed_tools,
-    )
-    return ResolvedMcpRuntime(
-        context=context,
-        surface_kind=surface["kind"],
-        surface=surface,
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "code": "native_scope_not_available",
+            "message": "Scoped MCP filesystems require the new repository Scope implementation",
+        },
     )
 
 

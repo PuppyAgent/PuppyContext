@@ -23,6 +23,7 @@ from src.version_engine.infrastructure.supabase.ref_authority_repository import 
 from src.version_engine.storage.backends.s3 import S3StorageBackend
 from src.version_engine.write_engine.ref_transaction import RefTransactionService
 from tests.repository_hosting.harness.git import Git
+from tests.repository_hosting.harness.http_server import _serve_git_app
 from tests.repository_hosting.harness.postgres import Postgres, literal
 from tests.repository_hosting.harness.s3_service import owned_s3
 from tests.repository_hosting.integration.test_bare_repository_application import (
@@ -31,7 +32,6 @@ from tests.repository_hosting.integration.test_bare_repository_application impor
 from tests.repository_hosting.integration.test_bare_repository_application import create_bare
 from tests.repository_hosting.integration.test_docker_application import authorize_git
 from tests.repository_hosting.integration.test_ref_transaction_service import SQLClient, grant
-from tests.version_engine.test_write_engine import _serve_git_app
 
 pytestmark = [pytest.mark.hosting_application, pytest.mark.hosting_s3]
 
@@ -184,7 +184,6 @@ def test_bare_paired_pg_s3_restore_keeps_acknowledged_recovery_point(
                     restored_s3,
                     project,
                     supabase=SimpleNamespace(client=client),
-                    allow_deferred_namespace_reads=False,
                 )
                 service = RefTransactionService(
                     RefAuthorityRepository(client), backend, project_id=project

@@ -6,28 +6,28 @@ Version Engine path, never Access scopes or Access identities.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.common_schemas import ApiResponse
-from src.provider._base import AuthRequirement
-from src.provider.registry import ProviderRegistry
+from src.platform.auth.dependencies import get_current_user
+from src.platform.auth.models import CurrentUser
+from src.platform.authorization.dependencies import get_authorization_service
+from src.platform.authorization.models import ProjectAction
+from src.platform.authorization.service import AuthorizationService
+from src.platform.synchronize.arq_client import SyncArqClient
 from src.platform.synchronize.config_contract import (
     validate_bootstrap_config,
     validate_structured_config,
 )
-from src.platform.synchronize.schemas import binding_to_response
-from src.platform.auth.dependencies import get_current_user
-from src.platform.auth.models import CurrentUser
 from src.platform.synchronize.dependencies import (
-    get_synchronize_provider_registry,
-    get_synchronize_engine,
-    get_synchronize_service,
     get_sync_arq_client,
+    get_synchronize_engine,
+    get_synchronize_provider_registry,
+    get_synchronize_service,
 )
-from src.platform.synchronize.arq_client import SyncArqClient
 from src.platform.synchronize.engine import SynchronizeEngine
 from src.platform.synchronize.paths import canonical_provider
 from src.platform.synchronize.public_schemas import (
@@ -44,12 +44,11 @@ from src.platform.synchronize.public_schemas import (
     SynchronizeStatusItem,
     SynchronizeTriggerUpdate,
 )
+from src.platform.synchronize.schemas import binding_to_response
 from src.platform.synchronize.service import SynchronizeService
-from src.platform.authorization.dependencies import get_authorization_service
-from src.platform.authorization.service import AuthorizationService
-from src.platform.authorization.models import ProjectAction
+from src.provider._base import AuthRequirement
+from src.provider.registry import ProviderRegistry
 from src.utils.logger import log_error
-
 
 _PROJECT_ID_DESC = "Project ID"
 _PULL_DIRECTIONS = {"inbound", "bidirectional"}
@@ -60,16 +59,16 @@ class ProviderResourceItem(BaseModel):
     id: str
     type: str
     name: str
-    url: Optional[str] = None
-    subtitle: Optional[str] = None
-    icon: Optional[str] = None
+    url: str | None = None
+    subtitle: str | None = None
+    icon: str | None = None
     authorized: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderResourcesResponse(BaseModel):
     resources: list[ProviderResourceItem]
-    next_cursor: Optional[str] = None
+    next_cursor: str | None = None
 
 
 def _connectable_specs(registry: ProviderRegistry) -> list[dict]:
@@ -99,8 +98,11 @@ def _ensure_classified_binding(connection) -> None:
     if isinstance(reason, str) and reason.strip() and connection.status == "disabled":
         return
     config = getattr(connection, "config", None) or {}
-    if (getattr(connection, "provider", None) == "database" or "db_config" in config
-            or (getattr(connection, "trigger", None) or {}).get("type") == "import_once"):
+    if (
+        getattr(connection, "provider", None) == "database"
+        or "db_config" in config
+        or (getattr(connection, "trigger", None) or {}).get("type") == "import_once"
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -124,15 +126,16 @@ def _get_connection_with_access(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Integration connection #{connection_id} not found",
         )
-    _ensure_project_access(
-        authorization, current_user, connection.project_id, action
-    )
+    _ensure_project_access(authorization, current_user, connection.project_id, action)
     _ensure_classified_binding(connection)
     if action is not None and getattr(connection, "legacy_read_only_reason", None):
-        raise HTTPException(409, detail={
-            "code": "LEGACY_BINDING_READ_ONLY",
-            "message": "This reviewed historical binding is read-only. Its history remains available; create a new admitted binding instead of reactivating it.",
-        })
+        raise HTTPException(
+            409,
+            detail={
+                "code": "LEGACY_BINDING_READ_ONLY",
+                "message": "This reviewed historical binding is read-only. Its history remains available; create a new admitted binding instead of reactivating it.",
+            },
+        )
     return connection
 
 
@@ -165,8 +168,7 @@ def _ensure_direction_supported(direction: str, spec) -> None:
 
 def _can_queue_pull(connection) -> bool:
     return (
-        connection.direction in _PULL_DIRECTIONS
-        and connection.status in _QUEUEABLE_PULL_STATUSES
+        connection.direction in _PULL_DIRECTIONS and connection.status in _QUEUEABLE_PULL_STATUSES
     )
 
 
@@ -184,8 +186,8 @@ def _ensure_pull_queueable(connection) -> None:
 
 
 def _get_run_repo():
-    from src.platform.synchronize.run_repository import SyncRunRepository
     from src.infra.supabase.client import SupabaseClient
+    from src.platform.synchronize.run_repository import SyncRunRepository
 
     return SyncRunRepository(SupabaseClient())
 
@@ -273,9 +275,7 @@ async def get_project_sync_status(
         )
         for c in connections
     ]
-    return ApiResponse.success(
-        data=SynchronizeStatus(bindings=items)
-    )
+    return ApiResponse.success(data=SynchronizeStatus(bindings=items))
 
 
 def list_connectors(
@@ -287,8 +287,8 @@ def list_connectors(
 async def list_provider_resources(
     provider: str,
     q: str = Query("", description="Optional provider resource search term"),
-    cursor: Optional[str] = Query(None, description="Provider pagination cursor"),
-    resource_type: Optional[str] = Query(None, description="Provider resource type filter"),
+    cursor: str | None = Query(None, description="Provider pagination cursor"),
+    resource_type: str | None = Query(None, description="Provider resource type filter"),
     registry: ProviderRegistry = Depends(get_synchronize_provider_registry),
     current_user: CurrentUser = Depends(get_current_user),
 ):
@@ -349,6 +349,7 @@ async def create_connection(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     from src.platform.authorization.models import ProjectAction
+
     _ensure_project_access(
         authorization,
         current_user,
@@ -437,8 +438,8 @@ async def create_connection(
 
 
 def list_connections(
-    project_id: Optional[str] = Query(None),
-    provider: Optional[str] = Query(None),
+    project_id: str | None = Query(None),
+    provider: str | None = Query(None),
     service: SynchronizeService = Depends(get_synchronize_service),
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
@@ -516,19 +517,13 @@ async def update_connection(
             "credentials_ref",
             "access_key",
         }
-        fields.update({
-            key: value
-            for key, value in body.config.items()
-            if key not in blocked
-        })
+        fields.update({key: value for key, value in body.config.items() if key not in blocked})
         connector = registry.get(connection.provider)
         if connector:
             merged_config = dict(connection.config or {})
-            merged_config.update({
-                key: value
-                for key, value in body.config.items()
-                if key not in blocked
-            })
+            merged_config.update(
+                {key: value for key, value in body.config.items() if key not in blocked}
+            )
             try:
                 validate_structured_config(
                     connection.provider,
@@ -674,20 +669,24 @@ def list_failed_runs(
     for run in runs:
         connection = by_id.get(run.synchronize_binding_id)
         source = (connection.config or {}).get("source") if connection else {}
-        items.append(SynchronizeFailedRun(
-            id=run.id,
-            synchronize_binding_id=run.synchronize_binding_id,
-            synchronize_binding_name=source.get("resource_name") if isinstance(source, dict) else None,
-            target_path=connection.path if connection else None,
-            provider=connection.provider if connection else "",
-            direction=connection.direction if connection else "",
-            started_at=run.started_at,
-            finished_at=run.finished_at,
-            duration_ms=run.duration_ms,
-            error=run.error,
-            result_summary=run.result_summary,
-            trigger_type=run.trigger_type,
-        ))
+        items.append(
+            SynchronizeFailedRun(
+                id=run.id,
+                synchronize_binding_id=run.synchronize_binding_id,
+                synchronize_binding_name=source.get("resource_name")
+                if isinstance(source, dict)
+                else None,
+                target_path=connection.path if connection else None,
+                provider=connection.provider if connection else "",
+                direction=connection.direction if connection else "",
+                started_at=run.started_at,
+                finished_at=run.finished_at,
+                duration_ms=run.duration_ms,
+                error=run.error,
+                result_summary=run.result_summary,
+                trigger_type=run.trigger_type,
+            )
+        )
     return ApiResponse.success(data=items)
 
 
@@ -706,22 +705,24 @@ def list_connection_runs(
         current_user=current_user,
     )
     runs = _get_run_repo().list_by_sync(connection_id, limit=limit, offset=offset)
-    return ApiResponse.success(data=[
-        SynchronizeRun(
-            id=r.id,
-            synchronize_binding_id=r.synchronize_binding_id,
-            status=r.status,
-            worker_job_id=r.worker_job_id,
-            started_at=r.started_at,
-            finished_at=r.finished_at,
-            duration_ms=r.duration_ms,
-            exit_code=r.exit_code,
-            error=r.error,
-            trigger_type=r.trigger_type,
-            result_summary=r.result_summary,
-        )
-        for r in runs
-    ])
+    return ApiResponse.success(
+        data=[
+            SynchronizeRun(
+                id=r.id,
+                synchronize_binding_id=r.synchronize_binding_id,
+                status=r.status,
+                worker_job_id=r.worker_job_id,
+                started_at=r.started_at,
+                finished_at=r.finished_at,
+                duration_ms=r.duration_ms,
+                exit_code=r.exit_code,
+                error=r.error,
+                trigger_type=r.trigger_type,
+                result_summary=r.result_summary,
+            )
+            for r in runs
+        ]
+    )
 
 
 def get_connection_run(
@@ -742,20 +743,22 @@ def get_connection_run(
         authorization=authorization,
         current_user=current_user,
     )
-    return ApiResponse.success(data=SynchronizeRun(
-        id=run.id,
-        synchronize_binding_id=run.synchronize_binding_id,
-        status=run.status,
-        worker_job_id=run.worker_job_id,
-        started_at=run.started_at,
-        finished_at=run.finished_at,
-        duration_ms=run.duration_ms,
-        exit_code=run.exit_code,
-        stdout=run.stdout,
-        error=run.error,
-        trigger_type=run.trigger_type,
-        result_summary=run.result_summary,
-    ))
+    return ApiResponse.success(
+        data=SynchronizeRun(
+            id=run.id,
+            synchronize_binding_id=run.synchronize_binding_id,
+            status=run.status,
+            worker_job_id=run.worker_job_id,
+            started_at=run.started_at,
+            finished_at=run.finished_at,
+            duration_ms=run.duration_ms,
+            exit_code=run.exit_code,
+            stdout=run.stdout,
+            error=run.error,
+            trigger_type=run.trigger_type,
+            result_summary=run.result_summary,
+        )
+    )
 
 
 async def bootstrap(
@@ -767,6 +770,7 @@ async def bootstrap(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     from src.platform.authorization.models import ProjectAction
+
     _ensure_project_access(
         authorization,
         current_user,
@@ -820,7 +824,9 @@ async def bootstrap(
             )
             queued_connections.append(connection)
         except Exception as exc:
-            log_error(f"[IntegrationBootstrap] First sync enqueue failed for {connection.id}: {exc}")
+            log_error(
+                f"[IntegrationBootstrap] First sync enqueue failed for {connection.id}: {exc}"
+            )
 
     if body.sync_mode == "scheduled" and body.trigger:
         try:
@@ -840,9 +846,9 @@ async def bootstrap(
 
 
 async def trigger_pull(
-    connection_id: Optional[str] = Query(None, description="Connection ID. Omit to pull all."),
-    project_id: Optional[str] = Query(None, description=_PROJECT_ID_DESC),
-    provider: Optional[str] = Query(None),
+    connection_id: str | None = Query(None, description="Connection ID. Omit to pull all."),
+    project_id: str | None = Query(None, description=_PROJECT_ID_DESC),
+    provider: str | None = Query(None),
     service: SynchronizeService = Depends(get_synchronize_service),
     sync_arq_client: SyncArqClient = Depends(get_sync_arq_client),
     authorization: AuthorizationService = Depends(get_authorization_service),
@@ -887,11 +893,13 @@ async def trigger_pull(
             if connection.direction not in _PULL_DIRECTIONS:
                 continue
             try:
-                results.append(await _queue_sync_run(
-                    connection=connection,
-                    trigger_type="manual",
-                    sync_arq_client=sync_arq_client,
-                ))
+                results.append(
+                    await _queue_sync_run(
+                        connection=connection,
+                        trigger_type="manual",
+                        sync_arq_client=sync_arq_client,
+                    )
+                )
             except HTTPException as exc:
                 if exc.status_code in {
                     status.HTTP_400_BAD_REQUEST,
@@ -909,11 +917,12 @@ async def trigger_push(
     authorization: AuthorizationService = Depends(get_authorization_service),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
-    from src.version_engine.read.tree_reader import detect_type
     import json as _json
 
     from src.platform.authorization.models import ProjectAction
+    from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
+    from src.version_engine.read.tree_reader import detect_type
+
     _ensure_project_access(
         authorization,
         current_user,
@@ -921,7 +930,11 @@ async def trigger_push(
         ProjectAction.AUTOMATION_RUN,
     )
 
-    ops = build_worker_version_engine_container().product_operations()
+    ops = (
+        build_worker_version_engine_container()
+        .product_operations()
+        .for_user(project_id, current_user.user_id)
+    )
     try:
         content = ops.read_file(project_id, path)
     except FileNotFoundError:
@@ -942,7 +955,9 @@ async def trigger_push(
         content=parsed_content,
         node_type=node_type,
     )
-    return ApiResponse.success(data=SynchronizePushResult(
-        pushed=1 if result else 0,
-        results=[result] if result else [],
-    ))
+    return ApiResponse.success(
+        data=SynchronizePushResult(
+            pushed=1 if result else 0,
+            results=[result] if result else [],
+        )
+    )

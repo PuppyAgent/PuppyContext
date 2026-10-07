@@ -74,7 +74,11 @@ class ProjectControlPlaneRepository:
         self._client = client or SupabaseClient().get_client()
 
     def create_project(self, params: dict[str, Any]) -> dict[str, Any]:
-        operation = "create_native_project_repository" if "p_object_format" in params else "create_project_idempotent"
+        operation = (
+            "create_native_project_repository"
+            if "p_object_format" in params
+            else "create_project_idempotent"
+        )
         response = self._client.rpc(operation, params).execute()
         return _rpc_object(response.data, operation=operation)
 
@@ -264,6 +268,11 @@ class ProjectControlPlaneService:
         result_metadata: dict[str, Any] | None = None,
         native_repository: dict[str, str] | None = None,
     ) -> IdempotentProjectResult:
+        native_repository = native_repository or {
+            "profile": "native",
+            "object_format": "sha1",
+            "default_branch": "main",
+        }
         canonical_payload = {
             "description": description,
             "name": name,
@@ -275,26 +284,24 @@ class ProjectControlPlaneService:
             canonical_payload["repository"] = native_repository
         maximum = _normalize_project_limit(project_limit)
         params = {
-                "p_operation_key": operation_key,
-                "p_payload_hash": canonical_payload_hash(canonical_payload),
-                "p_project_id": generate_uuid_v7(),
-                "p_name": name,
-                "p_description": description,
-                "p_org_id": org_id,
-                "p_created_by": actor_user_id,
-                "p_share_token": f"prj_{secrets.token_urlsafe(24)}",
-                "p_publication_mode": publication_mode,
-                "p_project_limit": maximum,
-                "p_request_hash": canonical_payload_hash(
-                    request_fingerprint or canonical_payload
-                ),
-                "p_result_metadata": result_metadata or {},
-            }
+            "p_operation_key": operation_key,
+            "p_payload_hash": canonical_payload_hash(canonical_payload),
+            "p_project_id": generate_uuid_v7(),
+            "p_name": name,
+            "p_description": description,
+            "p_org_id": org_id,
+            "p_created_by": actor_user_id,
+            "p_share_token": f"prj_{secrets.token_urlsafe(24)}",
+            "p_publication_mode": publication_mode,
+            "p_project_limit": maximum,
+            "p_request_hash": canonical_payload_hash(request_fingerprint or canonical_payload),
+            "p_result_metadata": result_metadata or {},
+        }
         if native_repository is not None:
-            if publication_mode != "empty":
-                raise ValueError("native repositories require empty publication")
-            params.update(p_object_format=native_repository["object_format"],
-                          p_default_branch=native_repository["default_branch"])
+            params.update(
+                p_object_format=native_repository["object_format"],
+                p_default_branch=native_repository["default_branch"],
+            )
         outcome = self._repository.create_project(params)
         result = str(outcome.get("outcome") or "")
         if result in {"conflict", "gone", "invalid"}:
@@ -367,9 +374,7 @@ class ProjectControlPlaneService:
         if result == "dead_lettered":
             _raise_dead_lettered_publication()
         if result == "forbidden":
-            raise PermissionException(
-                "Project publication is no longer accessible to this user"
-            )
+            raise PermissionException("Project publication is no longer accessible to this user")
         if result != "replayed":
             raise RuntimeError(f"Unexpected Project replay outcome: {result or 'missing'}")
         project_data = outcome.get("project")

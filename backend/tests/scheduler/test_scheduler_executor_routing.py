@@ -7,9 +7,6 @@ from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.executors.pool import ThreadPoolExecutor
 
 import src.infra.scheduler.service as scheduler_module
-from src.infra.scheduler.jobs.shadow_snapshot_reaper import (
-    process_shadow_snapshot_reaper,
-)
 
 
 class FakeJob:
@@ -91,20 +88,16 @@ async def test_scheduler_routes_async_jobs_to_asyncio_default(monkeypatch):
     assert isinstance(executors["default"], AsyncIOExecutor)
     assert isinstance(executors["threadpool"], ThreadPoolExecutor)
 
-    jobs_by_id = {
-        kwargs["id"]: (func, kwargs)
-        for func, kwargs in scheduler.jobs
-    }
+    jobs_by_id = {kwargs["id"]: (func, kwargs) for func, kwargs in scheduler.jobs}
 
     # Sandbox cleanup moved to the app-scoped durable reaper lifecycle. The
     # deleted in-memory scheduler job must not be reintroduced here.
     assert "sandbox-reaper" not in jobs_by_id
 
-    assert jobs_by_id["shadow-snapshot-reaper"][0] is process_shadow_snapshot_reaper
-    assert "executor" not in jobs_by_id["shadow-snapshot-reaper"][1]
+    assert "shadow-snapshot-reaper" not in jobs_by_id
+    assert "executor" not in jobs_by_id["native-repository-projection"][1]
 
     for job_id in [
-        "version-outbox",
         "version-object-gc",
         "version-object-integrity-scan",
         "agent-1",

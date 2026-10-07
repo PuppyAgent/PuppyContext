@@ -1,3 +1,4 @@
+import time
 import uuid
 
 import pytest
@@ -27,9 +28,24 @@ def test_cold_reader_remains_available_while_writes_are_fenced(native_http, tmp_
     source.run("push", remote, "main")
     before = remote_snapshot(source, remote, tmp_path / "before.git")
     if fence == "gc":
-        transport.control.begin_gc(auth.project, str(uuid.uuid4()))
+        # The final HTTP body can reach stock Git just before the server's
+        # response-finally releases its read pin. Wait for actual release;
+        # never expire/delete pins to force a GC admission.
+        from postgrest.exceptions import APIError
+
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                transport.control.begin_gc(auth.project, str(uuid.uuid4()))
+                break
+            except APIError as exc:
+                if "publication_in_progress" not in str(exc) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
     else:
-        auth.pg.sql(f"UPDATE public.version_repositories SET write_state='fenced' WHERE project_id={literal(auth.project)}")
+        auth.pg.sql(
+            f"UPDATE public.version_repositories SET write_state='fenced' WHERE project_id={literal(auth.project)}"
+        )
     after = remote_snapshot(source, remote, tmp_path / "after.git")
     assert after == before
     source.commit({"must-not-ack": b"retained locally"})
@@ -49,7 +65,9 @@ def test_sha256_native_gc_quarantine_and_physical_deletion(publication):
     assert not first.errors and not first.sweep_skipped_for_safety
     assert first.deleted_count == 0 and first.quarantined_count == 1
     assert backend._inner.exists(orphan)
-    pg.sql(f"UPDATE public.version_object_gc_candidates SET first_seen_at=clock_timestamp()-interval '2 hours' WHERE project_id={literal(auth.project)}")
+    pg.sql(
+        f"UPDATE public.version_object_gc_candidates SET first_seen_at=clock_timestamp()-interval '2 hours' WHERE project_id={literal(auth.project)}"
+    )
     second = run_git_object_gc(repo, dry_run=False, retention_seconds=0, quarantine_seconds=3600)
     assert not second.errors and second.deleted_sample == [orphan]
     assert not backend._inner.exists(orphan)

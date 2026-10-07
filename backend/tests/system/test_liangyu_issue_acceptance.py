@@ -8,9 +8,7 @@ and two independent MCP transport registries over one pub/sub bus.
 from __future__ import annotations
 
 import asyncio
-import json
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -19,35 +17,7 @@ from mcp_service.core.session_registry import SessionRegistry
 from src.platform.scope_sandbox.execution.e2b_sandbox import E2BSandbox
 from src.platform.scope_sandbox.execution.store import InMemoryExecutionSessionStore
 from src.version_engine.derived.object_gc_worker import process_object_gc_projects
-from src.version_engine.infrastructure.supabase.scope_manager import ScopeManager
-from src.version_engine.infrastructure.supabase.server_repo import PuppyOneServerRepo
 from src.version_engine.storage.object_store import ObjectStore
-from tests.version_engine.test_server_repo import FakeAuditManager, FakeHistoryManager
-
-
-class _ScopeBackend:
-    def get(self, _scope_id):
-        return None
-
-    def put(self, _scope_id, _scope):
-        return None
-
-    def delete(self, _scope_id):
-        return False
-
-    def list_all(self):
-        return []
-
-
-def _repo(tmp_path, project_id: str) -> PuppyOneServerRepo:
-    return PuppyOneServerRepo(
-        project_id=project_id,
-        project_name=project_id,
-        store=ObjectStore(tmp_path / project_id),
-        history=FakeHistoryManager(),
-        audit=FakeAuditManager(),
-        scopes=ScopeManager(_ScopeBackend()),
-    )
 
 
 class _GcQuery:
@@ -88,18 +58,16 @@ class _GcDb:
         return _GcQuery(self, name)
 
 
-def test_issue_012_production_gc_evidence_is_enforced_per_project(
-    tmp_path, monkeypatch
-):
+def test_issue_012_production_gc_evidence_is_enforced_per_project(tmp_path, monkeypatch):
     """Another tenant's clean history must not unlock destructive GC."""
 
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     evidence = [
         {
             "project_id": "ready-project",
             "dry_run": True,
             "created_at": datetime.combine(
-                today - timedelta(days=offset), datetime.min.time(), timezone.utc
+                today - timedelta(days=offset), datetime.min.time(), UTC
             ).isoformat(),
             "errors": [],
             "sweep_skipped_for_safety": False,
@@ -108,7 +76,11 @@ def test_issue_012_production_gc_evidence_is_enforced_per_project(
     ]
     db = _GcDb({"version_object_gc_runs": evidence})
     repos = {
-        project_id: _repo(tmp_path, project_id)
+        project_id: SimpleNamespace(
+            _project_id=project_id,
+            store=ObjectStore(tmp_path / project_id),
+            history=SimpleNamespace(list_object_gc_roots=lambda: []),
+        )
         for project_id in ("ready-project", "unproven-project")
     }
     manager = SimpleNamespace(get_gc_repo=lambda project_id: repos[project_id])
@@ -176,9 +148,7 @@ async def test_issue_018_execution_survives_service_reconstruction():
 
     second_worker = E2BSandbox(
         sandbox_factory=lambda: (_ for _ in ()).throw(AssertionError("must reconnect")),
-        sandbox_connector=lambda resource_id: provider
-        if resource_id == provider.id
-        else None,
+        sandbox_connector=lambda resource_id: provider if resource_id == provider.id else None,
         session_store=store,
     )
     assert (await second_worker.read("chat-turn"))["data"] == {"value": 7}

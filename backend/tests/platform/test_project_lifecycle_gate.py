@@ -105,11 +105,7 @@ def test_initializing_project_is_invisible_until_atomic_ready_transition():
     assert list(authorization.load_project_facts_batch(["project-1"], "user-1")) == ["project-1"]
 
 
-def test_startup_legacy_root_repair_never_claims_initializing_publications():
+def test_startup_never_reconstructs_a_missing_project_root():
     main_source = (Path(__file__).parents[2] / "src/main.py").read_text(encoding="utf-8")
-    repair = main_source.split("async def _init_version_trees", 1)[1].split(
-        "@asynccontextmanager", 1
-    )[0]
-
-    assert '.eq("lifecycle_status", "ready")' in repair
-    assert repair.index('.eq("lifecycle_status", "ready")') < repair.index(".or_(")
+    assert "_init_version_trees" not in main_source
+    assert "version_root_hash" not in main_source

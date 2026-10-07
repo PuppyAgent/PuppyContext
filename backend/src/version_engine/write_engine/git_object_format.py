@@ -29,9 +29,13 @@ def hash_object(obj_type: str, content: bytes, *, object_format: str = "sha1") -
     return hashlib.new(object_format, _frame(obj_type, content)).hexdigest()
 
 
-def encode_object(obj_type: str, content: bytes, *, object_format: str = "sha1") -> tuple[str, bytes]:
+def encode_object(
+    obj_type: str, content: bytes, *, object_format: str = "sha1"
+) -> tuple[str, bytes]:
     """Return ``(oid, zlib_compressed_loose_bytes)``; SHA-1 stays the default."""
-    return hash_object(obj_type, content, object_format=object_format), zlib.compress(_frame(obj_type, content))
+    return hash_object(obj_type, content, object_format=object_format), zlib.compress(
+        _frame(obj_type, content)
+    )
 
 
 EMPTY_TREE_CONTENT = b""
@@ -57,9 +61,7 @@ def decode_object(loose_bytes: bytes, *, max_bytes: int | None = None) -> tuple[
     if max_bytes is not None and size > max_bytes:
         raise ValueError("object byte budget exceeded")
     if len(content) != size:
-        raise ValueError(
-            f"git object size mismatch: header says {size}, got {len(content)}"
-        )
+        raise ValueError(f"git object size mismatch: header says {size}, got {len(content)}")
     return obj_type, content
 
 
@@ -74,7 +76,7 @@ MODE_DIR = b"40000"
 # symlinks (120000), and submodule gitlinks (160000) — not just regular
 # files — or it corrupts/loses content the client pushed.
 _BLOB_MODES = (MODE_FILE, MODE_EXECUTABLE, MODE_SYMLINK, MODE_GITLINK)
-_ALLOWED_TREE_MODES = frozenset(_BLOB_MODES + (MODE_DIR,))
+_ALLOWED_TREE_MODES = frozenset((*_BLOB_MODES, MODE_DIR))
 
 
 class TreeEntry(NamedTuple):
@@ -101,8 +103,7 @@ def _validate_sha1_hex(sha1_hex: str, object_format: str = "sha1") -> None:
     width = 2 * object_id_bytes(object_format)
     if len(sha1_hex) != width:
         raise ValueError(
-            f"git tree entry object id must be {width} hex characters, "
-            f"got {len(sha1_hex)}",
+            f"git tree entry object id must be {width} hex characters, got {len(sha1_hex)}",
         )
     if any(char not in "0123456789abcdefABCDEF" for char in sha1_hex):
         raise ValueError("git tree entry object id must be hexadecimal")
@@ -131,13 +132,7 @@ def encode_tree(entries: Iterable[TreeEntry], *, object_format: str = "sha1") ->
         if raw_name in seen_names:
             raise ValueError("duplicate git tree entry name")
         seen_names.add(raw_name)
-        out += (
-            entry.mode
-            + b" "
-            + raw_name
-            + b"\x00"
-            + bytes.fromhex(entry.sha1_hex)
-        )
+        out += entry.mode + b" " + raw_name + b"\x00" + bytes.fromhex(entry.sha1_hex)
     return bytes(out)
 
 
@@ -244,3 +239,12 @@ def split_author_line(line: str) -> tuple[str, str]:
     if len(parts) >= 3:
         return parts[0], f"{parts[1]} {parts[2]}"
     return line, "0 +0000"
+
+
+def is_git_object_id(value: object) -> bool:
+    """Recognize either supported Git object identity without assuming a format."""
+    return (
+        isinstance(value, str)
+        and len(value) in (40, 64)
+        and all(character in "0123456789abcdef" for character in value)
+    )

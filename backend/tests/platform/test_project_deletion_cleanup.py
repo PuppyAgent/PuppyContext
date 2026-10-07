@@ -20,7 +20,6 @@ OTHER_PRINCIPAL = "00000000-0000-4000-8000-000000000002"
 PRINCIPALS = [REQUESTED_BY, OTHER_PRINCIPAL]
 PREFIXES = [
     f"version/{PROJECT_ID}/",
-    f"mut/{PROJECT_ID}/",
     f"projects/{PROJECT_ID}/",
     f"shadow-snapshots/{PROJECT_ID}/",
     *[
@@ -68,8 +67,7 @@ class RepositoryStub:
             limit = kwargs["limit"]
             jobs, self.jobs = self.jobs[:limit], self.jobs[limit:]
             self.claimed.extend(
-                {"job_id": job["id"], "worker_id": kwargs["worker_id"]}
-                for job in jobs
+                {"job_id": job["id"], "worker_id": kwargs["worker_id"]} for job in jobs
             )
             return jobs
 
@@ -119,9 +117,9 @@ class S3Stub:
         return [DeleteResult(key) for key in keys]
 
     async def list_multipart_uploads(self, *, prefix, max_uploads):
-        matches = sorted(
-            item for item in self.multipart_uploads if item[0].startswith(prefix)
-        )[:max_uploads]
+        matches = sorted(item for item in self.multipart_uploads if item[0].startswith(prefix))[
+            :max_uploads
+        ]
         return [MultipartUpload(key, upload_id) for key, upload_id in matches], None
 
     async def abort_multipart_upload(self, key, upload_id):
@@ -232,7 +230,7 @@ async def test_first_phase_purges_every_owned_namespace_then_waits_for_verificat
     s3 = S3Stub(
         {
             f"version/{PROJECT_ID}/objects/aa/object",
-            f"mut/{PROJECT_ID}/objects/bb/legacy",
+            f"version/{PROJECT_ID}/recovery-archive/sha256/bb/private",
             f"projects/{PROJECT_ID}/uploads/user/staging",
             f"shadow-snapshots/{PROJECT_ID}/snapshot/manifest.json",
             f"users/{REQUESTED_BY}/raw/{PROJECT_ID}/raw.pdf",
@@ -274,9 +272,7 @@ async def test_drain_phase_reschedules_while_an_admitted_writer_is_active():
 
     assert summary.waiting_for_writers == 1
     assert summary.drained == 0
-    assert repository.drained == [
-        {"job_id": "job-1", "worker_id": "worker-1"}
-    ]
+    assert repository.drained == [{"job_id": "job-1", "worker_id": "worker-1"}]
 
 
 @pytest.mark.asyncio
@@ -388,9 +384,7 @@ async def test_late_host_cache_is_scrubbed_but_does_not_claim_global_authority()
     assert summary.completed == 1
     assert summary.verification_scheduled == 0
     assert host.deleted == [PROJECT_ID]
-    assert repository.completed == [
-        {"job_id": "job-1", "worker_id": "worker-1"}
-    ]
+    assert repository.completed == [{"job_id": "job-1", "worker_id": "worker-1"}]
 
 
 @pytest.mark.asyncio
@@ -534,9 +528,7 @@ async def test_external_cleaner_deletes_search_namespaces_and_sandbox_handles():
 
         async def status(self, resource_id):
             state = (
-                SandboxState.DESTROYED
-                if resource_id in self.destroyed
-                else SandboxState.RUNNING
+                SandboxState.DESTROYED if resource_id in self.destroyed else SandboxState.RUNNING
             )
             return SandboxInfo(resource_id, state)
 
@@ -547,9 +539,7 @@ async def test_external_cleaner_deletes_search_namespaces_and_sandbox_handles():
         sandbox_provider_factory=lambda _name: provider,
     )
     job = _job(phase="purge")
-    job["sandbox_resources"] = [
-        {"kind": "scope", "provider": "e2b", "resource_id": "sandbox-1"}
-    ]
+    job["sandbox_resources"] = [{"kind": "scope", "provider": "e2b", "resource_id": "sandbox-1"}]
 
     await cleaner.purge(job)
 
@@ -579,7 +569,7 @@ async def test_docker_cleanup_removes_container_instead_of_only_stopping(
         search=SimpleNamespace(),  # type: ignore[arg-type]
     )
 
-    await cleaner._destroy_sandbox(  # noqa: SLF001 - exact provider command contract
+    await cleaner._destroy_sandbox(
         {"kind": "execution", "provider": "docker", "resource_id": "container-1"}
     )
 

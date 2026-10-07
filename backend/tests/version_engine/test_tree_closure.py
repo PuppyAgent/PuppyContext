@@ -18,7 +18,6 @@ from src.version_engine.write_engine.tree_objects import (
     build_tree_from_files,
     find_missing_tree_objects,
 )
-from src.version_engine.derived.projection import graft_subtree
 
 
 @pytest.fixture
@@ -36,9 +35,7 @@ NESTED = {
 
 def _subtree_id(store: ObjectStore, root: str, name: str) -> str:
     return next(
-        entry.sha1_hex
-        for entry in decode_tree(store.get_object(root)[1])
-        if entry.name == name
+        entry.sha1_hex for entry in decode_tree(store.get_object(root)[1]) if entry.name == name
     )
 
 
@@ -51,15 +48,6 @@ def test_build_tree_from_blob_ids_persists_complete_closure(store):
     blob_ids = {path: store.put_blob(content) for path, content in NESTED.items()}
     root = build_tree_from_blob_ids(store, blob_ids)
     assert find_missing_tree_objects(store, root) == []
-
-
-def test_graft_subtree_persists_complete_closure(store):
-    base = build_tree_from_files(store, {"README.md": b"top"})
-    sub = build_tree_from_files(store, {"a.md": b"a", "nested/b.md": b"b"})
-    grafted = graft_subtree(store, base, "docs", sub)
-    assert find_missing_tree_objects(store, grafted) == []
-    # the grafted subtree is actually reachable under docs/
-    assert _subtree_id(store, grafted, "docs") == sub
 
 
 def test_find_missing_tree_objects_detects_dangling_subtree(store):

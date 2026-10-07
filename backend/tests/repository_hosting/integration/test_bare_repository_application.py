@@ -17,8 +17,8 @@ from src.platform.entitlements.models import (
 from tests.repository_hosting.harness.application import Application
 from tests.repository_hosting.harness.git import Git
 from tests.repository_hosting.harness.postgres import Postgres, literal
+from tests.repository_hosting.harness.workflows import WORKFLOWS
 from tests.repository_hosting.integration.test_docker_application import authorize_git
-from tests.repository_hosting.transport.test_git_conformance import WORKFLOWS
 
 pytestmark = pytest.mark.hosting_application
 
@@ -36,14 +36,14 @@ def bare_application(tmp_path_factory):
         app.close()
 
 
-def publish_entitlement(app, org):
+def publish_entitlement(app, org, *, max_file_bytes=8 * 1024**2, max_storage_bytes=64 * 1024**2):
     # Simulate the billing publisher at its real authenticated ingress; no SQL
     # entitlement/enrollment fixtures and no external billing network calls.
     limits = {key: 100 for key in REQUIRED_ENTITLEMENT_LIMITS}
     limits.update(
         {
-            "storage.max_bytes": 64 * 1024**2,
-            "upload.max_single_file_bytes": 8 * 1024**2,
+            "storage.max_bytes": max_storage_bytes,
+            "upload.max_single_file_bytes": max_file_bytes,
             "seats.purchased": 1,
         }
     )
@@ -132,12 +132,18 @@ def test_bare_formal_creation_git_head_replay_and_cold_read(bare_application, tm
     initial_head = app.api("GET", f"/content/{project}/head")
     assert initial_head["head_commit_id"] == ""
     assert initial_head["head"]["kind"] == "symbolic"
+    readiness = app.api("GET", f"/projects/{project}/readiness")
+    assert readiness["git"]["state"] == "awaiting_first_push"
+    assert readiness["git"]["default_branch"] == "trunk"
     client = Git.init(tmp_path / "client", format=format)
     authorize_git(client, secret)
     client.run("branch", "-m", "trunk")
     client.run("remote", "add", "origin", remote)
     first = client.commit({"readme": b"bare\n"})
     client.run("push", "-u", "origin", "trunk")
+    readiness = app.api("GET", f"/projects/{project}/readiness")
+    assert readiness["git"]["state"] == "ready"
+    assert readiness["claude"]["ready"] is True
     auth = (
         "http.extraHeader=Authorization: Basic "
         + base64.b64encode(("x:" + secret).encode()).decode()
@@ -246,31 +252,31 @@ def test_bare_canonical_git_workflow_matches_stock(
     )
 
 
-def test_bare_formal_authorization_scope_denial_and_legacy_coexistence(bare_application, tmp_path):
+def test_bare_formal_authorization_scope_denial_and_native_default(bare_application, tmp_path):
     app, pg = bare_application, Postgres()
     org, project, remote, secret = create_bare(app, branch="main")
     source = Git.init(tmp_path / "source")
     authorize_git(source, secret)
     accepted = source.commit({"readme": b"authorized"})
     source.run("push", remote, "main")
-    legacy = app.api(
+    neighbor = app.api(
         "POST",
         "/projects/",
         expected=201,
         headers={"Idempotency-Key": str(uuid.uuid4())},
-        json={"name": "Legacy neighbor", "org_id": org},
+        json={"name": "Default native neighbor", "org_id": org},
     )["id"]
     assert (
         pg.value(
-            f"SELECT count(*) FROM public.version_repositories WHERE project_id={literal(legacy)}"
+            f"SELECT count(*) FROM public.version_repositories WHERE project_id={literal(neighbor)} AND authority='native'"
         )
-        == "0"
+        == "1"
     )
     assert (
         pg.value(
-            f"SELECT length(version_root_hash) FROM public.projects WHERE id={literal(legacy)}"
+            f"SELECT coalesce(version_root_hash,'') FROM public.projects WHERE id={literal(neighbor)}"
         )
-        == "40"
+        == ""
     )
     denied = app.request(
         "POST",
@@ -309,7 +315,7 @@ def test_bare_formal_authorization_scope_denial_and_legacy_coexistence(bare_appl
     )
     assert (
         app.client.get(
-            f"/git/{legacy}.git/info/refs", headers=auth, params={"service": "git-upload-pack"}
+            f"/git/{neighbor}.git/info/refs", headers=auth, params={"service": "git-upload-pack"}
         ).status_code
         == 401
     )

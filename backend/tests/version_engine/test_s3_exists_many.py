@@ -19,7 +19,6 @@ async def test_async_exists_many_propagates_transient_probe_errors():
     backend = S3StorageBackend(
         _S3ExistsProbe(RuntimeError("supabase storage timeout")),
         "project-id",
-        allow_deferred_namespace_reads=False,
     )
 
     with pytest.raises(RuntimeError, match="supabase storage timeout"):
@@ -31,7 +30,6 @@ async def test_async_exists_many_treats_not_found_as_missing():
     backend = S3StorageBackend(
         _S3ExistsProbe(ObjectNotFoundError("object not found")),
         "project-id",
-        allow_deferred_namespace_reads=False,
     )
 
     assert await backend.async_exists_many(["1" * 40]) == set()

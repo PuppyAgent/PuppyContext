@@ -39,24 +39,42 @@ pytestmark = pytest.mark.hosting_s3
 def publication(pg_project, tmp_path, request):
     object_format = getattr(request, "param", "sha1")
     pg, project = pg_project
-    pg.sql(f"UPDATE public.projects SET version_root_hash={literal(EMPTY_TREE_SHA1)} WHERE id={literal(project)}")
-    auth = Authority(pg, project, object_format=object_format, roots={"a" * (64 if object_format == "sha256" else 40): "commit"})
+    pg.sql(
+        f"UPDATE public.projects SET version_root_hash={literal(EMPTY_TREE_SHA1)} WHERE id={literal(project)}"
+    )
+    auth = Authority(
+        pg,
+        project,
+        object_format=object_format,
+        roots={"a" * (64 if object_format == "sha256" else 40): "commit"},
+    )
     pg.sql(f"DELETE FROM public.version_publication_receipts WHERE project_id={literal(project)}")
     with owned_s3() as (s3, api), httpx.Client(timeout=15, trust_env=False) as http:
-        sdk = create_client(str(api.client.base_url), api.headers("service_role")["apikey"],
-                            ClientOptions(httpx_client=http, auto_refresh_token=False, persist_session=False))
+        sdk = create_client(
+            str(api.client.base_url),
+            api.headers("service_role")["apikey"],
+            ClientOptions(httpx_client=http, auto_refresh_token=False, persist_session=False),
+        )
         db = SimpleNamespace(client=sdk)
-        physical = S3StorageBackend(s3, project, supabase=db, allow_deferred_namespace_reads=False)
+        physical = S3StorageBackend(
+            s3,
+            project,
+            supabase=db,
+        )
         backend = CachedStorageBackend(physical)
-        service = RefTransactionService(RefAuthorityRepository(sdk), backend, project_id=project, object_format=object_format)
+        service = RefTransactionService(
+            RefAuthorityRepository(sdk), backend, project_id=project, object_format=object_format
+        )
         git = Git.init(tmp_path / "client", format=object_format)
         oid = git.commit({"original.txt": b"original\n", "binary": bytes(range(256))})
         objects = git.objects()
+
         def prepare():
             with backend.stage_object_writes() as batch:
                 for oid, (kind, body) in objects.items():
                     backend.put(oid, encode_object(kind, body, object_format=object_format)[1])
                 batch.flush()  # Real POB/index path, not only loose objects.
+
         yield pg, auth, s3, db, backend, service, git, oid, prepare
 
 
@@ -77,14 +95,25 @@ def test_publication_survives_fresh_s3_backend_and_cold_native_fsck(publication,
     result = request(service, oid, prepare)
     assert result["status"] == "committed"
     assert auth.state()["oid"] == oid
-    fresh = S3StorageBackend(s3, auth.project, supabase=db, allow_deferred_namespace_reads=False)
+    fresh = S3StorageBackend(
+        s3,
+        auth.project,
+        supabase=db,
+    )
     manifest = ClosureVerifier(fresh).verify({oid: "commit"})
-    receipt = json.loads(pg.value(f"SELECT row_to_json(r) FROM public.version_publication_receipts r WHERE id={literal(result['receipt_id'])}"))
+    receipt = json.loads(
+        pg.value(
+            f"SELECT row_to_json(r) FROM public.version_publication_receipts r WHERE id={literal(result['receipt_id'])}"
+        )
+    )
     assert receipt["manifest_sha256"] == manifest.digest
     cold = Git.init(tmp_path / "cold.git", bare=True)
     for expected, (kind, raw) in git.objects().items():
         assert fresh.get_durable(expected) == encode_object(kind, raw)[1]
-        assert cold.run("hash-object", "-w", "-t", kind, "--stdin", input=raw).stdout.strip().decode() == expected
+        assert (
+            cold.run("hash-object", "-w", "-t", kind, "--stdin", input=raw).stdout.strip().decode()
+            == expected
+        )
     cold.run("update-ref", "refs/heads/main", oid)
     cold.run("fsck", "--full", "--strict")
     assert cold.objects() == git.objects()
@@ -114,9 +143,15 @@ def test_s3_outage_does_not_publish_or_acknowledge(publication, monkeypatch):
     # Connection failure against an unused loopback port, not an S3 mock.
     import boto3
     from botocore.config import Config
-    failed = boto3.client("s3", endpoint_url="http://127.0.0.1:1", region_name="local",
-                          aws_access_key_id="test", aws_secret_access_key="test",
-                          config=Config(proxies={}, connect_timeout=1, read_timeout=1, retries={"max_attempts": 0}))
+
+    failed = boto3.client(
+        "s3",
+        endpoint_url="http://127.0.0.1:1",
+        region_name="local",
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+        config=Config(proxies={}, connect_timeout=1, read_timeout=1, retries={"max_attempts": 0}),
+    )
     try:
         with monkeypatch.context() as m:
             m.setattr(s3, "client", failed)
@@ -143,17 +178,19 @@ def test_gc_preserves_verified_refs_and_reclaims_actual_s3_orphan(publication):
     assert service.control.snapshot(auth.project)["gc_token"] is None
 
 
-@pytest.mark.parametrize('publication', ['sha1', 'sha256'], indirect=True)
+@pytest.mark.parametrize("publication", ["sha1", "sha256"], indirect=True)
 def test_gc_worker_uses_native_inventory_without_legacy_current_tree_access(publication):
     pg, auth, s3, db, backend, service, _git, oid, prepare = publication
     request(service, oid, prepare)
     manager = VersionRepoManager(s3, db)
-    with pytest.raises(RuntimeError, match='authority-aware access'):
-        manager.get_server_repo(auth.project)
+    assert not hasattr(manager, "get_server_repo")
     before = service.control.snapshot(auth.project)
     results = process_object_gc_projects(
-        repo_manager=manager, client=db.client, project_ids=[auth.project],
-        dry_run=True, retention_seconds=0,
+        repo_manager=manager,
+        client=db.client,
+        project_ids=[auth.project],
+        dry_run=True,
+        retention_seconds=0,
     )
     assert len(results) == 1
     result = results[0]
@@ -161,9 +198,14 @@ def test_gc_worker_uses_native_inventory_without_legacy_current_tree_access(publ
     assert not result.errors and not result.sweep_skipped_for_safety
     assert result.deleted_count == 0 and result.reachable_count > 0
     assert service.control.snapshot(auth.project) == before
-    assert ClosureVerifier(backend, object_format=service.object_format).verify({oid: 'commit'})
-    assert pg.value(f'SELECT count(*) FROM public.version_object_gc_runs WHERE project_id={literal(auth.project)} AND dry_run') == '1'
-    assert not manager._cache
+    assert ClosureVerifier(backend, object_format=service.object_format).verify({oid: "commit"})
+    assert (
+        pg.value(
+            f"SELECT count(*) FROM public.version_object_gc_runs WHERE project_id={literal(auth.project)} AND dry_run"
+        )
+        == "1"
+    )
+    assert not hasattr(manager, "_cache")
 
 
 def test_gc_dry_run_does_not_advance_epoch_or_leave_a_sweep_fence(publication):
@@ -179,24 +221,30 @@ def test_gc_dry_run_does_not_advance_epoch_or_leave_a_sweep_fence(publication):
 def test_gc_cannot_delete_old_objects_while_a_new_publication_is_pinned(publication):
     _pg, auth, s3, db, backend, service, _git, oid, prepare = publication
     repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
+
     def overlap():
         prepare()
         result = run_git_object_gc(repo, dry_run=False, retention_seconds=0)
         assert result.sweep_skipped_for_safety and result.deleted_count == 0
         assert "publication_in_progress" in " ".join(result.errors)
+
     assert request(service, oid, overlap)["status"] == "committed"
     assert ClosureVerifier(backend).verify({oid: "commit"})
 
 
-def test_unknown_s3_delete_result_keeps_fence_instead_of_racing_next_writer(publication, monkeypatch):
+def test_unknown_s3_delete_result_keeps_fence_instead_of_racing_next_writer(
+    publication, monkeypatch
+):
     _pg, auth, s3, db, backend, service, _git, oid, prepare = publication
     request(service, oid, prepare)
     orphan, loose = encode_object("blob", b"unknown delete result")
     backend.put_durable(orphan, loose)
     original = s3.delete_file
+
     async def lost_ack(key):
         await original(key)
         raise ConnectionError("lost DELETE acknowledgement")
+
     repo = VersionRepoManager(s3, db).get_gc_repo(auth.project)
     with monkeypatch.context() as m:
         m.setattr(s3, "delete_file", lost_ack)

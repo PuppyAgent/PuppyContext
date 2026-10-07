@@ -1,4 +1,4 @@
-"""Version Engine write boundary for Integration syncs."""
+"""Version Engine write boundary for Synchronize syncs."""
 
 from __future__ import annotations
 
@@ -20,8 +20,10 @@ class SynchronizeVersionWritePort(Protocol):
         project_id: str,
         plan: SynchronizeWritePlan,
         actor: str,
+        user_id: str,
+        operation_key: str,
     ) -> SynchronizeWriteOutcome:
-        """Commit an Integration write plan through the Version Engine."""
+        """Commit an Synchronize write plan through the Version Engine."""
 
 
 class VersionEngineWritePort:
@@ -31,10 +33,14 @@ class VersionEngineWritePort:
         project_id: str,
         plan: SynchronizeWritePlan,
         actor: str,
+        user_id: str,
+        operation_key: str,
     ) -> SynchronizeWriteOutcome:
         from src.platform.project.write_lease import build_leased_worker_write_commands
 
-        commands = build_leased_worker_write_commands()
+        commands = build_leased_worker_write_commands(
+            project_id=project_id, user_id=user_id, operation_key=operation_key
+        )
         if len(plan.files) == 1 and not plan.deleted:
             file_path, content = next(iter(plan.files.items()))
             outcome = await commands.write_bytes(

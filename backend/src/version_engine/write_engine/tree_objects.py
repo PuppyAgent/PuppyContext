@@ -24,7 +24,10 @@ def flatten_tree_to_bytes(store, tree_hash: str) -> dict[str, bytes]:
 
 
 def build_tree_from_files(
-    store, files: dict[str, bytes], *, modes: dict[str, bytes] | None = None,
+    store,
+    files: dict[str, bytes],
+    *,
+    modes: dict[str, bytes] | None = None,
 ) -> str:
     """Build a Git tree object from a flat ``{path: bytes}`` mapping.
 
@@ -50,7 +53,10 @@ def build_tree_from_files(
 
 
 def build_tree_from_blob_ids(
-    store, files: dict[str, str], *, modes: dict[str, bytes] | None = None,
+    store,
+    files: dict[str, str],
+    *,
+    modes: dict[str, bytes] | None = None,
 ) -> str:
     """Build a Git tree object from a flat ``{path: blob_object_id}`` mapping.
 
@@ -164,57 +170,6 @@ def join_scope_path(scope_path: str, rel_path: str) -> str:
     return f"{scope}/{rel}"
 
 
-def scope_owner_for_path(scope_paths: list[str], full_path: str) -> str:
-    """Return the deepest scope path that owns ``full_path``."""
-
-    clean = normalize_path(full_path)
-    owner = ""
-    for scope_path in scope_paths:
-        scope = normalize_path(scope_path)
-        if not scope:
-            continue
-        if clean == scope or clean.startswith(scope + "/"):
-            if len(scope) > len(owner):
-                owner = scope
-    return owner
-
-
-def known_scope_paths(repo) -> list[str]:
-    """Best-effort list of scope paths known by definitions or state."""
-
-    paths = {""}
-    try:
-        paths.update((p or "").strip("/") for p in repo.get_all_scope_hashes().keys())
-    except Exception:
-        pass
-    try:
-        for scope in repo.scopes.list_all():
-            paths.add(normalize_path(scope.get("path", "")))
-    except Exception:
-        pass
-    return sorted(paths)
-
-
-def validate_scope_bound_files(
-    repo,
-    scope_path: str,
-    rel_paths: list[str],
-    scope_excludes: list[str] | None = None,
-) -> list[str]:
-    """Return full paths that are outside scope ownership or excluded."""
-
-    scope_norm = normalize_path(scope_path)
-    scopes = known_scope_paths(repo)
-    excludes = [normalize_path(path) for path in (scope_excludes or [])]
-    rejected: list[str] = []
-    for rel_path in rel_paths:
-        full_path = join_scope_path(scope_norm, rel_path)
-        owner = scope_owner_for_path(scopes, full_path)
-        if owner != scope_norm or is_path_excluded(full_path, excludes):
-            rejected.append(full_path)
-    return rejected
-
-
 def is_path_excluded(full_path: str, excludes: list[str]) -> bool:
     """Check whether ``full_path`` lies under any ``excludes`` pattern.
 
@@ -244,11 +199,13 @@ def _write_nested_tree(store, node: dict) -> str:
             # older call sites default to a regular file.
             kind, sub_hash = val[0], val[1]
             mode = val[2] if len(val) > 2 else MODE_FILE
-            entries.append(TreeEntry(
-                name=name,
-                mode=mode if kind == "B" else MODE_DIR,
-                sha1_hex=sub_hash,
-            ))
+            entries.append(
+                TreeEntry(
+                    name=name,
+                    mode=mode if kind == "B" else MODE_DIR,
+                    sha1_hex=sub_hash,
+                )
+            )
         else:
             sub_hash = _write_nested_tree(store, val)
             entries.append(TreeEntry(name=name, mode=MODE_DIR, sha1_hex=sub_hash))

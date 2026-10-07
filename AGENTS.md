@@ -19,6 +19,23 @@
 > data changes use immutable `supabase/data_migrations` artifacts through the
 > portable runner. Never hide an external script between schema migrations.
 
+## Current Version Engine contract (2026-10-07)
+
+The current implementation is documented in `docs/architecture/01-version-engine.md`
+(from backend, use `../docs/architecture/01-version-engine.md`). PostgreSQL native
+refs and S3 immutable Git objects are the only runtime version authority.
+`ProductOperationAdapter.for_grant(...)` / `.for_user(...)` opens pinned native
+reads and publishes through `NativeOperationWriter` and `RefTransactionService`.
+There is no project-root publisher, server-repository facade, startup root repair,
+old storage namespace fallback, or scoped transport materialization.
+
+Old Scope credentials fail closed; new Scope views are a separate future feature.
+Data preservation is an operator migration/archive concern, not runtime protocol
+compatibility. Historical SQL and immutable migration artifacts retain their
+original source identifiers for reproducible upgrades. The final SQL Contract
+runs only after both migration artifacts have verified receipts and old writers
+have stopped. Do not mutate a hosted environment during local acceptance.
+
 ## Overview
 
 PuppyOne is a **cloud file system built for AI Agents**, centered around two core pillars: **Connect** and **Collaborate**.
@@ -99,12 +116,13 @@ backend/
 │   ├── version_engine/        # Git-native Version Engine (core write funnel)
 │   │   ├── adapters/
 │   │   │   ├── git/           #   Git smart-HTTP protocol boundary
-│   │   │   └── operations/    #   ProductOperationAdapter for Web/API/CLI
-│   │   ├── application/       #   transaction engine, merge policy, Git objects
-│   │   ├── domain/            #   write/conflict intents
-│   │   ├── routers/           #   content, history, conflict, AP-FS, websocket
-│   │   ├── server/            #   repo manager, Supabase/S3 adapters, auth
-│   │   └── services/          #   tree reader/splice, hooks, outbox, GC
+│   │   │   └── product/       #   grant-bound ProductOperationAdapter
+│   │   ├── write_engine/      #   native operations, ref transactions, Git formats
+│   │   ├── read/              #   pinned native tree/history readers
+│   │   ├── entrypoints/       #   Git and Product HTTP routes
+│   │   ├── infrastructure/    #   Supabase authority and admission adapters
+│   │   ├── storage/           #   canonical S3 objects, capacity and GC fencing
+│   │   └── derived/           #   native projection jobs and GC
 │   │
 │   ├── content/               # Content node tree (folder/JSON/MD/file)
 │   │   └── table/             #     Structured data tables (JSON Pointer)
@@ -149,7 +167,7 @@ backend/
 - **Fully async**: All I/O operations use `async/await`
 - **Pydantic models**: All request/response defined with Pydantic schemas
 - **Naming conventions**: Files `snake_case.py`, classes `PascalCase`, functions/variables `snake_case`
-- **DB table naming**: New tables use **plural snake_case** (e.g. `projects`, `access_surfaces`, `version_transactions`). Deferred physical legacy names may appear only through `backend/src/version_engine/server/db_names.py`.
+- **DB table naming**: New tables use **plural snake_case** (e.g. `projects`, `access_surfaces`, `version_transactions`). Deferred physical legacy names may appear only through `backend/src/version_engine/infrastructure/supabase/db_names.py`.
 - **Route prefix**: Business APIs under `/api/v1`, internal APIs under `/internal`
 - **Module structure**: Each module typically contains `router.py`, `service.py`, `repository.py`, `schemas.py`
 
@@ -185,8 +203,8 @@ All tables use plural snake_case names. The "unified access" architecture serves
 | `agent_execution_logs` | `agent/config/repository.py`, `scheduler/jobs/agent_job.py` | Scheduled agent execution logs |
 | `file_versions` | _(deprecated — no longer used in code)_ | Legacy file version history |
 | `folder_snapshots` | _(deprecated — no longer used in code)_ | Legacy folder snapshots |
-| deferred version tables | `version_engine/server/db_names.py` | Physical compatibility names for commit/scope/outbox/object-location storage |
-| `audit_logs` | `version_engine/server/audit_repository.py` | Audit trail |
+| `version_repository_refs` and native operation tables | `version_engine/infrastructure/supabase/` | Native ref authority, request journal, admission, billing and GC |
+| `audit_logs` | `version_engine/infrastructure/supabase/audit_repository.py` | Audit trail |
 | `search_index_tasks` | `project/dashboard_router.py` | Search indexing tasks |
 | `ingest_tasks` | `project/dashboard_router.py` | Ingestion tasks |
 | `agent_logs` | `analytics/service.py` | Agent usage analytics |

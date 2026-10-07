@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import struct
 import threading
 from contextlib import contextmanager
@@ -30,23 +29,22 @@ from dataclasses import dataclass
 
 import cachetools
 
+from src.infra.s3.service import S3Service
+from src.infra.supabase.client import SupabaseClient
+from src.utils.logger import log_error, log_warning
 from src.version_engine.domain.errors import ObjectNotFoundError, StorageWriteError
+from src.version_engine.infrastructure.supabase import safe_data
+from src.version_engine.infrastructure.supabase.db_names import OBJECT_LOCATIONS_TABLE
 from src.version_engine.storage.chunk_manifest import (
     chunk_manifest_root,
     chunk_upload_plan,
     validate_chunk_manifest,
 )
+from src.version_engine.storage.io_strategy import IOStorageStrategy, ObjectWriteLayout
 from src.version_engine.storage.mutation_context import collection_context, publication_context
 from src.version_engine.storage.object_store import StorageBackend
 from src.version_engine.write_engine.git_object_format import decode_object, hash_object
-
-from src.infra.s3.service import S3Service
-from src.infra.supabase.client import SupabaseClient
-from src.version_engine.infrastructure.supabase import safe_data
-from src.version_engine.infrastructure.supabase.db_names import OBJECT_LOCATIONS_TABLE
-from src.version_engine.storage.io_strategy import IOStorageStrategy, ObjectWriteLayout
 from src.version_engine.write_engine.trace import trace_mark, trace_phase
-from src.utils.logger import log_error, log_warning
 
 # Sync callers use this bridge for object flushes and reads. Large Git pushes
 # can legitimately fan out into many S3 writes plus location-index upserts; if
@@ -58,7 +56,6 @@ _MAX_LIST_KEYS = 10000
 _BUNDLE_MAGIC = b"POB1"
 _BUNDLE_HEADER_LEN_BYTES = 8
 _CANONICAL_STORAGE_NAMESPACE = "version"
-_DEFERRED_STORAGE_NAMESPACE = "".join(("m", "ut"))
 _CHUNKED_PACK_PREFIX = "chunked:"
 # Keep each physical S3 object below S3Service's multipart threshold. Supabase
 # Storage's S3-compatible multipart path is materially slower and can fail on
@@ -80,7 +77,9 @@ def _get_bridge_loop() -> asyncio.AbstractEventLoop:
             if _BRIDGE_LOOP is None or _BRIDGE_LOOP.is_closed():
                 loop = asyncio.new_event_loop()
                 t = threading.Thread(
-                    target=loop.run_forever, daemon=True, name="version-s3-loop",
+                    target=loop.run_forever,
+                    daemon=True,
+                    name="version-s3-loop",
                 )
                 t.start()
                 _BRIDGE_LOOP = loop
@@ -92,6 +91,7 @@ def _run_async(coro):
     loop = _get_bridge_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     return future.result(timeout=_ASYNC_BRIDGE_TIMEOUT_SECS)
+
 
 # ═══════════════════════════════════════════════
 # CachedStorageBackend — process-wide LRU cache
@@ -113,7 +113,7 @@ _CACHEABLE_THRESHOLD = 64 * 1024 * 1024  # cache up to 64 MB per object
 
 _global_cache: cachetools.LRUCache | None = None
 _cache_lock = threading.Lock()
-_ACTIVE_WRITE_BATCH: ContextVar["ObjectWriteBatch | None"] = ContextVar(
+_ACTIVE_WRITE_BATCH: ContextVar[ObjectWriteBatch | None] = ContextVar(
     "version_object_write_batch",
     default=None,
 )
@@ -130,27 +130,12 @@ class ObjectLocation:
 class ObjectStorageLayout:
     """Physical S3 layout for one project's version objects.
 
-    Runtime writes always use the canonical namespace. Deferred namespaces are
-    read-only cutover bridges for projects created before the final layout.
+    All runtime reads and writes use the canonical namespace. Historical
+    formats are handled exclusively by operator data migration artifacts.
     """
 
     project_id: str
     primary_namespace: str = _CANONICAL_STORAGE_NAMESPACE
-    deferred_read_namespaces: tuple[str, ...] = ()
-
-    @classmethod
-    def for_project(
-        cls,
-        project_id: str,
-        *,
-        allow_deferred_reads: bool,
-    ) -> "ObjectStorageLayout":
-        return cls(
-            project_id=project_id,
-            deferred_read_namespaces=(
-                (_DEFERRED_STORAGE_NAMESPACE,) if allow_deferred_reads else ()
-            ),
-        )
 
     @property
     def object_prefix(self) -> str:
@@ -159,26 +144,6 @@ class ObjectStorageLayout:
     @property
     def bundle_prefix(self) -> str:
         return f"{self.primary_namespace}/{self.project_id}/object-bundles"
-
-    @property
-    def deferred_object_prefixes(self) -> tuple[str, ...]:
-        return tuple(
-            f"{namespace}/{self.project_id}/objects"
-            for namespace in self.deferred_read_namespaces
-        )
-
-    @property
-    def deferred_bundle_prefixes(self) -> tuple[str, ...]:
-        return tuple(
-            f"{namespace}/{self.project_id}/object-bundles"
-            for namespace in self.deferred_read_namespaces
-        )
-
-    def is_deferred_pack_key(self, key: str) -> bool:
-        return any(
-            key.startswith(f"{prefix}/")
-            for prefix in self.deferred_bundle_prefixes
-        )
 
 
 def _encode_object_bundle(objects: dict[str, bytes]) -> tuple[bytes, list[dict]]:
@@ -189,22 +154,19 @@ def _encode_object_bundle(objects: dict[str, bytes]) -> tuple[bytes, list[dict]]
     for object_id, data in sorted(objects.items()):
         offset = len(body)
         body.extend(data)
-        entries.append({
-            "object_id": object_id,
-            "offset_bytes": offset,
-            "size_bytes": len(data),
-        })
+        entries.append(
+            {
+                "object_id": object_id,
+                "offset_bytes": offset,
+                "size_bytes": len(data),
+            }
+        )
     header = json.dumps(
         {"version": 1, "objects": entries},
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
-    bundle = (
-        _BUNDLE_MAGIC
-        + struct.pack(">Q", len(header))
-        + header
-        + bytes(body)
-    )
+    bundle = _BUNDLE_MAGIC + struct.pack(">Q", len(header)) + header + bytes(body)
     data_offset = len(_BUNDLE_MAGIC) + _BUNDLE_HEADER_LEN_BYTES + len(header)
     for entry in entries:
         entry["offset_bytes"] += data_offset
@@ -323,11 +285,7 @@ class CachedStorageBackend(StorageBackend):
 
     def exists(self, h: str) -> bool:
         active_batch = _ACTIVE_WRITE_BATCH.get()
-        if (
-            active_batch is not None
-            and active_batch.backend is self
-            and active_batch.has(h)
-        ):
+        if active_batch is not None and active_batch.backend is self and active_batch.has(h):
             return True
         return self._inner.exists(h)
 
@@ -336,11 +294,7 @@ class CachedStorageBackend(StorageBackend):
         existing: set[str] = set()
         remaining: list[str] = []
         for h in hashes:
-            if (
-                active_batch is not None
-                and active_batch.backend is self
-                and active_batch.has(h)
-            ):
+            if active_batch is not None and active_batch.backend is self and active_batch.has(h):
                 existing.add(h)
             else:
                 remaining.append(h)
@@ -495,7 +449,9 @@ def stage_object_writes(store_or_backend):
 def _verify_loose_hash(expected_hash: str, data: bytes) -> tuple[str, int]:
     try:
         obj_type, content = decode_object(data)
-        actual_hash = hash_object(obj_type, content, object_format="sha256" if len(expected_hash) == 64 else "sha1")
+        actual_hash = hash_object(
+            obj_type, content, object_format="sha256" if len(expected_hash) == 64 else "sha1"
+        )
     except Exception as e:
         raise StorageWriteError(f"invalid git loose object for {expected_hash}: {e}") from e
     if actual_hash != expected_hash:
@@ -509,6 +465,7 @@ def _verify_loose_hash(expected_hash: str, data: bytes) -> tuple[str, int]:
 # S3StorageBackend — actual S3 I/O
 # ═══════════════════════════════════════════════
 
+
 class S3StorageBackend(StorageBackend):
     """S3 backend for the version ObjectStore, isolated by project_id."""
 
@@ -518,7 +475,6 @@ class S3StorageBackend(StorageBackend):
         project_id: str,
         *,
         supabase: SupabaseClient | None = None,
-        allow_deferred_namespace_reads: bool | None = None,
         storage_layout: ObjectStorageLayout | None = None,
         io_strategy: IOStorageStrategy | None = None,
         require_immutable_chunks: bool = False,
@@ -530,14 +486,7 @@ class S3StorageBackend(StorageBackend):
         if storage_layout is not None:
             self._layout = storage_layout
         else:
-            self._layout = ObjectStorageLayout.for_project(
-                project_id,
-                allow_deferred_reads=(
-                    _deferred_namespace_reads_enabled()
-                    if allow_deferred_namespace_reads is None
-                    else allow_deferred_namespace_reads
-                ),
-            )
+            self._layout = ObjectStorageLayout(project_id)
         self._prefix = self._layout.object_prefix
         self._bundle_prefix = self._layout.bundle_prefix
         self._io_strategy = io_strategy or IOStorageStrategy(
@@ -547,8 +496,6 @@ class S3StorageBackend(StorageBackend):
         )
         self._location_cache: dict[str, ObjectLocation] = {}
         self._location_lock = threading.Lock()
-        self._deferred_warning_kinds: set[str] = set()
-        self._deferred_warning_lock = threading.Lock()
 
     @property
     def publication_project_id(self) -> str:
@@ -560,35 +507,31 @@ class S3StorageBackend(StorageBackend):
 
     def get_durable(self, h: str) -> bytes:
         # A location cached before compaction/deletion is not current proof.
-        # Deferred namespaces are compatibility reads, not native publication
-        # evidence: a second instance must not depend on a migration switch.
         reader = S3StorageBackend(
-            self._s3, self._project_id, supabase=self._supabase,
-            allow_deferred_namespace_reads=False, io_strategy=self._io_strategy,
+            self._s3,
+            self._project_id,
+            supabase=self._supabase,
+            io_strategy=self._io_strategy,
             require_immutable_chunks=True,
         )
         location = reader._lookup_object_location(h)
         if location is not None:
             key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
             if not key.startswith(reader._bundle_prefix + "/"):
-                raise StorageWriteError("publication object location is outside its canonical Project namespace")
+                raise StorageWriteError(
+                    "publication object location is outside its canonical Project namespace"
+                )
         return reader.get(h)
 
     def _key_for(self, h: str) -> str:
         return f"{self._prefix}/{h[:_HASH_PREFIX_LEN]}/{h[_HASH_PREFIX_LEN:]}"
-
-    def _deferred_keys_for(self, h: str) -> tuple[str, ...]:
-        return tuple(
-            f"{prefix}/{h[:_HASH_PREFIX_LEN]}/{h[_HASH_PREFIX_LEN:]}"
-            for prefix in self._layout.deferred_object_prefixes
-        )
 
     def _bundle_key_for(self, bundle_bytes: bytes) -> str:
         digest = hashlib.sha256(bundle_bytes).hexdigest()
         return f"{self._bundle_prefix}/{digest[:_HASH_PREFIX_LEN]}/{digest}.pob"
 
     def _chunk_bundle_prefixes(self) -> tuple[str, ...]:
-        return (self._bundle_prefix, *self._layout.deferred_bundle_prefixes)
+        return (self._bundle_prefix,)
 
     def _check_publication_context(self) -> None:
         context = publication_context.get()
@@ -598,9 +541,9 @@ class S3StorageBackend(StorageBackend):
     def _physical_s3(self) -> S3Service:
         if publication_context.get() is None and collection_context.get() is None:
             return self._s3
-        factory = getattr(self._s3, 'for_single_attempt_io', None)
+        factory = getattr(self._s3, "for_single_attempt_io", None)
         if not callable(factory):
-            raise StorageWriteError('native single-attempt storage capability unavailable')
+            raise StorageWriteError("native single-attempt storage capability unavailable")
         return factory()
 
     def _authorize_deletion(self) -> None:
@@ -612,10 +555,13 @@ class S3StorageBackend(StorageBackend):
                 raise StorageWriteError("native deletion requires database coordination")
             return  # Existing standalone legacy backend, not native authority.
         try:
-            response = self._supabase.client.rpc("authorize_version_object_deletion", {
-                "p_project_id": self._project_id,
-                "p_gc_token": context.token if context is not None else None,
-            }).execute()
+            response = self._supabase.client.rpc(
+                "authorize_version_object_deletion",
+                {
+                    "p_project_id": self._project_id,
+                    "p_gc_token": context.token if context is not None else None,
+                },
+            ).execute()
             if response.data is not True:
                 raise StorageWriteError("object deletion was not authorized")
         except Exception as exc:
@@ -631,23 +577,23 @@ class S3StorageBackend(StorageBackend):
             with trace_phase("s3.get", object_id=h[:12]):
                 data = _run_async(self._s3.download_file(self._key_for(h)))
         except ObjectNotFoundError as exc:
-            return self._get_deferred_loose_or_packed(h, cause=exc)
+            return self._get_packed_object(h, cause=exc)
         except Exception as e:
             if _is_not_found_error(e):
-                return self._get_deferred_loose_or_packed(h, cause=e)
+                return self._get_packed_object(h, cause=e)
             raise
         # Verify primary-namespace bytes; see ``async_get`` for the
         # full rationale (520885e2 read-side fix). Stale bytes fall
-        # through to deferred/packed instead of reaching zlib.
+        # through to indexed bundle instead of reaching zlib.
         try:
             _verify_loose_hash(h, data)
         except StorageWriteError as verify_err:
             log_warning(
                 f"[VersionS3] stale primary-namespace bytes at "
                 f"{self._key_for(h)} (hash={h[:12]}): {verify_err}. "
-                f"Falling through to deferred/packed lookup.",
+                f"Falling through to indexed bundle lookup.",
             )
-            return self._get_deferred_loose_or_packed(h, cause=verify_err)
+            return self._get_packed_object(h, cause=verify_err)
         return data
 
     def get_range(self, h: str, start: int = 0, limit: int | None = None) -> tuple[bytes, int]:
@@ -660,7 +606,7 @@ class S3StorageBackend(StorageBackend):
         # so we read the whole object through the verified ``get`` path
         # and slice. A partial ``download_file_range`` could not be
         # hash-verified, which would reopen the 520885e2 hole for range
-        # reads; reusing ``get`` keeps the verification + deferred/packed
+        # reads; reusing ``get`` keeps the verification + indexed bundle
         # fall-through in one place.
         data = self.get(h)
         end = len(data) if limit is None else min(len(data), start + limit)
@@ -683,15 +629,10 @@ class S3StorageBackend(StorageBackend):
         try:
             if _run_async(self._s3.file_exists(self._key_for(h))):
                 return True
-            if self._deferred_loose_exists(h):
-                return True
             return self._lookup_object_location(h) is not None
         except Exception as e:
             if _is_not_found_error(e):
-                return (
-                    self._deferred_loose_exists(h)
-                    or self._lookup_object_location(h) is not None
-                )
+                return self._lookup_object_location(h) is not None
             raise
 
     def exists_many(self, hashes: list[str]) -> set[str]:
@@ -736,13 +677,15 @@ class S3StorageBackend(StorageBackend):
             # i.e. exactly one extra Supabase round-trip per hash that
             # the bulk query already missed. In the happy path this
             # branch is never taken because ``remaining`` is empty.
-            existing.update(_run_async(
-                self.async_exists_many(
-                    remaining,
-                    concurrency=20,
-                    check_packed_locations=True,
+            existing.update(
+                _run_async(
+                    self.async_exists_many(
+                        remaining,
+                        concurrency=20,
+                        check_packed_locations=True,
+                    )
                 )
-            ))
+            )
         return existing
 
     def all_hashes(self) -> list[str]:
@@ -785,10 +728,13 @@ class S3StorageBackend(StorageBackend):
             # retention window needs; the per-hash S3 listing can't see
             # them because they share a pack file.
             for object_id, meta in self._all_packed_locations().items():
-                result.setdefault(object_id, {
-                    "last_modified": meta.get("last_modified"),
-                    "size": meta.get("size", 0),
-                })
+                result.setdefault(
+                    object_id,
+                    {
+                        "last_modified": meta.get("last_modified"),
+                        "size": meta.get("size", 0),
+                    },
+                )
             return result
         except Exception as e:
             log_error(f"[VersionS3] Failed to list hash metadata: {e}")
@@ -905,7 +851,7 @@ class S3StorageBackend(StorageBackend):
         self._collect_capacity([h])
         return deleted
 
-    def _delete_chunked(self, h: str, location: "ObjectLocation") -> bool:
+    def _delete_chunked(self, h: str, location: ObjectLocation) -> bool:
         manifest_key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
         keys = self._chunked_keys_for(h, manifest_key, location.size_bytes)
         deleted_any = False
@@ -913,7 +859,7 @@ class S3StorageBackend(StorageBackend):
             try:
                 _run_async(self._physical_s3().delete_file(key))
                 deleted_any = True
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if not _is_not_found_error(exc):
                     log_error(f"[VersionS3] delete chunk key {key}: {exc}")
                     raise  # Unknown deletion outcome must retain the GC fence.
@@ -928,7 +874,11 @@ class S3StorageBackend(StorageBackend):
         Only an absent manifest permits listing the owned object prefix.
         Corruption, foreign keys and unavailable storage fail closed instead.
         """
-        prefixes = (self._bundle_prefix,) if collection_context.get() is not None else self._chunk_bundle_prefixes()
+        prefixes = (
+            (self._bundle_prefix,)
+            if collection_context.get() is not None
+            else self._chunk_bundle_prefixes()
+        )
         root = chunk_manifest_root(manifest_key, h, prefixes)
         try:
             manifest_raw = _run_async(self._s3.download_file(manifest_key))
@@ -938,9 +888,13 @@ class S3StorageBackend(StorageBackend):
             keys = [manifest_key]
             token = None
             while True:
-                page, _, token, truncated = _run_async(self._s3.list_files(
-                    prefix=root + "/", max_keys=_MAX_LIST_KEYS, continuation_token=token,
-                ))
+                page, _, token, truncated = _run_async(
+                    self._s3.list_files(
+                        prefix=root + "/",
+                        max_keys=_MAX_LIST_KEYS,
+                        continuation_token=token,
+                    )
+                )
                 for item in page:
                     if not item.key.startswith(root + "/"):
                         raise StorageWriteError("chunk listing escaped its object namespace")
@@ -951,7 +905,11 @@ class S3StorageBackend(StorageBackend):
                     raise StorageWriteError("incomplete chunk listing")
             return list(dict.fromkeys(keys))
         _immutable, chunks = validate_chunk_manifest(
-            manifest_raw, key=manifest_key, oid=h, size=size, bundle_prefixes=prefixes,
+            manifest_raw,
+            key=manifest_key,
+            oid=h,
+            size=size,
+            bundle_prefixes=prefixes,
         )
         return list(dict.fromkeys([manifest_key, *(chunk["key"] for chunk in chunks)]))
 
@@ -996,13 +954,17 @@ class S3StorageBackend(StorageBackend):
 
     def _delete_whole_bundle(self, pack_key: str, members: list[str]) -> bool:
         """Delete one fully-dead ``.pob`` and its members' location rows."""
-        prefixes = (self._bundle_prefix,) if collection_context.get() is not None else self._chunk_bundle_prefixes()
+        prefixes = (
+            (self._bundle_prefix,)
+            if collection_context.get() is not None
+            else self._chunk_bundle_prefixes()
+        )
         if not any(pack_key.startswith(prefix + "/") for prefix in prefixes):
             raise StorageWriteError("bundle deletion is outside its Project namespace")
         self._authorize_deletion()
         try:
             _run_async(self._physical_s3().delete_file(pack_key))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if not _is_not_found_error(exc):
                 log_error(f"[VersionS3] delete bundle {pack_key}: {exc}")
                 raise  # A timed-out DELETE may still be running remotely.
@@ -1039,21 +1001,26 @@ class S3StorageBackend(StorageBackend):
         if context is None:
             return
         if context.project_id != self._project_id or self._supabase is None:
-            raise StorageWriteError('native capacity collection unavailable')
-        response = self._supabase.client.rpc('collect_version_object_capacity', {
-            'p_project_id': self._project_id, 'p_gc_token': context.token, 'p_object_ids': object_ids,
-        }).execute()
+            raise StorageWriteError("native capacity collection unavailable")
+        response = self._supabase.client.rpc(
+            "collect_version_object_capacity",
+            {
+                "p_project_id": self._project_id,
+                "p_gc_token": context.token,
+                "p_object_ids": object_ids,
+            },
+        ).execute()
         if not isinstance(response.data, dict) or any(
             type(response.data.get(key)) is not int or response.data[key] < 0
-            for key in ('removed_body_bytes', 'removed_objects')
+            for key in ("removed_body_bytes", "removed_objects")
         ):
-            raise StorageWriteError('invalid capacity collection result')
+            raise StorageWriteError("invalid capacity collection result")
 
     def _delete_object_location_rows(self, object_ids: list[str]) -> None:
         if self._supabase is None or not object_ids:
             return
         for i in range(0, len(object_ids), 100):
-            chunk = [oid for oid in object_ids[i:i + 100] if oid]
+            chunk = [oid for oid in object_ids[i : i + 100] if oid]
             if not chunk:
                 continue
             try:
@@ -1061,15 +1028,24 @@ class S3StorageBackend(StorageBackend):
                 if context is not None:
                     if context.project_id != self._project_id:
                         raise StorageWriteError("collection context belongs to another Project")
-                    self._supabase.client.rpc("remove_version_object_locations", {
-                        "p_project_id": self._project_id, "p_gc_token": context.token,
-                        "p_object_ids": chunk,
-                    }).execute()
+                    self._supabase.client.rpc(
+                        "remove_version_object_locations",
+                        {
+                            "p_project_id": self._project_id,
+                            "p_gc_token": context.token,
+                            "p_object_ids": chunk,
+                        },
+                    ).execute()
                     self._collect_capacity(chunk)
                 else:
-                    (self._supabase.client.table(OBJECT_LOCATIONS_TABLE).delete()
-                     .eq("project_id", self._project_id).in_("object_id", chunk).execute())
-            except Exception as exc:  # noqa: BLE001
+                    (
+                        self._supabase.client.table(OBJECT_LOCATIONS_TABLE)
+                        .delete()
+                        .eq("project_id", self._project_id)
+                        .in_("object_id", chunk)
+                        .execute()
+                    )
+            except Exception as exc:
                 log_error(f"[VersionS3] delete location rows: {exc}")
                 raise  # A late index DELETE must not race a newly published location.
 
@@ -1083,27 +1059,26 @@ class S3StorageBackend(StorageBackend):
         try:
             data = await self._s3.download_file(key)
         except ObjectNotFoundError as exc:
-            return await self._async_get_deferred_loose_or_packed(h, cause=exc)
+            return await self._async_get_packed_object(h, cause=exc)
         except Exception as e:
             if _is_not_found_error(e):
-                return await self._async_get_deferred_loose_or_packed(h, cause=e)
+                return await self._async_get_packed_object(h, cause=e)
             raise
         # Read-side half of the 520885e2 fix: verify the primary-namespace
         # bytes decode to the hash we asked for. Stale pre-Git-protocol
         # payloads (or a half-written object) can squat on a primary loose
         # key; without this guard the caller zlib-decompresses garbage and
         # bulk push dies with "invalid git loose object". On mismatch we
-        # treat it exactly like a 404 and fall through to the deferred /
-        # packed lookup, same contract as ``_async_get_deferred_loose``.
+        # treat it exactly like a 404 and fall through to the indexed bundle lookup.
         try:
             _verify_loose_hash(h, data)
         except StorageWriteError as verify_err:
             log_warning(
                 f"[VersionS3] stale primary-namespace bytes at {key} "
                 f"(hash={h[:12]}): {verify_err}. Falling through to "
-                f"deferred/packed lookup.",
+                f"indexed bundle lookup.",
             )
-            return await self._async_get_deferred_loose_or_packed(h, cause=verify_err)
+            return await self._async_get_packed_object(h, cause=verify_err)
         return data
 
     async def async_get_range(
@@ -1124,7 +1099,9 @@ class S3StorageBackend(StorageBackend):
     async def async_put(self, h: str, data: bytes) -> None:
         self._check_publication_context()
         kind, size = _verify_loose_hash(h, data)
-        io_id = await self._async_reserve_capacity([dict(object_id=h, object_kind=kind, body_bytes=size)])
+        io_id = await self._async_reserve_capacity(
+            [dict(object_id=h, object_kind=kind, body_bytes=size)]
+        )
         route = self._active_io_strategy().plan_single(h, len(data))
         if route.layout is ObjectWriteLayout.CHUNKED:
             await self._async_put_chunked_object(h, data)
@@ -1138,26 +1115,19 @@ class S3StorageBackend(StorageBackend):
         try:
             if await self._s3.file_exists(self._key_for(h)):
                 return True
-            if await self._async_deferred_loose_exists(h):
-                return True
             return self._lookup_object_location(h) is not None
         except Exception as exc:
             if _is_not_found_error(exc):
-                return (
-                    await self._async_deferred_loose_exists(h)
-                    or self._lookup_object_location(h) is not None
-                )
+                return self._lookup_object_location(h) is not None
             raise
 
     async def async_get_many(self, hashes: list[str], concurrency: int = 20) -> dict[str, bytes]:
         """Fetch multiple objects in parallel. Returns {hash: bytes}."""
         import asyncio
+
         unique = list(dict.fromkeys(hashes))
         if self._supabase is not None:
-            remaining = [
-                h for h in unique
-                if self._cached_object_location(h) is None
-            ]
+            remaining = [h for h in unique if self._cached_object_location(h) is None]
             if remaining:
                 await asyncio.to_thread(self._lookup_many_object_locations, remaining)
 
@@ -1171,7 +1141,9 @@ class S3StorageBackend(StorageBackend):
         await asyncio.gather(*[_fetch(h) for h in unique])
         return results
 
-    async def async_put_many(self, objects: dict[str, bytes], concurrency: int = 20, skip_exists: bool = False) -> None:
+    async def async_put_many(
+        self, objects: dict[str, bytes], concurrency: int = 20, skip_exists: bool = False
+    ) -> None:
         """Upload multiple objects in parallel.
 
         Args:
@@ -1180,6 +1152,7 @@ class S3StorageBackend(StorageBackend):
                 (e.g. negotiate confirmed them as missing).
         """
         import asyncio
+
         self._check_publication_context()
         facts = []
         for object_id, data in objects.items():
@@ -1204,7 +1177,9 @@ class S3StorageBackend(StorageBackend):
                     return
                 key = self._key_for(h)
                 if skip_exists:
-                    await self._physical_s3().upload_file(key, data, content_type="application/octet-stream")
+                    await self._physical_s3().upload_file(
+                        key, data, content_type="application/octet-stream"
+                    )
                 else:
                     await self._do_put(key, data, expected_hash=h)
 
@@ -1225,6 +1200,7 @@ class S3StorageBackend(StorageBackend):
 
     async def _async_reserve_capacity(self, facts: list[dict]) -> str | None:
         import uuid
+
         context = publication_context.get()
         if context is None or not facts:
             return None
@@ -1234,23 +1210,29 @@ class S3StorageBackend(StorageBackend):
         # Before ANY loose, bundle, part or manifest PUT. Encoded bytes and
         # compression/chunk boundaries never define logical object identity.
         for offset in range(0, len(facts), 200):
-            batch = facts[offset:offset + 200]
+            batch = facts[offset : offset + 200]
             try:
                 response = await asyncio.to_thread(
-                    lambda batch=batch: self._supabase.client.rpc('reserve_version_object_capacity', {
-                        'p_project_id': self._project_id, 'p_actor': context.actor,
-                        'p_pin_id': context.pin_id, 'p_objects': batch, 'p_required': context.require_capacity,
-                        'p_io_id': io_id,
-                    }).execute()
+                    lambda batch=batch: self._supabase.client.rpc(
+                        "reserve_version_object_capacity",
+                        {
+                            "p_project_id": self._project_id,
+                            "p_actor": context.actor,
+                            "p_pin_id": context.pin_id,
+                            "p_objects": batch,
+                            "p_required": context.require_capacity,
+                            "p_io_id": io_id,
+                        },
+                    ).execute()
                 )
                 if not isinstance(response.data, dict) or any(
                     type(response.data.get(key)) is not int or response.data[key] < 0
-                    for key in ('new_body_bytes', 'new_objects')
+                    for key in ("new_body_bytes", "new_objects")
                 ):
-                    raise RuntimeError('invalid capacity admission result')
-                dormant = response.data.get('profile') == 'dormant'
+                    raise RuntimeError("invalid capacity admission result")
+                dormant = response.data.get("profile") == "dormant"
                 if context.require_capacity and dormant:
-                    raise RuntimeError('invalid capacity admission result')
+                    raise RuntimeError("invalid capacity admission result")
                 claimed = claimed or not dormant
             except Exception as exc:
                 raise StorageWriteError(f"native capacity admission failed: {exc}") from exc
@@ -1261,20 +1243,30 @@ class S3StorageBackend(StorageBackend):
             return
         context = publication_context.get()
         if context is None or self._supabase is None:
-            raise StorageWriteError('native capacity settlement unavailable')
+            raise StorageWriteError("native capacity settlement unavailable")
         # Only after ALL physical/index work returned successfully. No finally
         # cleanup on cancellation/timeout: remote I/O may still be outstanding.
         # Another invocation (even on this same pin) cannot settle this identity.
         try:
-            response = await asyncio.to_thread(lambda: self._supabase.client.rpc('settle_version_object_capacity_io', {
-                'p_project_id': self._project_id, 'p_actor': context.actor,
-                'p_pin_id': context.pin_id, 'p_io_id': io_id,
-            }).execute())
-            if (not isinstance(response.data, dict) or type(response.data.get('settled_objects')) is not int
-                    or response.data['settled_objects'] < 0):
-                raise RuntimeError('invalid capacity settlement result')
+            response = await asyncio.to_thread(
+                lambda: self._supabase.client.rpc(
+                    "settle_version_object_capacity_io",
+                    {
+                        "p_project_id": self._project_id,
+                        "p_actor": context.actor,
+                        "p_pin_id": context.pin_id,
+                        "p_io_id": io_id,
+                    },
+                ).execute()
+            )
+            if (
+                not isinstance(response.data, dict)
+                or type(response.data.get("settled_objects")) is not int
+                or response.data["settled_objects"] < 0
+            ):
+                raise RuntimeError("invalid capacity settlement result")
         except Exception as exc:
-            raise StorageWriteError(f'native capacity settlement failed: {exc}') from exc
+            raise StorageWriteError(f"native capacity settlement failed: {exc}") from exc
 
     def _active_io_strategy(self) -> IOStorageStrategy:
         if self._supabase is not None:
@@ -1287,97 +1279,8 @@ class S3StorageBackend(StorageBackend):
             raise ObjectNotFoundError(f"object not found in S3: {h}") from cause
         return self._get_packed_object_at(h, location)
 
-    def _get_deferred_loose_or_packed(
-        self,
-        h: str,
-        *,
-        cause: Exception | None = None,
-    ) -> bytes:
-        loose = self._get_deferred_loose(h)
-        if loose is not None:
-            return loose
-        return self._get_packed_object(h, cause=cause)
-
-    def _get_deferred_loose(self, h: str) -> bytes | None:
-        for key in self._deferred_keys_for(h):
-            try:
-                with trace_phase(
-                    "s3.deferred_loose.get",
-                    object_id=h[:12],
-                ):
-                    data = _run_async(self._s3.download_file(key))
-                try:
-                    _verify_loose_hash(h, data)
-                except StorageWriteError as verify_err:
-                    # Stale entry in the deferred-read namespace —
-                    # the bytes here aren't a valid Git loose object,
-                    # which can happen when pre-Git-native code wrote
-                    # raw payloads under what is now a loose-object
-                    # key. Self-heal: treat exactly like 404 so the
-                    # engine falls through to the next read path, and
-                    # best-effort delete the stale object so the next
-                    # request doesn't trip the same wire (a manual
-                    # ``aws s3 rm`` per affected blob is the wrong
-                    # ops contract — every user must auto-recover).
-                    self._log_stale_deferred(key, h, verify_err)
-                    continue
-                self._mark_deferred_namespace_read(h, kind="loose")
-                return data
-            except ObjectNotFoundError:
-                continue
-            except Exception as exc:
-                if _is_not_found_error(exc):
-                    continue
-                raise
-        return None
-
-    def _log_stale_deferred(
-        self,
-        key: str,
-        object_id: str,
-        cause: Exception,
-    ) -> None:
-        """Log a stale deferred-namespace entry. Never deletes.
-
-        An earlier iteration deleted on the assumption that any
-        verify-fail meant garbage; that was a mistake. Bytes that don't
-        decode as Git loose objects can still be pre-Git-protocol JSON
-        tree records (the ``deferred-read`` namespace was designed
-        exactly for that kind of legacy data). Deleting them removes the
-        user's last chance at recovering content via a future migration
-        tool — so this path only logs.
-
-        The skip behaviour in the caller (``continue``) is sufficient
-        for runtime self-heal: the engine treats the entry as "not
-        readable here" and falls through to other read paths. If
-        everything fails it raises ``ObjectNotFoundError`` upstream,
-        which the bulk-push UI surfaces as a clean missing-blob
-        error rather than a cryptic zlib failure.
-
-        Ops can still hand-delete via ``aws s3 rm`` after confirming
-        the bytes aren't recoverable; that decision belongs to a
-        human, not to a read-path side effect.
-        """
-        log_warning(
-            f"[VersionS3] stale deferred-namespace blob at {key} "
-            f"(hash={object_id[:12]}): {cause}. Skipping (NOT deleting "
-            f"— pre-Git-protocol data may still be recoverable via "
-            f"a future migration tool).",
-        )
-
-    def _deferred_loose_exists(self, h: str) -> bool:
-        for key in self._deferred_keys_for(h):
-            try:
-                if _run_async(self._s3.file_exists(key)):
-                    self._mark_deferred_namespace_read(h, kind="loose_exists")
-                    return True
-            except Exception as exc:
-                if _is_not_found_error(exc):
-                    continue
-                raise
-        return False
-
     def _get_packed_object_at(self, h: str, location: ObjectLocation) -> bytes:
+        self._validate_location(location)
         if location.pack_key.startswith(_CHUNKED_PACK_PREFIX):
             return _run_async(self._async_get_chunked_object_at(h, location))
         try:
@@ -1394,8 +1297,6 @@ class S3StorageBackend(StorageBackend):
                     )
                 )
             _verify_loose_hash(h, data)
-            if self._layout.is_deferred_pack_key(location.pack_key):
-                self._mark_deferred_namespace_read(h, kind="pack")
             return data
         except Exception as exc:
             if _is_not_found_error(exc):
@@ -1414,61 +1315,12 @@ class S3StorageBackend(StorageBackend):
             raise ObjectNotFoundError(f"object not found in S3: {h}") from cause
         return await self._async_get_packed_object_at(h, location)
 
-    async def _async_get_deferred_loose_or_packed(
-        self,
-        h: str,
-        *,
-        cause: Exception | None = None,
-    ) -> bytes:
-        loose = await self._async_get_deferred_loose(h)
-        if loose is not None:
-            return loose
-        return await self._async_get_packed_object(h, cause=cause)
-
-    async def _async_get_deferred_loose(self, h: str) -> bytes | None:
-        for key in self._deferred_keys_for(h):
-            try:
-                with trace_phase(
-                    "s3.deferred_loose.get",
-                    object_id=h[:12],
-                ):
-                    data = await self._s3.download_file(key)
-                try:
-                    _verify_loose_hash(h, data)
-                except StorageWriteError as verify_err:
-                    # See ``_get_deferred_loose`` for the rationale.
-                    # The helper is now pure logging, so we call the
-                    # sync version even from this async path (no IO,
-                    # no need for two siblings).
-                    self._log_stale_deferred(key, h, verify_err)
-                    continue
-                self._mark_deferred_namespace_read(h, kind="loose")
-                return data
-            except ObjectNotFoundError:
-                continue
-            except Exception as exc:
-                if _is_not_found_error(exc):
-                    continue
-                raise
-        return None
-
-    async def _async_deferred_loose_exists(self, h: str) -> bool:
-        for key in self._deferred_keys_for(h):
-            try:
-                if await self._s3.file_exists(key):
-                    self._mark_deferred_namespace_read(h, kind="loose_exists")
-                    return True
-            except Exception as exc:
-                if _is_not_found_error(exc):
-                    continue
-                raise
-        return False
-
     async def _async_get_packed_object_at(
         self,
         h: str,
         location: ObjectLocation,
     ) -> bytes:
+        self._validate_location(location)
         if location.pack_key.startswith(_CHUNKED_PACK_PREFIX):
             return await self._async_get_chunked_object_at(h, location)
         try:
@@ -1483,8 +1335,6 @@ class S3StorageBackend(StorageBackend):
                     limit=location.size_bytes,
                 )
             _verify_loose_hash(h, data)
-            if self._layout.is_deferred_pack_key(location.pack_key):
-                self._mark_deferred_namespace_read(h, kind="pack")
             return data
         except Exception as exc:
             if _is_not_found_error(exc):
@@ -1509,8 +1359,12 @@ class S3StorageBackend(StorageBackend):
             ):
                 manifest_raw = await self._s3.download_file(manifest_key)
                 immutable, ordered_chunks = validate_chunk_manifest(
-                    manifest_raw, key=manifest_key, oid=h, size=location.size_bytes,
-                    bundle_prefixes=prefixes, require_immutable=self._require_immutable_chunks,
+                    manifest_raw,
+                    key=manifest_key,
+                    oid=h,
+                    size=location.size_bytes,
+                    bundle_prefixes=prefixes,
+                    require_immutable=self._require_immutable_chunks,
                 )
                 sem = asyncio.Semaphore(_OBJECT_UPLOAD_CONCURRENCY)
 
@@ -1550,14 +1404,22 @@ class S3StorageBackend(StorageBackend):
                 ) from exc
             raise
 
+    def _validate_location(self, location: ObjectLocation) -> None:
+        key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
+        if (
+            not key.startswith(self._bundle_prefix + "/")
+            or "/../" in key
+            or "\\" in key
+            or location.offset_bytes < 0
+            or location.size_bytes <= 0
+        ):
+            raise StorageWriteError("object location is outside its canonical Project namespace")
+
     def _lookup_object_location(self, h: str) -> ObjectLocation | None:
         cached = self._cached_object_location(h)
         if cached is not None:
             return cached
-        try:
-            found = self._lookup_many_object_locations([h])
-        except Exception:
-            return None
+        found = self._lookup_many_object_locations([h])
         return found.get(h)
 
     def _cached_object_location(self, h: str) -> ObjectLocation | None:
@@ -1574,7 +1436,7 @@ class S3StorageBackend(StorageBackend):
 
         found: dict[str, ObjectLocation] = {}
         for i in range(0, len(hashes), 100):
-            chunk = hashes[i:i + 100]
+            chunk = hashes[i : i + 100]
             if not chunk:
                 continue
             with trace_phase("db.object_location.lookup", count=len(chunk)):
@@ -1594,6 +1456,7 @@ class S3StorageBackend(StorageBackend):
                     size_bytes=int(row.get("size_bytes") or 0),
                 )
                 if object_id and location.pack_key and location.size_bytes > 0:
+                    self._validate_location(location)
                     found[object_id] = location
         with self._location_lock:
             self._location_cache.update(found)
@@ -1686,7 +1549,10 @@ class S3StorageBackend(StorageBackend):
         data: bytes,
     ) -> tuple[list[tuple[str, bytes, str]], dict]:
         uploads, manifest_key = chunk_upload_plan(
-            self._bundle_prefix, h, data, self._active_io_strategy().chunk_bytes,
+            self._bundle_prefix,
+            h,
+            data,
+            self._active_io_strategy().chunk_bytes,
         )
         row = {
             "project_id": self._project_id,
@@ -1712,10 +1578,7 @@ class S3StorageBackend(StorageBackend):
                 )
 
         results = await asyncio.gather(
-            *[
-                upload_one(key, data, content_type)
-                for key, data, content_type in uploads
-            ],
+            *[upload_one(key, data, content_type) for key, data, content_type in uploads],
             return_exceptions=True,
         )
         errors = [item for item in results if isinstance(item, BaseException)]
@@ -1749,27 +1612,39 @@ class S3StorageBackend(StorageBackend):
             return
         with trace_phase("db.object_location.upsert", count=len(rows)):
             for offset in range(0, len(rows), _OBJECT_LOCATION_UPSERT_BATCH_SIZE):
-                chunk = rows[offset:offset + _OBJECT_LOCATION_UPSERT_BATCH_SIZE]
+                chunk = rows[offset : offset + _OBJECT_LOCATION_UPSERT_BATCH_SIZE]
                 context = publication_context.get()
                 if context is not None:
                     if context.project_id != self._project_id:
                         raise StorageWriteError("publication context belongs to another Project")
                     try:
                         await asyncio.to_thread(
-                            lambda batch=chunk, context=context: self._supabase.client.rpc("register_version_object_locations", {
-                                "p_project_id": self._project_id, "p_actor": context.actor,
-                                "p_pin_id": context.pin_id, "p_rows": batch,
-                            }).execute()
+                            lambda batch=chunk, context=context: self._supabase.client.rpc(
+                                "register_version_object_locations",
+                                {
+                                    "p_project_id": self._project_id,
+                                    "p_actor": context.actor,
+                                    "p_pin_id": context.pin_id,
+                                    "p_rows": batch,
+                                },
+                            ).execute()
                         )
                     except Exception as exc:
                         # Never fall back to an unfenced table upsert, including
                         # missing schema capability and late/expired pins.
-                        raise StorageWriteError(f"native location registration failed: {exc}") from exc
+                        raise StorageWriteError(
+                            f"native location registration failed: {exc}"
+                        ) from exc
                 else:
                     await asyncio.to_thread(
-                        lambda batch=chunk: self._supabase.client.table(OBJECT_LOCATIONS_TABLE).upsert(
-                            batch, on_conflict="project_id,object_id",
-                        ).execute()
+                        lambda batch=chunk: (
+                            self._supabase.client.table(OBJECT_LOCATIONS_TABLE)
+                            .upsert(
+                                batch,
+                                on_conflict="project_id,object_id",
+                            )
+                            .execute()
+                        )
                     )
         with self._location_lock:
             for row in rows:
@@ -1788,6 +1663,7 @@ class S3StorageBackend(StorageBackend):
     ) -> set[str]:
         """Check existence of multiple objects in parallel. Returns set of existing hashes."""
         import asyncio
+
         sem = asyncio.Semaphore(concurrency)
         existing: set[str] = set()
 
@@ -1796,10 +1672,7 @@ class S3StorageBackend(StorageBackend):
                 if check_packed_locations:
                     exists = await self.async_exists(h)
                 else:
-                    exists = (
-                        await self._s3.file_exists(self._key_for(h))
-                        or await self._async_deferred_loose_exists(h)
-                    )
+                    exists = await self._s3.file_exists(self._key_for(h))
                 if exists:
                     existing.add(h)
 
@@ -1825,7 +1698,7 @@ class S3StorageBackend(StorageBackend):
         project that has corrupt bytes under its key self-heals on the
         next push, with no ops intervention. The read-side half lives in
         ``get`` / ``async_get`` (the read paths verify primary bytes and
-        fall through corrupt ones to the deferred/packed lookup).
+        fall through corrupt ones to the indexed bundle lookup).
 
         ``expected_hash`` is omitted only by callers that genuinely don't
         know it (none today); when omitted we keep the legacy skip-if-
@@ -1845,7 +1718,7 @@ class S3StorageBackend(StorageBackend):
                     f"[VersionS3] hash-on-write: stale/corrupt bytes at {key} "
                     f"(expected {expected_hash[:12]}); overwriting with correct object",
                 )
-            except Exception as exc:  # noqa: BLE001 — read failure → re-PUT
+            except Exception as exc:
                 if not _is_not_found_error(exc):
                     log_warning(
                         f"[VersionS3] hash-on-write: could not verify resident "
@@ -1927,30 +1800,14 @@ class S3StorageBackend(StorageBackend):
             try:
                 await self._physical_s3().delete_file(key)
                 return "healed"
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log_warning(f"[integrity-scan] heal delete failed for {key}: {exc}")
                 return "corrupt"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Unreadable (transient S3 error / vanished key) — skip, not corrupt.
             if not _is_not_found_error(exc):
                 log_warning(f"[integrity-scan] could not read {key}: {exc}")
             return "skip"
-
-    def _mark_deferred_namespace_read(self, h: str, *, kind: str) -> None:
-        trace_mark(
-            "s3.deferred_namespace.read",
-            object_id=h[:12],
-            kind=kind,
-        )
-        with self._deferred_warning_lock:
-            if kind in self._deferred_warning_kinds:
-                return
-            self._deferred_warning_kinds.add(kind)
-        log_warning(
-            "[VersionS3] Deferred object namespace read enabled: "
-            f"project_id={self._project_id} first_object_id={h[:12]} kind={kind}. "
-            "Run the version object namespace backfill and disable deferred reads.",
-        )
 
 
 def _is_not_found_error(exc: Exception) -> bool:
@@ -1963,34 +1820,8 @@ def _hash_from_loose_key(key: str, prefix: str) -> str | None:
     """Reconstruct the 40-hex object id from a loose S3 key shaped
     ``{prefix}{shard2}/{rest38}``. Returns ``None`` for keys that don't
     fit the loose layout (e.g. bundle / chunk / manifest keys)."""
-    suffix = key[len(prefix):]
+    suffix = key[len(prefix) :]
     parts = suffix.split("/", 1)
     if len(parts) == 2 and len(parts[0]) == 2 and len(parts[1]) == 38:
         return parts[0] + parts[1]
     return None
-
-
-_DEFERRED_NAMESPACE_READS_CACHED: bool | None = None
-
-
-def _deferred_namespace_reads_enabled() -> bool:
-    """Per-process flag for the v1/v2 object namespace deferred-reads
-    behavior. Read ONCE per process (first call) so tests can override
-    by setting the env before importing this module, but runtime
-    requests don't pay the ``os.getenv`` overhead every backend init.
-
-    Tests that need to flip the flag mid-process should call
-    :func:`_reset_deferred_namespace_reads_cache` (intentionally
-    underscore-prefixed — production code must not toggle this).
-    """
-    global _DEFERRED_NAMESPACE_READS_CACHED
-    if _DEFERRED_NAMESPACE_READS_CACHED is None:
-        raw = os.getenv("VERSION_OBJECT_DEFERRED_NAMESPACE_READS", "true").strip().lower()
-        _DEFERRED_NAMESPACE_READS_CACHED = raw not in {"0", "false", "no", "off"}
-    return _DEFERRED_NAMESPACE_READS_CACHED
-
-
-def _reset_deferred_namespace_reads_cache() -> None:
-    """Test-only helper for resetting the cached env flag."""
-    global _DEFERRED_NAMESPACE_READS_CACHED
-    _DEFERRED_NAMESPACE_READS_CACHED = None

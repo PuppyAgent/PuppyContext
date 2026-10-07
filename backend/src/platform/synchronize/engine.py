@@ -11,17 +11,17 @@ from copy import deepcopy
 from typing import Any
 
 from src.config import settings
-from src.provider._base import AuthRequirement, Capability
-from src.provider.registry import ProviderRegistry
-from src.provider.schemas import MaterializationInput, SourceInput
-from src.platform.synchronize.run_repository import SyncRunRepository
-from src.platform.synchronize.providers import require_synchronize_provider
 from src.platform.synchronize.paths import plan_fetch_result, plan_materialized_result
+from src.platform.synchronize.providers import require_synchronize_provider
 from src.platform.synchronize.repository import SynchronizeRepository
+from src.platform.synchronize.run_repository import SyncRunRepository
 from src.platform.synchronize.version_write_port import (
     SynchronizeVersionWritePort,
     VersionEngineWritePort,
 )
+from src.provider._base import AuthRequirement, Capability
+from src.provider.registry import ProviderRegistry
+from src.provider.schemas import MaterializationInput, SourceInput
 from src.utils.logger import log_debug, log_error, log_info
 
 
@@ -47,7 +47,9 @@ class SynchronizeEngine:
             self._runtime_metering = get_runtime_metering_service()
         return self._runtime_metering
 
-    def _target_exists_as_file(self, project_id: str, target_path: str | None) -> bool:
+    def _target_exists_as_file(
+        self, project_id: str, target_path: str | None, user_id: str
+    ) -> bool:
         if not target_path:
             return False
         try:
@@ -55,7 +57,11 @@ class SynchronizeEngine:
                 build_worker_version_engine_container,
             )
 
-            ops = build_worker_version_engine_container().product_operations()
+            ops = (
+                build_worker_version_engine_container()
+                .product_operations()
+                .for_user(project_id, user_id)
+            )
             ops.read_file(project_id, target_path)
             return True
         except Exception:
@@ -84,8 +90,10 @@ class SynchronizeEngine:
         adapter = self.registry.get(connection.provider)
         try:
             require_synchronize_provider(
-                adapter, mode=(connection.trigger or {}).get("type", "manual"),
-                direction=connection.direction, config=connection.config,
+                adapter,
+                mode=(connection.trigger or {}).get("type", "manual"),
+                direction=connection.direction,
+                config=connection.config,
             )
         except ValueError as exc:
             # Capabilities can disappear while a job is queued. Fail durably,
@@ -189,7 +197,11 @@ class SynchronizeEngine:
                     run = self.run_repo.mark_running(run.id) or run
             if not self.repository.update_runtime_status(connection.id, "syncing"):
                 if run and self.run_repo:
-                    self.run_repo.complete(run.id, status="skipped", result_summary="Binding paused or disabled before execution")
+                    self.run_repo.complete(
+                        run.id,
+                        status="skipped",
+                        result_summary="Binding paused or disabled before execution",
+                    )
                 return None
 
             spec = adapter.spec()
@@ -219,16 +231,20 @@ class SynchronizeEngine:
             if materializer is not None:
                 write_plan = plan_materialized_result(
                     sync=connection,
-                    materialized=materializer.materialize(result, MaterializationInput(
-                        source=deepcopy((connection.config or {}).get("source") or {}),
-                        # Existing output provenance is not a Provider-owned binding.
-                        provenance={"connection_id": connection.id},
-                    )),
+                    materialized=materializer.materialize(
+                        result,
+                        MaterializationInput(
+                            source=deepcopy((connection.config or {}).get("source") or {}),
+                            # Existing output provenance is not a Provider-owned binding.
+                            provenance={"connection_id": connection.id},
+                        ),
+                    ),
                 )
             else:
                 target_exists_as_file = self._target_exists_as_file(
                     connection.project_id,
                     connection.path,
+                    connection.created_by,
                 )
                 write_plan = plan_fetch_result(
                     sync=connection,
@@ -244,6 +260,8 @@ class SynchronizeEngine:
                 project_id=connection.project_id,
                 plan=write_plan,
                 actor=actor,
+                user_id=connection.created_by,
+                operation_key=f"synchronize:{connection.id}:{run.id if run else result.content_hash}",
             )
             commit_id = outcome.commit_id
             self.repository.update_sync_point(
@@ -357,8 +375,10 @@ class SynchronizeEngine:
 
         try:
             require_synchronize_provider(
-                adapter, mode=(connection.trigger or {}).get("type", "manual"),
-                direction=connection.direction, config=connection.config,
+                adapter,
+                mode=(connection.trigger or {}).get("type", "manual"),
+                direction=connection.direction,
+                config=connection.config,
             )
             credentials = await self.registry.resolve_credentials(
                 oauth_type=spec.oauth_type,
@@ -366,10 +386,16 @@ class SynchronizeEngine:
                 required=spec.auth not in {AuthRequirement.NONE, AuthRequirement.OPTIONAL_OAUTH},
             )
             push_result = await adapter.push(
-                SourceInput(config={key: deepcopy(value) for key, value in (connection.config or {}).items()
-                                    if key in {"source", "options", "materialization_schema"}},
-                            credentials=credentials),
-                content, node_type,
+                SourceInput(
+                    config={
+                        key: deepcopy(value)
+                        for key, value in (connection.config or {}).items()
+                        if key in {"source", "options", "materialization_schema"}
+                    },
+                    credentials=credentials,
+                ),
+                content,
+                node_type,
             )
             if not push_result.success:
                 error = push_result.error or "Push returned failure"

@@ -39,7 +39,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.version_engine.storage.backends.s3 import (
-    CachedStorageBackend,
     ObjectLocation,
     S3StorageBackend,
 )
@@ -80,7 +79,7 @@ class _StubSupabaseClient:
         self._bulk_queries: list[list[str]] = []
         self._single_queries: list[str] = []
 
-    def from_(self, *_args, **_kwargs):  # noqa: D401
+    def from_(self, *_args, **_kwargs):
         # Provide a chained-builder facade. Real supabase-py exposes
         # ``client.table(...).select(...).eq(...).in_(...).execute()``;
         # we replicate just the surface the code touches.
@@ -95,15 +94,15 @@ class _StubChainedBuilder:
         self._in_field: str = ""
         self._in_values: list[str] = []
 
-    def select(self, cols: str) -> "_StubChainedBuilder":
+    def select(self, cols: str) -> _StubChainedBuilder:
         self._cols = [c.strip() for c in cols.split(",")]
         return self
 
-    def eq(self, field: str, value) -> "_StubChainedBuilder":
+    def eq(self, field: str, value) -> _StubChainedBuilder:
         self._eq[field] = value
         return self
 
-    def in_(self, field: str, values: list[str]) -> "_StubChainedBuilder":
+    def in_(self, field: str, values: list[str]) -> _StubChainedBuilder:
         self._in_field = field
         self._in_values = list(values)
         return self
@@ -131,7 +130,8 @@ def _supabase_wrapper(stub_client: _StubSupabaseClient):
     """Wrap _StubSupabaseClient so it looks like SupabaseClient.client.table(...)."""
     wrapper = MagicMock()
     wrapper.client.table.side_effect = lambda *args, **kwargs: stub_client.from_(
-        *args, **kwargs,
+        *args,
+        **kwargs,
     )
     return wrapper
 
@@ -168,12 +168,15 @@ def backend(stub_s3, stub_supabase):
 
 class TestBundledExistsRace:
     def test_bundled_object_visible_when_bulk_returns_it(
-        self, backend, stub_supabase, stub_s3,
+        self,
+        backend,
+        stub_supabase,
+        stub_s3,
     ):
         """Happy path baseline: bundled object's row is visible → exists."""
         h = "a" * 40
         stub_supabase.rows[h] = {
-            "pack_key": "bundles/test/x",
+            "pack_key": "version/test-proj/object-bundles/x",
             "offset_bytes": 0,
             "size_bytes": 10,
         }
@@ -181,24 +184,28 @@ class TestBundledExistsRace:
         assert backend.exists_many([h]) == {h}
 
     def test_bundled_object_visible_via_cache(
-        self, backend, stub_supabase, stub_s3,
+        self,
+        backend,
+        stub_supabase,
+        stub_s3,
     ):
         """In-memory _location_cache hit short-circuits Supabase entirely."""
         h = "b" * 40
         # Pre-populate the per-process cache as _async_put_bundle would.
         backend._location_cache[h] = ObjectLocation(
-            pack_key="bundles/test/y",
+            pack_key="version/test-proj/object-bundles/y",
             offset_bytes=0,
             size_bytes=10,
         )
         assert backend.exists_many([h]) == {h}
         # No Supabase query should have fired.
-        assert stub_supabase._bulk_queries == [], (
-            "in-memory cache should have answered the lookup"
-        )
+        assert stub_supabase._bulk_queries == [], "in-memory cache should have answered the lookup"
 
     def test_regression_bundled_object_missed_by_bulk_recovers_via_retry(
-        self, backend, stub_supabase, stub_s3,
+        self,
+        backend,
+        stub_supabase,
+        stub_s3,
     ):
         """The actual race repro: bulk Supabase query returns N-k rows
         (misses k bundled objects), per-hash retry catches them.
@@ -214,7 +221,7 @@ class TestBundledExistsRace:
         hashes = ["c" * 40, "d" * 40, "e" * 40]
         for h in hashes:
             stub_supabase.rows[h] = {
-                "pack_key": f"bundles/test/{h[:4]}",
+                "pack_key": f"version/test-proj/object-bundles/{h[:4]}",
                 "offset_bytes": 0,
                 "size_bytes": 10,
             }
@@ -225,7 +232,6 @@ class TestBundledExistsRace:
 
         # Tweak `invisible` mid-flight: once the bulk pass is done,
         # the per-hash retry should see the row.
-        original_bulk = stub_supabase._bulk_queries
 
         # Patch: clear `invisible` after the bulk query records itself
         # so the per-hash retry sees the row, mimicking replica catchup.
@@ -246,12 +252,14 @@ class TestBundledExistsRace:
             _StubChainedBuilder.execute = original_execute
 
         assert result == set(hashes), (
-            f"all three bundled hashes should be reported existing; "
-            f"got {result}"
+            f"all three bundled hashes should be reported existing; got {result}"
         )
 
     def test_regression_per_hash_retry_uses_packed_location_lookup(
-        self, backend, stub_supabase, stub_s3,
+        self,
+        backend,
+        stub_supabase,
+        stub_s3,
     ):
         """Tighter assertion: the per-hash fallback must retry the
         location lookup, NOT just check the loose S3 key.
@@ -264,7 +272,7 @@ class TestBundledExistsRace:
         """
         h = "f" * 40
         stub_supabase.rows[h] = {
-            "pack_key": "bundles/test/z",
+            "pack_key": "version/test-proj/object-bundles/z",
             "offset_bytes": 0,
             "size_bytes": 10,
         }
@@ -293,7 +301,9 @@ class TestBundledExistsRace:
         )
 
     def test_no_phantom_existence_when_row_truly_missing(
-        self, backend, stub_supabase,
+        self,
+        backend,
+        stub_supabase,
     ):
         """Sanity: a truly-missing object stays missing.
 

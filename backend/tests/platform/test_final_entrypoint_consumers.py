@@ -36,7 +36,8 @@ async def test_github_result_cannot_claim_another_execution_binding(monkeypatch,
     )
     payload = (
         github_contracts.SynchronizeGithubPull()
-        if method == "pull" else github_contracts.SynchronizeGithubPush()
+        if method == "pull"
+        else github_contracts.SynchronizeGithubPush()
     )
     with pytest.raises(ValueError, match="another binding identity"):
         await getattr(service, method)("project-1", payload)
@@ -127,6 +128,7 @@ async def test_github_pull_replay_does_not_fabricate_version_commit_from_git_sha
         sync_log=logs,
         binding_repo=MagicMock(),
         force=False,
+        user_id="initiating-user",
     )
     assert result.direction == "inbound"
     assert result.git_sha == "external-git-sha"

@@ -1,73 +1,144 @@
-"""GitHub-import conflict gate (git non-fast-forward analogue).
+"""GitHub import uses native revision CAS and durable retry receipts."""
 
-A re-import overwrites the bound scope, so it must refuse (unless force) when the
-project received a COMMITTED write from an external/user channel since the last
-import. github (own imports) + scope-sync (projection) are not conflicts.
-"""
-from __future__ import annotations
-
+from contextlib import nullcontext
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from src.platform.synchronize.github import importer
+from src.provider.github.client import TreeEntry
+from src.version_engine.adapters.product.operation_adapter import (
+    ProductOperationAdapter,
+    WriteResult,
+)
+
+BINDING = dict(
+    id="binding-1", project_id="project-1", github_repo_owner="owner", github_repo_name="repo"
+)
 
 
-# ── pure channel classification ───────────────────────────────────────
+def setup_import(monkeypatch, *, receipt=None, head="current"):
+    api = SimpleNamespace(
+        get_branch_head=AsyncMock(
+            return_value={"commit": {"sha": "a" * 40, "commit": {"tree": {"sha": "b" * 40}}}}
+        ),
+        get_tree_recursive=AsyncMock(return_value=([], False)),
+    )
+    logs = SimpleNamespace(
+        find_successful_sha=AsyncMock(return_value=None),
+        latest_successful_import=AsyncMock(return_value={"version_commit_id": "previous"}),
+        record=AsyncMock(),
+    )
+    binding_repo = SimpleNamespace(update_watermark=AsyncMock())
+    ops = Mock()
+    ops._grant = object()
+    ops.producer_request_key.return_value = "stable-native-request"
+    ops.native_operation_status = AsyncMock(return_value=receipt)
+    ops.write_result = ProductOperationAdapter.write_result
+    reader = SimpleNamespace(
+        get_read_revision=lambda _p: {"expected_oid": head},
+        list_tree=lambda _p: [SimpleNamespace(path="removed.txt", type="file")],
+    )
+    ops.open_read.return_value = nullcontext(reader)
+    ops.bulk_write = AsyncMock(return_value=WriteResult(commit_id="new", paths=["removed.txt"]))
+    monkeypatch.setattr(
+        importer,
+        "build_worker_version_engine_container",
+        lambda: SimpleNamespace(repo_manager=object()),
+    )
+    keys = []
 
-def test_has_external_committed_write_ignores_own_and_system():
-    f = importer._has_external_committed_write
-    assert f([{"source_channel": "github"}]) is False
-    assert f([{"source_channel": "scope-sync"}]) is False
-    assert f([{"source_channel": "github"}, {"source_channel": "scope-sync"}]) is False
-    assert f([]) is False
-    # any external/user channel => divergence
-    assert f([{"source_channel": "access_cli"}]) is True
-    assert f([{"source_channel": "github"}, {"source_channel": "papi"}]) is True
-    assert f([{"source_channel": "access_git"}]) is True
+    def bind(_self, project, user, *, operation_key):
+        assert (project, user) == ("project-1", "initiator")
+        keys.append(operation_key)
+        return ops
 
-
-# ── _external_writes_since with a fake supabase client ────────────────
-
-class _Query:
-    def __init__(self, rows): self._rows = rows
-    def select(self, *_a, **_k): return self
-    def eq(self, *_a, **_k): return self
-    def gt(self, *_a, **_k): return self
-    def order(self, *_a, **_k): return self
-    def limit(self, *_a, **_k): return self
-    def execute(self): return SimpleNamespace(data=self._rows)
-
-
-class _Client:
-    def __init__(self, rows): self._rows = rows
-    def table(self, _name): return _Query(self._rows)
-
-
-class _SB:
-    def __init__(self, rows): self.client = _Client(rows)
-
-
-async def test_external_writes_since_true_for_external(monkeypatch):
-    monkeypatch.setattr(importer, "SupabaseClient",
-                        lambda: _SB([{"source_channel": "access_cli", "status": "committed"}]))
-    assert await importer._external_writes_since("proj", "2026-06-20T00:00:00Z") is True
-
-
-async def test_external_writes_since_false_for_own_only(monkeypatch):
-    monkeypatch.setattr(importer, "SupabaseClient",
-                        lambda: _SB([{"source_channel": "github"}, {"source_channel": "scope-sync"}]))
-    assert await importer._external_writes_since("proj", "2026-06-20T00:00:00Z") is False
+    monkeypatch.setattr(ProductOperationAdapter, "for_user", bind)
+    return api, logs, binding_repo, ops, keys
 
 
-async def test_external_writes_since_false_when_none(monkeypatch):
-    monkeypatch.setattr(importer, "SupabaseClient", lambda: _SB([]))
-    assert await importer._external_writes_since("proj", "2026-06-20T00:00:00Z") is False
+@pytest.mark.asyncio
+async def test_diverged_native_head_is_not_overwritten(monkeypatch):
+    api, logs, binding_repo, ops, keys = setup_import(monkeypatch)
+    with pytest.raises(importer.ImportConflict):
+        await importer._do_import(
+            api=api,
+            binding=BINDING,
+            target_branch="main",
+            sync_log=logs,
+            binding_repo=binding_repo,
+            user_id="initiator",
+        )
+    ops.bulk_write.assert_not_awaited()
+    assert keys == ["github-import:binding-1:main:" + "a" * 40]
 
 
-async def test_external_writes_since_fails_open(monkeypatch):
-    class _Boom:
-        @property
-        def client(self):
-            raise RuntimeError("db down")
-    monkeypatch.setattr(importer, "SupabaseClient", lambda: _Boom())
-    # A divergence-check error must NOT block the import (GitHub-authoritative).
-    assert await importer._external_writes_since("proj", "x") is False
+@pytest.mark.asyncio
+async def test_force_import_still_passes_captured_native_base(monkeypatch):
+    api, logs, binding_repo, ops, _ = setup_import(monkeypatch)
+    result = await importer._do_import(
+        api=api,
+        binding=BINDING,
+        target_branch="main",
+        sync_log=logs,
+        binding_repo=binding_repo,
+        user_id="initiator",
+        force=True,
+    )
+    arguments = ops.bulk_write.await_args.kwargs
+    assert arguments["project_write_state"].repository_revision == {"expected_oid": "current"}
+    assert arguments["deleted"] == ["removed.txt"]
+    assert result.version_commit_id == "new" and result.files_changed == 1
+
+
+@pytest.mark.asyncio
+async def test_lost_log_after_success_replays_without_reading_or_overwriting_new_head(monkeypatch):
+    receipt = {
+        "status": "committed",
+        "product": {"commit_oid": "already-published", "changes": [["add", "ZmlsZS50eHQ="]]},
+    }
+    api, logs, binding_repo, ops, _ = setup_import(monkeypatch, receipt=receipt)
+    result = await importer._do_import(
+        api=api,
+        binding=BINDING,
+        target_branch="main",
+        sync_log=logs,
+        binding_repo=binding_repo,
+        user_id="initiator",
+    )
+    assert result.version_commit_id == "already-published" and result.files_changed == 1
+    api.get_tree_recursive.assert_not_awaited()
+    ops.open_read.assert_not_called()
+    ops.bulk_write.assert_not_awaited()
+    assert logs.record.await_args.kwargs["version_commit_id"] == "already-published"
+    binding_repo.update_watermark.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unsupported", ["submodule", "lfs"])
+async def test_incomplete_snapshot_cannot_publish_or_delete_existing_files(
+    monkeypatch, unsupported
+):
+    api, logs, binding_repo, ops, _ = setup_import(monkeypatch)
+    entry = TreeEntry(
+        path="external",
+        sha="c" * 40,
+        type="commit" if unsupported == "submodule" else "blob",
+        mode="160000" if unsupported == "submodule" else "100644",
+    )
+    api.get_tree_recursive.return_value = ([entry], False)
+    api.get_blob_content = AsyncMock(return_value=b"version https://git-lfs.github.com/spec/v1\n")
+    with pytest.raises(ValueError, match="no files were published"):
+        await importer._do_import(
+            api=api,
+            binding=BINDING,
+            target_branch="main",
+            sync_log=logs,
+            binding_repo=binding_repo,
+            user_id="initiator",
+            force=True,
+        )
+    ops.bulk_write.assert_not_awaited()
+    ops.open_read.assert_not_called()
+    binding_repo.update_watermark.assert_not_awaited()

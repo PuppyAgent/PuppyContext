@@ -1,8 +1,6 @@
-"""Product Operation Adapter package.
+"""Product commands compile tree splices for NativeOperationWriter.
 
-Translates typed product operations (write_file, mkdir, mv, rm, bulk_write,
-upload, connector imports, hosted-agent writes) into
-``OperationWriteIntent`` and routes them through the
-``VersionWriteEngine``. Callers should import ``ProductOperationAdapter`` from
-``version_engine.adapters.operations.product_operation_adapter`` directly.
+NativeOperationWriter captures/replays durable requests and delegates ref CAS,
+policy, capacity and billing to RefTransactionService. Human and Runtime grants
+are checked again at the database publication boundary.
 """

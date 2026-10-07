@@ -3,6 +3,7 @@
 No transport repository is created by the product code under test. Stock Git
 is used only as an independent format oracle, before the pure-code checks.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -17,11 +18,9 @@ from src.version_engine.adapters.product.tree_patch import (
     splice_put_blob_ref,
     splice_remove,
 )
-from src.version_engine.derived.projection import graft_subtree
 from src.version_engine.domain.errors import ObjectNotFoundError
 from src.version_engine.storage.object_store import ObjectStore
 from src.version_engine.write_engine.git_object_format import (
-    MODE_DIR,
     MODE_EXECUTABLE,
     MODE_FILE,
     MODE_GITLINK,
@@ -47,7 +46,9 @@ pytestmark = pytest.mark.hosting_component
 
 
 @pytest.mark.parametrize("object_format", ["sha1", "sha256"])
-def test_product_store_matches_stock_git_and_survives_cold_reads(tmp_path, monkeypatch, object_format):
+def test_product_store_matches_stock_git_and_survives_cold_reads(
+    tmp_path, monkeypatch, object_format
+):
     oracle = Git.init(tmp_path / "oracle.git", bare=True, format=object_format)
     content = b"product save\x00\xff\n"
     expected = oracle.run("hash-object", "--stdin", input=content).stdout.decode().strip()
@@ -62,7 +63,9 @@ def test_product_store_matches_stock_git_and_survives_cold_reads(tmp_path, monke
     cold = ObjectStore(tmp_path / "objects", object_format=object_format)
     assert cold.get_object(expected) == ("blob", content)
     assert cold.get_objects_many([expected]) == {expected: ("blob", content)}
-    assert cold.get_loose_many([expected]) == {expected: encode_object("blob", content, object_format=object_format)[1]}
+    assert cold.get_loose_many([expected]) == {
+        expected: encode_object("blob", content, object_format=object_format)[1]
+    }
 
 
 @pytest.mark.parametrize("object_format", ["sha1", "sha256"])
@@ -118,14 +121,26 @@ def test_product_splices_preserve_unmodified_native_entries(tmp_path, object_for
     incoming = store.put_blob(b"after")
     external = "f" * len(blob)
     files = {
-        "opaque-\udcff": blob, "executable": blob, "link": blob, "external": external,
-        "nested/executable": blob, "nested/link": blob,
-        "nested/external": external, "nested/edit": blob,
+        "opaque-\udcff": blob,
+        "executable": blob,
+        "link": blob,
+        "external": external,
+        "nested/executable": blob,
+        "nested/link": blob,
+        "nested/external": external,
+        "nested/edit": blob,
     }
     modes = {path: MODE_FILE for path in files}
-    modes.update({"executable": MODE_EXECUTABLE, "link": MODE_SYMLINK, "external": MODE_GITLINK,
-                  "nested/executable": MODE_EXECUTABLE, "nested/link": MODE_SYMLINK,
-                  "nested/external": MODE_GITLINK})
+    modes.update(
+        {
+            "executable": MODE_EXECUTABLE,
+            "link": MODE_SYMLINK,
+            "external": MODE_GITLINK,
+            "nested/executable": MODE_EXECUTABLE,
+            "nested/link": MODE_SYMLINK,
+            "nested/external": MODE_GITLINK,
+        }
+    )
     root = build_tree_from_blob_ids(store, files, modes=modes)
     assert find_missing_tree_objects(store, root) == []
     if operation == "put":
@@ -159,7 +174,9 @@ def test_product_splices_preserve_unmodified_native_entries(tmp_path, object_for
 def test_copy_same_blob_replaces_destination_mode(tmp_path, object_format):
     store = ObjectStore(tmp_path / "objects", object_format=object_format)
     blob = store.put_blob(b"same bytes")
-    root = write_tree(store, [TreeEntry("source", MODE_EXECUTABLE, blob), TreeEntry("dest", MODE_FILE, blob)])
+    root = write_tree(
+        store, [TreeEntry("source", MODE_EXECUTABLE, blob), TreeEntry("dest", MODE_FILE, blob)]
+    )
     new, changes = splice_copy(store, root, "source", "dest")
     assert new != root
     # Preserve the existing copy-overwrite audit contract (delete, then add).
@@ -173,7 +190,9 @@ def test_blob_put_preserves_blob_mode_but_replaces_a_gitlink(tmp_path, object_fo
     store = ObjectStore(tmp_path / "objects", object_format=object_format)
     blob = store.put_blob(b"content")
     # Gitlink identity is external: it may coincidentally name a local blob.
-    root = write_tree(store, [TreeEntry("exec", MODE_EXECUTABLE, blob), TreeEntry("link", MODE_GITLINK, blob)])
+    root = write_tree(
+        store, [TreeEntry("exec", MODE_EXECUTABLE, blob), TreeEntry("link", MODE_GITLINK, blob)]
+    )
 
     def put(base, path):
         if operation == "put":
@@ -187,20 +206,6 @@ def test_blob_put_preserves_blob_mode_but_replaces_a_gitlink(tmp_path, object_fo
     assert new != root
     assert changes == [("update", "link")]
     assert tree_path_modes(store, new) == {"exec": MODE_EXECUTABLE, "link": MODE_FILE}
-
-
-@pytest.mark.parametrize("object_format", ["sha1", "sha256"])
-def test_scope_graft_preserves_other_native_entries(tmp_path, object_format):
-    store = ObjectStore(tmp_path / "objects", object_format=object_format)
-    blob = store.put_blob(b"scope content")
-    before = write_tree(store, [TreeEntry("before", MODE_FILE, blob)])
-    after = write_tree(store, [TreeEntry("after", MODE_FILE, blob)])
-    unrelated = [TreeEntry("opaque-\udcff", MODE_EXECUTABLE, blob),
-                 TreeEntry("external", MODE_GITLINK, "f" * len(blob))]
-    root = write_tree(store, [*unrelated, TreeEntry("docs", MODE_DIR, before)])
-    grafted = graft_subtree(store, root, "docs", after)
-    assert grafted == write_tree(store, [*unrelated, TreeEntry("docs", MODE_DIR, after)])
-    assert find_missing_tree_objects(store, grafted) == []
 
 
 @pytest.mark.asyncio

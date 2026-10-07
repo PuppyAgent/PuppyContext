@@ -134,6 +134,13 @@ artifact's `verify.sql` against Supabase to prove the recorded completion state.
 This preserves a deployment gate without scheduling an S3 scan or deletion on
 every push.
 
+Public **validation** may provision disposable local Docker Supabase/S3 services
+with synthetic fixtures and no hosted credentials. This is separate from the
+hosted deployment control plane above. The native inventory migration uses
+`scripts/testing/run_native_inventory_migration.py` for that local acceptance;
+its operator artifact and rollout sequence are documented in
+[`20261007_native_repository_inventory/README.md`](../../supabase/data_migrations/20261007_native_repository_inventory/README.md).
+
 `supabase/seed.sql` is only bootstrap/demo/test data. It is not a production
 upgrade mechanism.
 

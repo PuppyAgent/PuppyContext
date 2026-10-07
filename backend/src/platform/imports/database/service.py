@@ -43,9 +43,7 @@ class DatabaseImportService:
         config: dict,
     ) -> dict[str, Any]:
         """Create a connection and test it immediately."""
-        self.authorization.authorize(
-            project_id, user_id, ProjectAction.IMPORT_SOURCE_MANAGE
-        )
+        self.authorization.authorize(project_id, user_id, ProjectAction.IMPORT_SOURCE_MANAGE)
         db_provider = get_provider(provider)
         test_result = await db_provider.test_connection(config)
 
@@ -79,9 +77,7 @@ class DatabaseImportService:
         return self.repo.list_by_project(project_id)
 
     def delete_connection(self, connection_id: str, user_id: str) -> bool:
-        conn = self.get_connection(
-            connection_id, user_id, ProjectAction.IMPORT_SOURCE_MANAGE
-        )
+        conn = self.get_connection(connection_id, user_id, ProjectAction.IMPORT_SOURCE_MANAGE)
         return self.repo.delete(conn.id)
 
     # === Table Data ===
@@ -128,9 +124,7 @@ class DatabaseImportService:
         """Fetch entire table data and save as a Version Engine file."""
         conn = self.get_connection(connection_id, user_id, ProjectAction.CONTENT_WRITE)
         if conn.project_id != project_id:
-            raise NotFoundException(
-                "Database connector not found", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException("Database connector not found", code=ErrorCode.NOT_FOUND)
         provider = get_provider(conn.provider)
 
         result = await provider.query_table(
@@ -149,11 +143,13 @@ class DatabaseImportService:
 
         from src.platform.project.write_lease import build_leased_worker_write_commands
 
-        commands = build_leased_worker_write_commands()
+        commands = build_leased_worker_write_commands(project_id=project_id, user_id=user_id)
         content_bytes = json.dumps(content_data, ensure_ascii=False, indent=2).encode("utf-8")
         file_path = f"{name}.json" if not name.endswith(".json") else name
         await commands.write_bytes(
-            project_id, file_path, content_bytes,
+            project_id,
+            file_path,
+            content_bytes,
             actor=f"db_connector:{connection_id}",
             message=f"Save table '{table}' from DB connector",
         )

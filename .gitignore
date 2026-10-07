@@ -156,3 +156,6 @@ todo/
 
 # Isolated repository-hosting acceptance artifacts
 backend/.hosting-test-results/
+backend/.native-migration-test-results/
+
+/backend/.native-retirement-hosting-results/

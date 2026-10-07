@@ -7,19 +7,14 @@ OCR job enqueues postprocess job on success.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import time
-import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.infra.supabase.client import SupabaseClient
-from src.infra.s3.exceptions import S3FileNotFoundError, S3OperationError
 from src.infra.file_processing.config import etl_config
-from src.platform.upload.config import upload_config
 from src.infra.file_processing.exceptions import ETLTransformationError
 from src.infra.file_processing.ocr.base import (
     OCRExternalJob,
@@ -30,25 +25,16 @@ from src.infra.file_processing.ocr.base import (
 from src.infra.file_processing.ocr.lifecycle import run_ocr_lifecycle_under_project_lease
 from src.infra.file_processing.rules.engine import RuleEngine
 from src.infra.file_processing.rules.repository_supabase import RuleRepositorySupabase
+from src.infra.s3.exceptions import S3OperationError
+from src.infra.supabase.client import SupabaseClient
+from src.platform.project.write_lease import ProjectWriteLease
+from src.platform.upload.config import upload_config
 from src.platform.upload.state.models import ETLPhase, ETLRuntimeState
 from src.platform.upload.state.repository import ETLStateRepositoryRedis
 from src.platform.upload.tasks.models import ETLTaskResult, ETLTaskStatus
-from src.platform.project.write_lease import ProjectWriteLease
 from src.version_engine.adapters.product.operation_adapter import BlobRef
 
 logger = logging.getLogger(__name__)
-
-
-def _version_object_key(project_id: str, blob_hash: str) -> str:
-    """Mirror of ``S3StorageBackend._key_for`` so we can pre-stage blobs
-    at the exact key the version object store will look at.
-
-    The 2-char shard prefix is intentional and must stay in sync with
-    ``version_engine/storage/backends/s3.py`` (search for
-    ``_HASH_PREFIX_LEN``). Drift here would silently break
-    pre-staging — the blob would land at a key the version object store cannot see.
-    """
-    return f"version/{project_id}/objects/{blob_hash[:2]}/{blob_hash[2:]}"
 
 
 async def stage_blob_from_s3(
@@ -58,124 +44,38 @@ async def stage_blob_from_s3(
     src_key: str,
     repo_manager=None,
     write_lease_factory=None,
+    expected_size: int | None = None,
 ) -> BlobRef:
-    """Stage a legacy SHA-1 blob, never bypass native publication admission.
+    """Read bounded producer input; canonical storage is written only at publication.
 
-    The lease spans source encoding, destination verification and PUT. Authority
-    is selected freshly after lease admission and storage waits. Native uploads
-    require a durable producer envelope and an admitted publication attempt;
-    neither a raw S3 key nor the task's stored creator supplies those contracts.
-    This guard is not a cutover protocol or proof of old-I/O quiescence.
+    The durable upload task owns src_key. Callers revalidate that task and bind
+    its initiating user's current grant before publication. This function cannot
+    use existence of an arbitrary S3 object as native publication authority.
     """
-    if repo_manager is None:
-        from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
+    from src.infra.s3.service import project_id_from_owned_s3_key
+    from src.version_engine.write_engine.git_object_format import hash_object
 
-        repo_manager = VersionRepoManager(s3, SupabaseClient())
-    lease_factory = write_lease_factory or ProjectWriteLease
-
-    async def require_legacy():
-        metadata = await asyncio.to_thread(repo_manager.repository_metadata, project_id)
-        if metadata is not None:
-            if metadata["authority"] == "native":
-                raise RuntimeError("native repository requires admitted upload staging")
-            if metadata["authority"] != "shadow":
-                raise RuntimeError("invalid repository staging authority")
-
-    async with lease_factory(project_id, "upload.stage_blob"):
-        await require_legacy()
-        size = await _head_object_size(s3, src_key)
-        blob_hash, loose_bytes, frame_sha256 = await _encode_s3_object_as_git_blob_loose(
-            s3, src_key=src_key, size=size,
-        )
-        dst_key = _version_object_key(project_id, blob_hash)
-        frame_size = len(f"blob {size}".encode("ascii")) + 1 + size
-        await require_legacy()
-        verified = await _verify_staged_blob(s3, dst_key, frame_size, frame_sha256)
-        await require_legacy()
-        if not verified:
-            # This is an explicit write of verified original input, not read-side
-            # repair or an existence/length-only deduplication decision.
-            await s3.upload_file(dst_key, loose_bytes, content_type="application/octet-stream")
-            if not await _verify_staged_blob(s3, dst_key, frame_size, frame_sha256):
-                raise S3OperationError("staged Git blob verification failed")
-            await require_legacy()
-        return BlobRef(hash=blob_hash, size=size)
-
-
-async def _verify_staged_blob(s3, key: str, frame_size: int, frame_sha256: str) -> bool:
-    """Fresh physical verification with bounded decoding, independent of zlib encoding.
-
-    Only explicit absence or provably invalid bytes permit replacement. Transport,
-    permission and other uncertain reads propagate; they are not proof of absence.
-    SHA-256 binds the full framing/body to the input even for legacy SHA-1 OIDs.
-    """
-    decoder = zlib.decompressobj()
-    digest = hashlib.sha256()
-    decoded_size = encoded_size = 0
-    stream = s3.download_file_stream(key, chunk_size=64 * 1024)
+    if src_key.startswith("version/") or project_id_from_owned_s3_key(src_key) != project_id:
+        raise PermissionError("upload source belongs to another Project")
+    size = await _head_object_size(s3, src_key)
+    if expected_size is not None and size != expected_size:
+        raise S3OperationError("upload input size changed")
+    if size > 64 * 1024**2:
+        raise S3OperationError("upload exceeds native object body limit")
+    parts, received = [], 0
+    stream = s3.download_file_stream(src_key, chunk_size=1024**2)
     try:
-        async for chunk in stream:
-            encoded_size += len(chunk)
-            # Resource exhaustion is uncertainty, not proof of invalid bytes.
-            # Valid deflate streams can contain arbitrarily many empty blocks.
-            if encoded_size > 2 * frame_size + 64 * 1024:
-                raise S3OperationError("staged Git blob verification byte budget exceeded")
-            while chunk:
-                part = decoder.decompress(chunk, min(64 * 1024, frame_size - decoded_size + 1))
-                decoded_size += len(part)
-                if decoded_size > frame_size or decoder.unused_data:
-                    return False
-                digest.update(part)
-                chunk = decoder.unconsumed_tail
-        return decoder.eof and decoded_size == frame_size and digest.hexdigest() == frame_sha256
-    except (S3FileNotFoundError, zlib.error):
-        return False
+        async for part in stream:
+            received += len(part)
+            if received > size:
+                raise S3OperationError("upload input size changed")
+            parts.append(part)
     finally:
         await stream.aclose()
-
-
-async def _encode_s3_object_as_git_blob_loose(
-    s3,
-    *,
-    src_key: str,
-    size: int,
-) -> tuple[str, bytes, str]:
-    """Hash streamed input; the encoded object is still retained in memory."""
-
-    sha1 = hashlib.sha1()
-    sha256 = hashlib.sha256()
-    compressor = zlib.compressobj()
-    compressed: list[bytes] = []
-
-    def feed(chunk: bytes) -> None:
-        sha1.update(chunk)
-        sha256.update(chunk)
-        part = compressor.compress(chunk)
-        if part:
-            compressed.append(part)
-
-    feed(f"blob {size}".encode("ascii") + b"\x00")
-    actual_size = 0
-    stream = s3.download_file_stream(src_key, chunk_size=64 * 1024)
-    try:
-        async for chunk in stream:
-            actual_size += len(chunk)
-            if actual_size > size:
-                raise S3OperationError("S3 object grew while staging")
-            feed(chunk)
-    finally:
-        await stream.aclose()
-
-    if actual_size != size:
-        raise S3OperationError(
-            f"S3 object size changed while staging {src_key}: "
-            f"expected {size}, got {actual_size}"
-        )
-
-    tail = compressor.flush()
-    if tail:
-        compressed.append(tail)
-    return sha1.hexdigest(), b"".join(compressed), sha256.hexdigest()
+    if received != size:
+        raise S3OperationError("upload input truncated")
+    body = b"".join(parts)
+    return BlobRef(hash_object("blob", body), size, body)
 
 
 async def _head_object_size(s3, key: str) -> int:
@@ -184,6 +84,7 @@ async def _head_object_size(s3, key: str) -> int:
     This is the raw artifact size, not a trusted caller-provided object hash.
     Encoding must read exactly this many bytes before returning its identity.
     """
+
     # ``S3Service`` doesn't yet expose a typed head method; use
     # the underlying boto client. The thread-pool wrapper is the
     # same pattern other methods on the service use.
@@ -225,10 +126,7 @@ def _reload_task_before_project_storage_write(repo, task_id: str | int, task):
             task_id,
         )
         return None
-    if (
-        durable.project_id != task.project_id
-        or _creator_id(durable) != _creator_id(task)
-    ):
+    if durable.project_id != task.project_id or _creator_id(durable) != _creator_id(task):
         logger.warning(
             "project storage write skipped because durable task ownership changed: %s",
             task_id,
@@ -309,9 +207,7 @@ async def etl_ocr_job(ctx: dict, task_id: str | int) -> dict:
         else:
             source_key = f"users/{_creator_id(task)}/raw/{task.project_id}/{task.filename}"
 
-        presigned_url = await s3.generate_presigned_download_url(
-            source_key, expires_in=3600
-        )
+        presigned_url = await s3.generate_presigned_download_url(source_key, expires_in=3600)
 
         async def persist_provider_handle(
             provider_job: OCRExternalJob,
@@ -334,9 +230,7 @@ async def etl_ocr_job(ctx: dict, task_id: str | int) -> dict:
             task.metadata.update(metadata)
             persisted = await asyncio.to_thread(repo.update_task, task)
             if persisted is None:
-                raise RuntimeError(
-                    "Unable to persist OCR provider lifecycle in SQL"
-                )
+                raise RuntimeError("Unable to persist OCR provider lifecycle in SQL")
 
         async def on_created(provider_job: OCRExternalJob) -> None:
             await persist_provider_handle(
@@ -403,15 +297,11 @@ async def etl_ocr_job(ctx: dict, task_id: str | int) -> dict:
         if (
             latest and latest.status == ETLTaskStatus.CANCELLED
         ) or task.status == ETLTaskStatus.CANCELLED:
-            logger.info(
-                f"etl_ocr_job: cancelled before enqueue postprocess, skip: {task_id}"
-            )
+            logger.info(f"etl_ocr_job: cancelled before enqueue postprocess, skip: {task_id}")
             return {"ok": True, "skipped": "cancelled"}
 
         # Enqueue postprocess
-        job = await ctx["redis"].enqueue_job(
-            "etl_postprocess_job", task_id, _queue_name=queue_name
-        )
+        job = await ctx["redis"].enqueue_job("etl_postprocess_job", task_id, _queue_name=queue_name)
         state.arq_job_id_postprocess = job.job_id
         state.phase = ETLPhase.POSTPROCESS
         state.status = ETLTaskStatus.LLM_PROCESSING
@@ -433,9 +323,7 @@ async def etl_ocr_job(ctx: dict, task_id: str | int) -> dict:
 
         task.status = ETLTaskStatus.FAILED
         task.error = state.error_message
-        task.metadata.update(
-            {"error_stage": "timeout", "provider_task_id": state.provider_task_id}
-        )
+        task.metadata.update({"error_stage": "timeout", "provider_task_id": state.provider_task_id})
         repo.update_task(task)
         logger.error(f"etl_ocr_job timeout task_id={task_id}")
         return {"ok": False, "stage": "ocr", "error": state.error_message}
@@ -554,13 +442,10 @@ async def finalize_upload_to_version(
         if (
             latest and latest.status == ETLTaskStatus.CANCELLED
         ) or task.status == ETLTaskStatus.CANCELLED:
-            logger.info(
-                f"finalize_upload_to_version: cancelled before stage, skip: {task_id}"
-            )
+            logger.info(f"finalize_upload_to_version: cancelled before stage, skip: {task_id}")
             return {"ok": True, "skipped": "cancelled"}
 
-        # Stage the raw upload as a Git-compatible blob object and return the
-        # resulting Git object id for the tree update.
+        # Read private producer bytes; only admitted publication writes Git objects.
         ref = await stage_blob_from_s3(
             s3,
             project_id=task.project_id,
@@ -573,16 +458,16 @@ async def finalize_upload_to_version(
 
         from src.platform.project.write_lease import build_leased_worker_write_commands
 
-        commands = build_leased_worker_write_commands()
-        # ``verify_blobs=False`` because we just wrote the blob to
-        # its version object key inside ``stage_blob_from_s3`` — it IS
-        # there, no need to round-trip a HEAD.
+        commands = build_leased_worker_write_commands(
+            project_id=task.project_id,
+            user_id=task.created_by,
+            operation_key=f"upload:{task.task_id}",
+        )
         await commands.bulk_write_refs(
             project_id=task.project_id,
             file_refs={mount_path: ref},
             actor=f"upload:{task.created_by or 'unknown'}",
             message=f"Upload {task.filename}",
-            verify_blobs=False,
             source_channel="upload",
         )
 
@@ -639,9 +524,7 @@ async def finalize_upload_to_version(
 
     except Exception as e:
         err = f"Finalize failed: {e}"
-        logger.error(
-            f"finalize_upload_to_version failed task_id={task_id}: {e}", exc_info=True
-        )
+        logger.error(f"finalize_upload_to_version failed task_id={task_id}: {e}", exc_info=True)
         task.mark_failed(err)
         task.metadata["error_stage"] = "finalize"
         repo.update_task(task)
@@ -734,14 +617,10 @@ async def finalize_uploads_to_version_batch(
     for tid in task_ids:
         task = repo.get_task(tid)
         if not task:
-            results.append(
-                {"ok": False, "task_id": str(tid), "error": "task_not_found"}
-            )
+            results.append({"ok": False, "task_id": str(tid), "error": "task_not_found"})
             continue
         if task.status == ETLTaskStatus.CANCELLED:
-            results.append(
-                {"ok": True, "task_id": str(tid), "skipped": "cancelled"}
-            )
+            results.append({"ok": True, "task_id": str(tid), "skipped": "cancelled"})
             continue
 
         s3_key = task.metadata.get("s3_key")
@@ -787,47 +666,29 @@ async def finalize_uploads_to_version_batch(
             state.touch()
         await state_repo.set(state)
 
-        prepared.append({
-            "task": task, "state": state, "s3_key": s3_key,
-            "mount_path": mount_path,
-        })
+        prepared.append(
+            {
+                "task": task,
+                "state": state,
+                "s3_key": s3_key,
+                "mount_path": mount_path,
+            }
+        )
 
     if not prepared:
         return results
 
-    # Phase 2: stage each raw upload from S3 as a Git blob object under its
-    # version object key.
-    #
-    # Old flow (deleted):
-    #   download_file(s3_key) -> bytes in RAM -> old Version Engine hash ->
-    #   CopyObject src->dst -> bulk_write(files: dict[path, bytes])
-    # New flow:
-    #   stage_blob_from_s3(s3_key) -> BlobRef
-    #   (stream raw bytes into Git loose-object bytes, then upload) ->
-    #   bulk_write_refs(refs: dict[path, BlobRef])
-    #
-    # ``ops.bulk_write_refs`` only sees ``(hash, size)`` for the commit, and
-    # the staged object is byte-compatible with Git.
-    #
-    # Each per-file stage runs in parallel under a semaphore. Each
-    # stage is independent (different src_key, different version object
-    # key) so there's no ordering constraint. Bounded concurrency
-    # (8) keeps us from hammering Supabase Storage with hundreds of
-    # parallel stream/download + upload requests on a giant folder upload.
-    # Sequential previously cost ~1.3s per file; parallel collapses
-    # most of that to a single round-trip cycle.
-    #
-    # Failures here are per-item: drop the bad one from the bulk
-    # push but keep going. We return per-item outcomes and merge them
-    # after ``gather`` in ``prepared`` order so duplicate target paths
-    # keep deterministic last-write-wins semantics.
+    # Bounded private inputs; native admission owns the later canonical PUTs.
+    # Preserve per-item outcomes in input order, including duplicate paths.
     refs_by_path: dict[str, BlobRef] = {}  # mount_path -> BlobRef
     survivors: list[dict] = []
     started_at = time.time()
     _STAGE_PARALLEL_LIMIT = 8
+    staged_bytes = 0
 
     async def _stage_one(entry: dict) -> tuple[str, dict]:
         """Stage one task's blob and return its deterministic outcome."""
+        nonlocal staged_bytes
         task = entry["task"]
         state = entry["state"]
         s3_key = entry["s3_key"]
@@ -843,10 +704,16 @@ async def finalize_uploads_to_version_batch(
                     {"ok": True, "task_id": str(tid), "skipped": "cancelled"},
                 )
 
+            size = await _head_object_size(s3, s3_key)
+            if size > 64 * 1024**2 or staged_bytes + size > 256 * 1024**2:
+                raise S3OperationError("native upload batch byte budget exceeded")
+            # No await between checking and reserving on this event loop.
+            staged_bytes += size
             ref = await stage_blob_from_s3(
                 s3,
                 project_id=task.project_id,
                 src_key=s3_key,
+                expected_size=size,
             )
             entry["blob_ref"] = ref
             entry["size"] = ref.size
@@ -893,22 +760,19 @@ async def finalize_uploads_to_version_batch(
     if not survivors:
         return results
 
-    # Phase 3: ONE bulk push for all survivors. Even if files target
-    # different scopes, ``bulk_write_refs`` groups per-scope and emits
-    # one commit per group — typical case (folder upload) is
-    # single-scope = single commit.
-    #
-    # ``verify_blobs=False`` is safe here because we just wrote each blob to
-    # its version object key inside ``stage_blob_from_s3`` above — they ARE present, no
-    # need to round-trip a HEAD per ref.
+    # Publish one Git transaction for this Project, with durable retry identity.
     from src.platform.project.write_lease import build_leased_worker_write_commands
 
-    commands = build_leased_worker_write_commands()
     first_task = survivors[0]["task"]
-    who = f"upload:{first_task.created_by or 'unknown'}"
-    message = (
-        f"Upload {len(survivors)} file{'s' if len(survivors) != 1 else ''}"
+    if any(e["task"].created_by != first_task.created_by for e in survivors):
+        raise PermissionError("upload batch spans multiple initiating users")
+    commands = build_leased_worker_write_commands(
+        project_id=project_id,
+        user_id=first_task.created_by,
+        operation_key="upload-batch:" + ":".join(sorted(str(e["task"].task_id) for e in survivors)),
     )
+    who = f"upload:{first_task.created_by or 'unknown'}"
+    message = f"Upload {len(survivors)} file{'s' if len(survivors) != 1 else ''}"
 
     try:
         await commands.bulk_write_refs(
@@ -916,14 +780,11 @@ async def finalize_uploads_to_version_batch(
             file_refs=refs_by_path,
             actor=who,
             message=message,
-            verify_blobs=False,
             source_channel="upload",
         )
     except Exception as e:
         # Whole-batch push failure → mark every survivor FAILED.
-        # Successful Git-blob pre-stages stay in the version object
-        # store as orphans; harmless (content-addressed dedupe will
-        # reuse them on the next push of the same content).
+        # The durable source uploads remain available for an explicit retry.
         err = f"Bulk push failed: {e}"
         logger.error(
             f"finalize_uploads_to_version_batch: bulk push failed: {e}",
@@ -982,13 +843,15 @@ async def finalize_uploads_to_version_batch(
         state.updated_at = datetime.now(UTC)
         await state_repo.set_terminal(state)
 
-        results.append({
-            "ok": True,
-            "task_id": str(task.task_id),
-            "path": mount_path,
-            "size": size,
-            "seconds": per_file_seconds,
-        })
+        results.append(
+            {
+                "ok": True,
+                "task_id": str(task.task_id),
+                "path": mount_path,
+                "size": size,
+                "seconds": per_file_seconds,
+            }
+        )
 
     async def _bounded_complete(entry: dict) -> None:
         async with sem:
@@ -1063,9 +926,7 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
         # because Worker runs outside the FastAPI request context.
         # RuleRepositorySupabase expects supabase.Client (with .table()), not our wrapper class.
         supabase_client = SupabaseClient().client
-        rule_repo = RuleRepositorySupabase(
-            supabase_client=supabase_client
-        )
+        rule_repo = RuleRepositorySupabase(supabase_client=supabase_client)
         rule = rule_repo.get_rule(str(task.rule_id))
         if not rule:
             raise RuntimeError(f"Rule not found: {task.rule_id}")
@@ -1115,24 +976,18 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
             engine = RuleEngine(llm)
             transform = await engine.apply_rule(markdown_content=input_text, rule=rule)
             if not transform.success:
-                raise ETLTransformationError(
-                    transform.error or "Unknown error", str(task.rule_id)
-                )
+                raise ETLTransformationError(transform.error or "Unknown error", str(task.rule_id))
             output_obj = transform.output
 
         latest = await state_repo.get(task_id)
         if (
             latest and latest.status == ETLTaskStatus.CANCELLED
         ) or task.status == ETLTaskStatus.CANCELLED:
-            logger.info(
-                f"etl_postprocess_job: cancelled before upload, skip: {task_id}"
-            )
+            logger.info(f"etl_postprocess_job: cancelled before upload, skip: {task_id}")
             return {"ok": True, "skipped": "cancelled"}
 
         output_key = _output_json_key(task_id, _creator_id(task), task.project_id)
-        output_json = json.dumps(output_obj, indent=2, ensure_ascii=False).encode(
-            "utf-8"
-        )
+        output_json = json.dumps(output_obj, indent=2, ensure_ascii=False).encode("utf-8")
         if _reload_task_before_project_storage_write(repo, task_id, task) is None:
             return {"ok": True, "skipped": "task_not_live"}
         await s3.upload_file(
@@ -1156,14 +1011,19 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
 
         from src.platform.project.write_lease import build_leased_worker_write_commands
 
-        commands = build_leased_worker_write_commands()
+        commands = build_leased_worker_write_commands(
+            project_id=task.project_id,
+            user_id=task.created_by,
+            operation_key=f"upload:{task.task_id}",
+        )
 
         if not mount_path:
             auto_name = task.metadata.get("auto_node_name") or f"{task_id}"
             auto_name = str(auto_name)[:12]
             mount_path = f"{auto_name}.json"
             await commands.write_bytes(
-                task.project_id, mount_path,
+                task.project_id,
+                mount_path,
                 json.dumps({}, ensure_ascii=False).encode("utf-8"),
                 actor=f"etl:{task_id}",
                 message=f"ETL auto-create for {task.filename}",
@@ -1196,10 +1056,13 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
 
                 md_path = mount_path
                 if not md_path.endswith(".md"):
-                    md_path = md_path.rsplit(".", 1)[0] + ".md" if "." in md_path else md_path + ".md"
+                    md_path = (
+                        md_path.rsplit(".", 1)[0] + ".md" if "." in md_path else md_path + ".md"
+                    )
 
                 await commands.write_bytes(
-                    task.project_id, md_path,
+                    task.project_id,
+                    md_path,
                     markdown_content.encode("utf-8"),
                     actor=f"etl:{task_id}",
                     message=f"OCR result for {task.filename}",
@@ -1228,7 +1091,8 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
                     existing_content[mount_key] = mount_value
 
                 await commands.write_bytes(
-                    task.project_id, mount_path,
+                    task.project_id,
+                    mount_path,
                     json.dumps(existing_content, ensure_ascii=False, indent=2).encode("utf-8"),
                     actor=f"etl:{task_id}",
                     message=f"ETL mount for {task.filename}",
@@ -1313,7 +1177,5 @@ async def etl_postprocess_job(ctx: dict, task_id: str | int) -> dict:
         state.updated_at = datetime.now(UTC)
         await state_repo.set_terminal(state)
 
-        logger.error(
-            f"etl_postprocess_job failed task_id={task_id}: {e}", exc_info=True
-        )
+        logger.error(f"etl_postprocess_job failed task_id={task_id}: {e}", exc_info=True)
         return {"ok": False, "stage": "postprocess", "error": str(e)}

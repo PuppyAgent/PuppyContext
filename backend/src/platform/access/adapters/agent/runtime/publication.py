@@ -11,8 +11,6 @@ from src.platform.access.adapters.agent.runtime.git_workspace import (
     publish_git,
 )
 from src.platform.project.write_lease import ProjectWriteLease
-from src.platform.repository_target.models import RepositoryPathProjection
-from src.version_engine.adapters.batch.in_process_client import InProcessVersionClient
 from src.version_engine.adapters.product.tree_patch import splice_batch
 
 
@@ -78,7 +76,7 @@ class Publication:
             "pi_version": "0.85.1",
             "files": files,
             "base_files": dict(files),
-            "base": native or {"repository_profile": "legacy", "head": before},
+            "base": native,
             "mount": mount,
             "entries": None,
             "leaf_id": None,
@@ -154,26 +152,4 @@ class Publication:
                 write_lease_factory=lease,
             )
             return result
-        projection = RepositoryPathProjection(
-            path_prefix=mount, excludes=tuple(run["policy"]["excludes"]), mode="rw"
-        )
-        client = InProcessVersionClient(
-            self.container.repo_manager,
-            run["project_id"],
-            projection,
-            actor=actor(run),
-            source_channel="agent",
-        )
-        client.restore_base(
-            head_commit_id=base["head"], files={p: base64.b64decode(v) for p, v in original.items()}
-        )
-        async with ProjectWriteLease(run["project_id"], "agent.publish"):
-            result = await asyncio.to_thread(
-                client.push,
-                modified,
-                deleted,
-                "Agent run " + run["id"],
-                policy_override="manual_review",
-            )
-        status = result.get("status")
-        return {**result, "status": "committed" if status in {"ok", "committed"} else "conflict"}
+        raise PublicationRejected("Checkpoint requires native Git migration; resume from a new run")

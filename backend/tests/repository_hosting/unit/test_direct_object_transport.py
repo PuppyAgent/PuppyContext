@@ -21,13 +21,13 @@ from src.version_engine.adapters.git.protocol import pkt_line, read_pkt_lines
 from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.git_object_format import decode_object, encode_object
 from tests.repository_hosting.harness.git import Git
+from tests.repository_hosting.harness.http_server import _serve_git_app
 from tests.repository_hosting.harness.network_workflows import (
     partial_clone,
     protocol_version,
     shallow_workflow,
 )
 from tests.repository_hosting.integration.test_ref_transaction_service import grant
-from tests.version_engine.test_write_engine import _serve_git_app
 
 pytestmark = pytest.mark.hosting_component
 

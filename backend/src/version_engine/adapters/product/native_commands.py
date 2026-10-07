@@ -1,4 +1,5 @@
 """Normalize Product commands once, then use the common native write boundary."""
+
 from __future__ import annotations
 
 import base64
@@ -20,7 +21,9 @@ def _identity(value):
     if isinstance(value, bytes):
         return {"bytes_sha256": hashlib.sha256(value).hexdigest(), "size": len(value)}
     if isinstance(value, str):
-        return {"text_b64": base64.b64encode(value.encode("utf-8", "surrogateescape")).decode("ascii")}
+        return {
+            "text_b64": base64.b64encode(value.encode("utf-8", "surrogateescape")).decode("ascii")
+        }
     if isinstance(value, dict):
         return {key: _identity(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -34,7 +37,12 @@ def native_path(path):
     if not isinstance(path, str):
         raise ValueError("invalid native path")
     clean = path.strip("/")
-    if not clean or len(clean) > 500 or "\0" in clean or any(part in {"", ".", ".."} for part in clean.split("/")):
+    if (
+        not clean
+        or len(clean) > 500
+        or "\0" in clean
+        or any(part in {"", ".", ".."} for part in clean.split("/"))
+    ):
         raise ValueError("invalid native path")
     clean.encode("utf-8", "surrogateescape")
     return clean
@@ -58,8 +66,13 @@ def apply_byte_paths(arguments, byte_paths):
             raw = base64.b64decode(encoded, validate=True)
         except (TypeError, ValueError) as exc:
             raise ValueError("invalid native byte path") from exc
-        if (not raw or base64.b64encode(raw).decode("ascii") != encoded or raw.startswith(b"/")
-                or any(part in {b"", b".", b".."} for part in raw.split(b"/")) or b"\0" in raw):
+        if (
+            not raw
+            or base64.b64encode(raw).decode("ascii") != encoded
+            or raw.startswith(b"/")
+            or any(part in {b"", b".", b".."} for part in raw.split(b"/"))
+            or b"\0" in raw
+        ):
             raise ValueError("invalid native byte path")
         container, key = args, field
         parts = field.split("/")
@@ -89,7 +102,7 @@ def response_paths(response):
         if field in result:
             raw = result[field].encode("utf-8", "surrogateescape")
             result[field] = raw.decode("utf-8", "backslashreplace")
-            result[field+"_bytes_b64"] = base64.b64encode(raw).decode("ascii")
+            result[field + "_bytes_b64"] = base64.b64encode(raw).decode("ascii")
     if "paths" in result:
         raw = [path.encode("utf-8", "surrogateescape") for path in result["paths"]]
         result["paths"] = [path.decode("utf-8", "backslashreplace") for path in raw]
@@ -103,7 +116,7 @@ def _entry(store, root, path):
         entry = next((e for e in read_tree_entries(store, root) if e.name == part), None)
         if entry is None:
             return None
-        if index == len(parts)-1:
+        if index == len(parts) - 1:
             return entry
         if not entry.is_dir:
             raise NotADirectoryError(path)
@@ -120,10 +133,17 @@ def compile_native_command(commands, operation, arguments):
     args = dict(arguments)
     allowed = {
         "write": {"path", "content", "node_type"},
-        "bulk_write": {"files"},
+        "bulk_write": {"files", "deleted"},
         "mkdir": {"path", "parents"},
         "move": {"old_path", "new_path", "no_clobber", "target_directory", "no_target_directory"},
-        "copy": {"old_path", "new_path", "no_clobber", "target_directory", "no_target_directory", "recursive"},
+        "copy": {
+            "old_path",
+            "new_path",
+            "no_clobber",
+            "target_directory",
+            "no_target_directory",
+            "recursive",
+        },
         "remove": {"path", "paths", "force", "recursive"},
         "touch": {"path", "paths"},
     }
@@ -132,39 +152,70 @@ def compile_native_command(commands, operation, arguments):
     # This v1 field/default set is a durable retry contract. New semantics
     # need a new input version, not changed defaults for outstanding requests.
     defaults = {
-        "write": {"node_type": "json"}, "bulk_write": {}, "mkdir": {"parents": False},
+        "write": {"node_type": "json"},
+        "bulk_write": {},
+        "mkdir": {"parents": False},
         "move": {"no_clobber": False, "target_directory": False, "no_target_directory": False},
-        "copy": {"no_clobber": False, "target_directory": False, "no_target_directory": False, "recursive": False},
+        "copy": {
+            "no_clobber": False,
+            "target_directory": False,
+            "no_target_directory": False,
+            "recursive": False,
+        },
         "remove": {"path": "", "paths": None, "force": False, "recursive": False},
         "touch": {"path": "", "paths": None},
     }
     args = {"message": "", "base_commit_id": None, **defaults[operation], **args}
-    for flag in ("parents", "no_clobber", "target_directory", "no_target_directory", "recursive", "force"):
+    for flag in (
+        "parents",
+        "no_clobber",
+        "target_directory",
+        "no_target_directory",
+        "recursive",
+        "force",
+    ):
         if flag in args and type(args[flag]) is not bool:
             raise ValueError("invalid native command flag")
     response = {}
     if operation == "write":
-        item = commands.serialize_content(args["path"], args["content"], args.get("node_type", "json"), path_validator=native_path)
+        item = commands.serialize_content(
+            args["path"], args["content"], args.get("node_type", "json"), path_validator=native_path
+        )
         native_path(item.path)  # validate the extension-normalized result too
         args.update(path=item.path, content=item.content)
         response = {"path": item.path, "merged": False, "conflicts": 0}
+
         def splice(store, root):
             return splice_batch(store, root, [("put", item.path, item.content)])
     elif operation == "bulk_write":
-        files = [commands.serialize_content(item["path"], item["content"], item.get("node_type", "json"), path_validator=native_path)
-                 for item in args["files"]]
+        files = [
+            commands.serialize_content(
+                item["path"],
+                item["content"],
+                item.get("node_type", "json"),
+                path_validator=native_path,
+            )
+            for item in args["files"]
+        ]
         for item in files:
             native_path(item.path)
         # Match the established last item at a duplicated path contract.
         unique = {item.path: item.content for item in files}
         args["files"] = list(unique.items())
         response = {"total": len(unique), "merged": False}
+
         def splice(store, root):
-            return splice_batch(store, root, [("put", path, content) for path, content in unique.items()])
+            return splice_batch(
+                store,
+                root,
+                [("put", path, content) for path, content in unique.items()]
+                + [("rm", native_path(path)) for path in args.get("deleted", [])],
+            )
     elif operation == "mkdir":
         path = native_path(args["path"])
         args["path"] = path
         response = {"path": path}
+
         def splice(store, root):
             parent = path.rpartition("/")[0]
             if parent and not args.get("parents"):
@@ -178,6 +229,7 @@ def compile_native_command(commands, operation, arguments):
         old, new = native_path(args["old_path"]), native_path(args["new_path"])
         args.update(old_path=old, new_path=new)
         response = {"old_path": old, "new_path": new}
+
         def splice(store, root):
             source, destination = _entry(store, root, old), _entry(store, root, new)
             if source is None:
@@ -197,11 +249,14 @@ def compile_native_command(commands, operation, arguments):
             action = splice_move if operation == "move" else splice_copy
             return action(store, root, old, target)
     elif operation in {"remove", "touch"}:
-        paths = [native_path(path) for path in (args.get("paths") or [args.get("path", "")]) if path]
+        paths = [
+            native_path(path) for path in (args.get("paths") or [args.get("path", "")]) if path
+        ]
         if not paths:
             raise ValueError("paths is empty")
         args["paths"] = paths
         response = {"paths": paths} if arguments.get("paths") else {"path": paths[0]}
+
         def splice(store, root):
             if operation == "remove":
                 for path in paths:
@@ -218,6 +273,9 @@ def compile_native_command(commands, operation, arguments):
             return current, changes
     else:
         raise ValueError("unsupported native Product command")
-    encoded = json.dumps(_identity({"operation": operation, "arguments": args}),
-                         sort_keys=True, separators=(",", ":")).encode("ascii")
+    encoded = json.dumps(
+        _identity({"operation": operation, "arguments": args}),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
     return hashlib.sha256(encoded).hexdigest(), splice, response

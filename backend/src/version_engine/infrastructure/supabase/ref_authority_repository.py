@@ -24,37 +24,74 @@ class RefAuthorityRepository:
         return self.snapshot(project_id)
 
     def result(self, project_id: str, actor: str, request_key: str):
-        return self.call("get_version_ref_transaction", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key)
+        return self.call(
+            "get_version_ref_transaction",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+        )
 
     def recover_result(self, project_id: str, actor: str, request_key: str):
         return self.result(project_id, actor, request_key)
 
     def begin(self, project_id: str, actor: str, pin: str, generation: int, roots: dict):
-        return self.call("begin_version_object_publication", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin, p_generation=generation, p_roots=roots)
+        return self.call(
+            "begin_version_object_publication",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_pin_id=pin,
+            p_generation=generation,
+            p_roots=roots,
+        )
 
     def renew(self, project_id: str, actor: str, pin: str):
-        return self.call("renew_version_object_publication", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin)
+        return self.call(
+            "renew_version_object_publication", p_project_id=project_id, p_actor=actor, p_pin_id=pin
+        )
 
     def seal(self, project_id: str, actor: str, pin: str, digest: str, details: dict | None = None):
-        return self.call("seal_version_object_publication", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin, p_manifest_sha256=digest, p_root_details=details)
+        return self.call(
+            "seal_version_object_publication",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_pin_id=pin,
+            p_manifest_sha256=digest,
+            p_root_details=details,
+        )
 
     def release(self, project_id: str, actor: str, pin: str):
-        return self.call("release_version_object_publication", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin)
+        return self.call(
+            "release_version_object_publication",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_pin_id=pin,
+        )
 
-    def apply(self, project_id: str, actor: str, request_key: str, generation: int,
-              updates: list[dict], receipt: str | None, message: str):
-        return self.call("apply_version_ref_transaction", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_generation=generation,
-                         p_updates=updates, p_receipt_id=receipt, p_message=message)
+    def apply(
+        self,
+        project_id: str,
+        actor: str,
+        request_key: str,
+        generation: int,
+        updates: list[dict],
+        receipt: str | None,
+        message: str,
+    ):
+        return self.call(
+            "apply_version_ref_transaction",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_generation=generation,
+            p_updates=updates,
+            p_receipt_id=receipt,
+            p_message=message,
+        )
 
     def begin_read(self, project_id: str, actor: str, pin: str):
-        return self.call("begin_version_repository_read", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin)
+        return self.call(
+            "begin_version_repository_read", p_project_id=project_id, p_actor=actor, p_pin_id=pin
+        )
 
     def begin_gc(self, project_id: str, token: str):
         return self.call("begin_version_repository_gc", p_project_id=project_id, p_token=token)
@@ -75,8 +112,20 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
         super().__init__(client)
         self.lease_provider = lease_provider
 
+    def producer_base(self, project_id, actor, request_key, input_sha256, base):
+        return self.call(
+            "bind_version_producer_input",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_input_sha256=input_sha256,
+            p_base=base,
+        )
+
     def read_snapshot(self, project_id: str, actor: str) -> dict:
-        result = self.call("get_admitted_version_repository_snapshot", p_project_id=project_id, p_actor=actor)
+        result = self.call(
+            "get_admitted_version_repository_snapshot", p_project_id=project_id, p_actor=actor
+        )
         if not isinstance(result, dict):
             raise RuntimeError("invalid admitted repository snapshot response")
         return result
@@ -97,77 +146,193 @@ class AdmittedRefAuthorityRepository(RefAuthorityRepository):
 
     def begin(self, project_id: str, actor: str, pin: str, generation: int, roots: dict):
         lease, holder = self._lease(project_id)
-        return self.call("begin_admitted_version_object_publication", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin, p_generation=generation, p_roots=roots,
-                         p_lease_id=lease, p_holder_id=holder)
+        return self.call(
+            "begin_admitted_version_object_publication",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_pin_id=pin,
+            p_generation=generation,
+            p_roots=roots,
+            p_lease_id=lease,
+            p_holder_id=holder,
+        )
 
     def begin_read(self, project_id: str, actor: str, pin: str):
-        return self.call("begin_admitted_version_repository_read", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin)
+        return self.call(
+            "begin_admitted_version_repository_read",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_pin_id=pin,
+        )
 
-    def apply(self, project_id: str, actor: str, request_key: str, generation: int,
-              updates: list[dict], receipt: str | None, message: str):
+    def apply(
+        self,
+        project_id: str,
+        actor: str,
+        request_key: str,
+        generation: int,
+        updates: list[dict],
+        receipt: str | None,
+        message: str,
+    ):
         lease, holder = self._lease(project_id)
-        return self.call("apply_admitted_version_ref_transaction", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_generation=generation,
-                         p_updates=updates, p_receipt_id=receipt, p_message=message,
-                         p_lease_id=lease, p_holder_id=holder)
+        return self.call(
+            "apply_admitted_version_ref_transaction",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_generation=generation,
+            p_updates=updates,
+            p_receipt_id=receipt,
+            p_message=message,
+            p_lease_id=lease,
+            p_holder_id=holder,
+        )
 
     def renew(self, project_id: str, actor: str, pin: str):
-        return self.call("renew_admitted_version_object_pin", p_project_id=project_id,
-                         p_actor=actor, p_pin_id=pin)
+        return self.call(
+            "renew_admitted_version_object_pin",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_pin_id=pin,
+        )
 
     def operation_status(self, project_id: str, actor: str, request_key: str):
         # No lease/pin/entitlement or original body is needed to discover the
         # original result. This is not permission to replay a changed input.
-        return self.call("get_admitted_version_operation_status", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key)
+        return self.call(
+            "get_admitted_version_operation_status",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+        )
 
-    def read_product_operation(self, project_id: str, actor: str, request_key: str,
-                               input_sha256: str, generation: int):
-        return self.call("read_admitted_version_product_operation", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
-                         p_generation=generation)
+    def read_product_operation(
+        self, project_id: str, actor: str, request_key: str, input_sha256: str, generation: int
+    ):
+        return self.call(
+            "read_admitted_version_product_operation",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_input_sha256=input_sha256,
+            p_generation=generation,
+        )
 
-    def begin_product_operation(self, project_id: str, actor: str, request_key: str,
-                                input_sha256: str, generation: int):
+    def begin_product_operation(
+        self, project_id: str, actor: str, request_key: str, input_sha256: str, generation: int
+    ):
         lease, holder = self._lease(project_id)
-        return self.call("begin_admitted_version_product_operation", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
-                         p_generation=generation, p_lease_id=lease, p_holder_id=holder)
+        return self.call(
+            "begin_admitted_version_product_operation",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_input_sha256=input_sha256,
+            p_generation=generation,
+            p_lease_id=lease,
+            p_holder_id=holder,
+        )
 
-    def prepare_product_operation(self, project_id: str, actor: str, request_key: str,
-                                  input_sha256: str, proposal: dict):
+    def prepare_product_operation(
+        self, project_id: str, actor: str, request_key: str, input_sha256: str, proposal: dict
+    ):
         lease, holder = self._lease(project_id)
-        return self.call("prepare_admitted_version_product_operation", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
-                         p_proposal=proposal, p_lease_id=lease, p_holder_id=holder)
+        return self.call(
+            "prepare_admitted_version_product_operation",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_input_sha256=input_sha256,
+            p_proposal=proposal,
+            p_lease_id=lease,
+            p_holder_id=holder,
+        )
 
-    def open_product_attempt(self, project_id: str, actor: str, request_key: str,
-                             input_sha256: str, generation: int, attempt_id: str):
+    def open_product_attempt(
+        self,
+        project_id: str,
+        actor: str,
+        request_key: str,
+        input_sha256: str,
+        generation: int,
+        attempt_id: str,
+    ):
         lease, holder = self._lease(project_id)
-        return self.call("open_admitted_version_product_attempt", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_input_sha256=input_sha256,
-                         p_generation=generation, p_attempt_id=attempt_id,
-                         p_lease_id=lease, p_holder_id=holder)
+        return self.call(
+            "open_admitted_version_product_attempt",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_input_sha256=input_sha256,
+            p_generation=generation,
+            p_attempt_id=attempt_id,
+            p_lease_id=lease,
+            p_holder_id=holder,
+        )
 
     def check_write(self, project_id: str, actor: str):
         lease, holder = self._lease(project_id)
-        return self.call("check_version_repository_write_admission", p_project_id=project_id,
-                         p_actor=actor, p_lease_id=lease, p_holder_id=holder)
+        return self.call(
+            "check_version_repository_write_admission",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_lease_id=lease,
+            p_holder_id=holder,
+        )
 
-    def apply_billed(self, project_id: str, actor: str, request_key: str, generation: int,
-                     updates: list[dict], receipt: str | None, message: str, *, usage=None):
+    def apply_billed(
+        self,
+        project_id: str,
+        actor: str,
+        request_key: str,
+        generation: int,
+        updates: list[dict],
+        receipt: str | None,
+        message: str,
+        *,
+        usage=None,
+    ):
         lease, holder = self._lease(project_id)
-        return self.call("apply_billed_version_ref_transaction", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_generation=generation,
-                         p_updates=updates, p_receipt_id=receipt, p_message=message,
-                         p_lease_id=lease, p_holder_id=holder, p_usage=usage)
+        return self.call(
+            "apply_billed_version_ref_transaction",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_generation=generation,
+            p_updates=updates,
+            p_receipt_id=receipt,
+            p_message=message,
+            p_lease_id=lease,
+            p_holder_id=holder,
+            p_usage=usage,
+        )
 
-    def apply_policy(self, project_id: str, actor: str, request_key: str, generation: int,
-                     updates: list[dict], receipt: str | None, message: str, *, usage=None, policy=None):
+    def apply_policy(
+        self,
+        project_id: str,
+        actor: str,
+        request_key: str,
+        generation: int,
+        updates: list[dict],
+        receipt: str | None,
+        message: str,
+        *,
+        usage=None,
+        policy=None,
+    ):
         lease, holder = self._lease(project_id)
-        return self.call("apply_policy_version_ref_transaction", p_project_id=project_id,
-                         p_actor=actor, p_request_key=request_key, p_generation=generation,
-                         p_updates=updates, p_receipt_id=receipt, p_message=message,
-                         p_lease_id=lease, p_holder_id=holder, p_usage=usage, p_policy=policy)
+        return self.call(
+            "apply_policy_version_ref_transaction",
+            p_project_id=project_id,
+            p_actor=actor,
+            p_request_key=request_key,
+            p_generation=generation,
+            p_updates=updates,
+            p_receipt_id=receipt,
+            p_message=message,
+            p_lease_id=lease,
+            p_holder_id=holder,
+            p_usage=usage,
+            p_policy=policy,
+        )

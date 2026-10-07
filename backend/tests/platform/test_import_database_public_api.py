@@ -81,9 +81,14 @@ def environment(monkeypatch):
     )
     monkeypatch.setattr(services, "get_provider", lambda name: provider)
     write = AsyncMock()
+
+    def bound_commands(**kwargs):
+        assert kwargs == {"project_id": "project-1", "user_id": "user-1"}
+        return SimpleNamespace(write_bytes=write)
+
     monkeypatch.setattr(
         "src.platform.project.write_lease.build_leased_worker_write_commands",
-        lambda: SimpleNamespace(write_bytes=write),
+        bound_commands,
     )
     app = FastAPI()
     app.include_router(public.router, prefix="/api/v1")

@@ -5,10 +5,10 @@ from contextlib import nullcontext
 import pytest
 from fastapi import HTTPException
 
+from src.platform.auth.models import CurrentUser
 from src.version_engine.domain.errors import PathNotFoundError, VersionReadError
 from src.version_engine.entrypoints.http import content_read
 from src.version_engine.read.tree_reader import VersionEntry
-from src.platform.auth.models import CurrentUser
 from tests.authorization_fakes import authorization_for
 
 
@@ -161,46 +161,20 @@ def test_content_ls_read_unavailable_returns_502_not_empty():
     }
 
 
-def test_content_ls_marked_irrecoverable_returns_explicit_410(monkeypatch):
-    monkeypatch.setattr(content_read, "_is_marked_irrecoverable", lambda _project_id: True)
-
-    class _MissingObjectOps(_FakeOps):
-        def list_dir(self, _project_id: str, _path: str):
+def test_content_ls_missing_native_object_returns_integrity_failure():
+    class Missing(_FakeOps):
+        def list_dir(self, *_args):
             from src.version_engine.domain.errors import ObjectNotFoundError
 
-            raise ObjectNotFoundError("missing root tree")
+            raise ObjectNotFoundError("missing acknowledged tree")
 
     with pytest.raises(HTTPException) as exc:
         content_read.list_dir(
             "project-1",
             path="",
-            ops=_MissingObjectOps(),
+            ops=Missing(),
             authorization=authorization_for("project-1"),
             current_user=_user(),
         )
-
-    assert exc.value.status_code == 410
-    assert exc.value.detail["code"] == "VERSION_STORAGE_IRRECOVERABLE"
-
-
-def test_content_ls_legacy_root_failure_is_explicitly_irrecoverable(monkeypatch):
-    monkeypatch.setattr(content_read, "_is_marked_irrecoverable", lambda _project_id: False)
-    monkeypatch.setattr(content_read, "_has_unsupported_legacy_root", lambda _project_id: True)
-
-    class _MissingObjectOps(_FakeOps):
-        def list_dir(self, _project_id: str, _path: str):
-            from src.version_engine.domain.errors import ObjectNotFoundError
-
-            raise ObjectNotFoundError("retired legacy root")
-
-    with pytest.raises(HTTPException) as exc:
-        content_read.list_dir(
-            "project-1",
-            path="",
-            ops=_MissingObjectOps(),
-            authorization=authorization_for("project-1"),
-            current_user=_user(),
-        )
-
-    assert exc.value.status_code == 410
-    assert exc.value.detail["code"] == "VERSION_STORAGE_IRRECOVERABLE"
+    assert exc.value.status_code == 500
+    assert exc.value.detail["code"] == "VERSION_STORAGE_INTEGRITY_ERROR"

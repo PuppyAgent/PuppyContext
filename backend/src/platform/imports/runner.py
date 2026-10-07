@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import posixpath
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from src.provider._base import AuthRequirement, FetchResult
 from src.platform.imports.providers import get_import_provider_registry, require_import_provider
 from src.platform.imports.repository import ImportJob
 from src.platform.project.write_lease import (
@@ -15,6 +15,7 @@ from src.platform.project.write_lease import (
     ProjectWriteLeaseFactory,
     build_leased_worker_write_commands,
 )
+from src.provider._base import AuthRequirement, FetchResult
 
 PhaseCallback = Callable[[str, int, str], Awaitable[None]]
 
@@ -138,7 +139,10 @@ class OneTimeImportRunner:
         actor = f"import:{job.provider}:{job.id}"
 
         commands = build_leased_worker_write_commands(
-            write_lease_factory=self._write_lease_factory
+            write_lease_factory=self._write_lease_factory,
+            project_id=job.project_id,
+            user_id=job.created_by,
+            operation_key=f"import:{job.id}",
         )
 
         if result.files is not None:

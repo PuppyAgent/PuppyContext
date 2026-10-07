@@ -126,36 +126,29 @@ async def prepared(services, postgres, submitted, request):
     args, first = submitted
     postgres.sql(f"UPDATE agent_runs SET state='failed' WHERE id='{first['id']}'")
     project, user, agent = args["project"], args["user"], args["agent"]
-    ops = container.product_operations()
-    profile = getattr(request, "param", "legacy")
-    if profile.startswith("native"):
-        from tests.repository_hosting.integration.test_repository_file_policy import (
-            enroll_file_policy,
-        )
-        from tests.repository_hosting.integration.test_repository_logical_billing import (
-            enroll_billing,
-        )
+    ops = container.product_operations().for_user(project, user)
+    profile = getattr(request, "param", "native")
+    from tests.repository_hosting.integration.test_repository_file_policy import (
+        enroll_file_policy,
+    )
+    from tests.repository_hosting.integration.test_repository_logical_billing import (
+        enroll_billing,
+    )
 
-        org = postgres.row(f"SELECT org_id FROM projects WHERE id='{project}'")["org_id"]
-        object_format = "sha256" if profile == "native_sha256" else "sha1"
-        postgres.sql(f"""
-            INSERT INTO version_repositories(project_id,authority,object_format) VALUES('{project}','native','{object_format}');
-            INSERT INTO version_repository_refs(project_id,name,object_format,symbolic_target)
-                VALUES('{project}',decode('48454144','hex'),'{object_format}',decode('726566732f68656164732f6d61696e','hex'));
-            INSERT INTO version_organization_capacity(org_id,initialized) VALUES('{org}',true);
-            INSERT INTO version_repository_capacity(project_id,org_id,initialized) VALUES('{project}','{org}',true);
-        """)
-        enrolled = enroll_billing(SimpleNamespace(pg=postgres, project=project, org=org))
-        enroll_file_policy(enrolled, maximum=65536)
-        postgres.sql(
-            f"UPDATE organization_entitlements SET entitlements=jsonb_set(entitlements,'{{limits,storage.max_bytes}}','1048576'::jsonb) WHERE org_id='{org}'"
-        )
-    else:
-        async with ProjectWriteLease(project, "agent.fixture"):
-            await container.write_engine().initialize_project_tree(project)
-            await ops.write_file(
-                project, "hello.txt", b"hello", who="user:" + user, source_channel="access_git"
-            )
+    org = postgres.row(f"SELECT org_id FROM projects WHERE id='{project}'")["org_id"]
+    object_format = "sha256" if profile == "native_sha256" else "sha1"
+    postgres.sql(f"""
+        INSERT INTO version_repositories(project_id,authority,object_format) VALUES('{project}','native','{object_format}');
+        INSERT INTO version_repository_refs(project_id,name,object_format,symbolic_target)
+            VALUES('{project}',decode('48454144','hex'),'{object_format}',decode('726566732f68656164732f6d61696e','hex'));
+        INSERT INTO version_organization_capacity(org_id,initialized) VALUES('{org}',true);
+        INSERT INTO version_repository_capacity(project_id,org_id,initialized) VALUES('{project}','{org}',true);
+    """)
+    enrolled = enroll_billing(SimpleNamespace(pg=postgres, project=project, org=org))
+    enroll_file_policy(enrolled, maximum=65536)
+    postgres.sql(
+        f"UPDATE organization_entitlements SET entitlements=jsonb_set(entitlements,'{{limits,storage.max_bytes}}','1048576'::jsonb) WHERE org_id='{org}'"
+    )
     postgres.sql(
         f"INSERT INTO access_surfaces(project_id,org_id,kind,name,created_by) SELECT id,org_id,'git_remote','Git','{user}' FROM projects WHERE id='{project}'"
     )
@@ -271,7 +264,7 @@ async def test_real_run_publishes_and_survives_no_subscriber(prepared):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("after_commit", [False, True])
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_publication_response_loss_keeps_original_material(prepared, after_commit):
     case = prepared
 
@@ -301,7 +294,7 @@ async def test_publication_response_loss_keeps_original_material(prepared, after
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
     case = prepared
     first = case.supervisor()
@@ -330,7 +323,7 @@ async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_stop_waiting_approval_has_no_tool_effect(prepared):
     case = prepared
     task = asyncio.create_task(case.supervisor().run_claim(case.run))
@@ -346,7 +339,7 @@ async def test_stop_waiting_approval_has_no_tool_effect(prepared):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_completed_tool_receipt_recovers_before_manifest_ack(prepared, monkeypatch):
     case = prepared
     original = case.repo.write
@@ -376,7 +369,7 @@ async def test_completed_tool_receipt_recovers_before_manifest_ack(prepared, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_unknown_tool_is_not_replayed(prepared, monkeypatch):
     case = prepared
     original = case.repo.tool
@@ -409,7 +402,7 @@ async def test_unknown_tool_is_not_replayed(prepared, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_checkpoint_outage_retains_workspace_until_retry(prepared, monkeypatch):
     case = prepared
     save = case.checkpoints.save
@@ -448,7 +441,7 @@ async def test_checkpoint_outage_retains_workspace_until_retry(prepared, monkeyp
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cause", ["revoke", "timeout", "model_failure"])
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_active_run_failures_settle_and_cleanup(prepared, cause):
     case = prepared
     model = ModelFixture()
@@ -473,7 +466,7 @@ async def test_active_run_failures_settle_and_cleanup(prepared, cause):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prepared", ["legacy", "native"], indirect=True)
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_cleanup_failure_retries_confirmed_publication(prepared, monkeypatch):
     case = prepared
     stop = PiWorker.stop

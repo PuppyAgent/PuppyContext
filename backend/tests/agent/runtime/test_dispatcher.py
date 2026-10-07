@@ -37,6 +37,9 @@ async def test_dispatcher_runs_other_session_while_one_waits_approval(
     monkeypatch.setattr(settings, "CLOUD_AGENT_CONCURRENCY", 2)
     monkeypatch.setattr(worker, "build_worker_version_engine_container", lambda **_: services[2])
     monkeypatch.setattr(worker, "get_inference_service", lambda *_: ModelFixture())
+    # Use the same enrolled-repository readiness fixture as submission. Current
+    # authorization, policies, claims and publication still use the real DB.
+    monkeypatch.setattr(worker, "Admission", lambda _: case.admission)
     task = asyncio.create_task(worker.serve())
     try:
         async with asyncio.timeout(40):
@@ -44,6 +47,9 @@ async def test_dispatcher_runs_other_session_while_one_waits_approval(
                 states = [case.repo.get(key)["state"] for key in (case.run["id"], second["id"])]
                 if set(states) == {"waiting_approval", "succeeded"}:
                     break
+                assert not set(states) & {"failed", "stopped", "outcome_unknown"}, [
+                    case.repo.get(key) for key in (case.run["id"], second["id"])
+                ]
                 assert not task.done()
                 await asyncio.sleep(0.1)
         waiting = next(

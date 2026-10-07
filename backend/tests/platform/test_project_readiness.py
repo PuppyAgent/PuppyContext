@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import base64
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,100 +9,24 @@ from src.platform.project.readiness import ProjectReadinessService
 from src.platform.project.readiness_repository import ProjectReadinessRepository
 
 
-@dataclass
-class Response:
-    data: list[dict]
+def _resolve(*, root_surface, root_head="", child_head="", accepted_root_git_push=False):
+    class Client:
+        def rpc(self, name, parameters):
+            assert name == "get_native_project_readiness"
+            assert parameters == {"p_project_id": "project-1"}
+            return self
 
-
-class Query:
-    def __init__(self, client, table):
-        self.client = client
-        self.table = table
-        self.filters = {}
-
-    def select(self, *_args):
-        return self
-
-    def eq(self, key, value):
-        self.filters[key] = value
-        return self
-
-    def is_(self, key, value):
-        assert value == "null"
-        self.filters[key] = None
-        return self
-
-    def limit(self, *_args):
-        return self
-
-    def execute(self):
-        rows = [
-            row
-            for row in self.client.rows.get(self.table, [])
-            if all(row.get(key) == value for key, value in self.filters.items())
-        ]
-        return Response(rows)
-
-
-class Client:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def table(self, name):
-        return Query(self, name)
-
-
-def _resolve(
-    *,
-    root_surface: bool,
-    root_head: str = "",
-    child_head: str = "",
-    accepted_root_git_push: bool = False,
-):
-    surfaces = (
-        [{
-            "id": "git-root",
-            "project_id": "project-1",
-            "scope_id": None,
-            "kind": "git_remote",
-            "status": "active",
-        }]
-        if root_surface
-        else []
-    )
-    states = []
-    if root_head:
-        states.append(
-            {"project_id": "project-1", "scope_path": "", "head_commit_id": root_head}
-        )
-    if child_head:
-        states.append(
-            {"project_id": "project-1", "scope_path": "docs", "head_commit_id": child_head}
-        )
-    return ProjectReadinessService(
-        ProjectReadinessRepository(
-            Client(
-            {
-                "projects": [{"id": "project-1", "bound_git_branch": "main"}],
-                "access_surfaces": surfaces,
-                "version_scope_state": states,
-                "version_transactions": (
-                    [
-                        {
-                            "id": 1,
-                            "project_id": "project-1",
-                            "scope_path": "",
-                            "source_channel": "access_git",
-                            "status": "committed",
-                        }
-                    ]
-                    if accepted_root_git_push
-                    else []
-                ),
-            }
+        def execute(self):
+            return SimpleNamespace(
+                data={
+                    "default_branch_b64": base64.b64encode(b"refs/heads/main").decode(),
+                    "project_git_surface_exists": root_surface,
+                    "project_head_commit_id": root_head,
+                    "project_git_push_accepted": accepted_root_git_push,
+                }
             )
-        )
-    ).resolve("project-1")
+
+    return ProjectReadinessService(ProjectReadinessRepository(Client())).resolve("project-1")
 
 
 @pytest.mark.parametrize(
@@ -110,6 +35,7 @@ def _resolve(
         (False, "", "git_not_created", False),
         (True, "", "awaiting_first_push", False),
         (True, "a" * 40, "ready", True),
+        (True, "a" * 64, "ready", True),
     ],
 )
 def test_root_readiness_state_machine(surface, head, state, ready):

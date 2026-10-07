@@ -8,7 +8,8 @@ stored history rows and UI contracts stay aligned.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Literal, TypedDict
+from collections.abc import Mapping
+from typing import Any, Literal, TypedDict
 
 HistoryAction = Literal["add", "update", "delete"]
 HistoryOp = Literal["added", "modified", "deleted"]

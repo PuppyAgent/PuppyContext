@@ -81,10 +81,8 @@ def s3():
         yield service
 
 
-def store(s3, project="old-project", *, legacy=False):
-    return ObjectStore(
-        None, backend=S3StorageBackend(s3, project, allow_deferred_namespace_reads=legacy)
-    )
+def store(s3, project="old-project"):
+    return ObjectStore(None, backend=S3StorageBackend(s3, project))
 
 
 @pytest.mark.parametrize(

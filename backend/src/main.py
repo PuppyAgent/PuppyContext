@@ -286,54 +286,6 @@ def _init_provider_registry() -> None:
         )
 
 
-async def _init_version_trees() -> None:
-    """Auto-initialize empty Version Engine trees for projects missing a root."""
-    version_init_start = time.time()
-    try:
-        log_info("🌳 Checking and initializing Version Engine trees...")
-        from src.infra.supabase.client import SupabaseClient as _SC
-        from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
-        from src.version_engine.infrastructure.supabase.db_names import PROJECT_ROOT_HASH_COLUMN
-
-        _sb = _SC()
-        resp = (
-            _sb.client.table("projects")
-            .select("id")
-            # Startup compatibility repair is only for already-published
-            # legacy rows. New initializing rows belong exclusively to the
-            # durable creation reconciler; in particular, a deferred/template
-            # publication must never be replaced by an empty root here.
-            .eq("lifecycle_status", "ready")
-            .or_(f"{PROJECT_ROOT_HASH_COLUMN}.is.null,{PROJECT_ROOT_HASH_COLUMN}.eq.")
-            .execute()
-        )
-        uninit_projects = resp.data or []
-        if uninit_projects:
-            _writer = build_worker_version_engine_container().admin_service()
-            for row in uninit_projects:
-                try:
-                    native = _sb.client.table("version_repositories").select("authority").eq("project_id", row["id"]).execute()
-                    if any(item["authority"] == "native" for item in (native.data or [])):
-                        continue
-                    await _writer.init_tree(row["id"])
-                except Exception as init_err:
-                    log_error(
-                        f"  ❌ Failed to init Version Engine tree for {row['id']}: {init_err}"
-                    )
-            log_info(f"  ✅ Initialized Version Engine tree for {len(uninit_projects)} project(s)")
-        else:
-            log_info("  ✅ All projects already have a Version Engine tree")
-        version_init_duration = time.time() - version_init_start
-        log_info(
-            f"✅ Version Engine tree check completed (took: {version_init_duration * 1000:.2f}ms)"
-        )
-    except Exception as e:
-        version_init_duration = time.time() - version_init_start
-        log_error(
-            f"❌ Version Engine tree initialization failed (took: {version_init_duration * 1000:.2f}ms): {e}"
-        )
-
-
 def _init_scope_sandbox_reaper(app: FastAPI) -> None:
     """Start the scope-sandbox reaper (idle→stop, long-idle→destroy) if enabled.
 
@@ -525,32 +477,12 @@ async def app_lifespan(app: FastAPI):
         probe=settings.APP_ENV not in {"development", "test"},
     )
 
-    # Wire the outbox → agent-resolver bridge. Until a real runner
-    # is installed via ``AgentResolverDispatcher.install(...)`` the
-    # outbox hook gracefully defers agent-kind pending rows (logging
-    # the deferral) — agent_review / agent_auto_resolve policies
-    # still queue conflicts but they'll wait for a human in the
-    # interim. The hook itself is a thin router; install your agent
-    # backend wherever you boot model integration (typically in the
-    # workers, e.g. ARQ ``WorkerSettings.on_startup``).
-    from src.version_engine.derived.agent_resolver import (
-        AgentResolverDispatcher,
-        NoopAgentRunner,
-        agent_resolver_outbox_hook,
-    )
-    from src.version_engine.derived.outbox import register_pending_conflict_hook
-
-    register_pending_conflict_hook(agent_resolver_outbox_hook)
-    if AgentResolverDispatcher.get() is None:
-        AgentResolverDispatcher.install(NoopAgentRunner())
-
     _log_import_times()
 
     await _init_mcp_health_check()
     await _init_scheduler()
     await _init_file_ingest()
     _init_provider_registry()
-    await _init_version_trees()
     _init_scope_sandbox_reaper(app)
     _init_entitlement_provisioner(app)
     _init_seat_proposal_worker(app)
@@ -713,12 +645,6 @@ def create_app() -> FastAPI:
     from src.version_engine.entrypoints.http.audit import router as audit_router
 
     app.include_router(audit_router, prefix="/api/v1", tags=["audit-logs"])
-    from src.version_engine.entrypoints.http.conflict import router as conflict_router
-
-    app.include_router(conflict_router, prefix="/api/v1/content", tags=["conflicts"])
-    from src.version_engine.entrypoints.http.shadow_snapshot import router as shadow_router
-
-    app.include_router(shadow_router, prefix="/api/v1", tags=["shadow-snapshots"])
     from src.version_engine.entrypoints.git.router import router as git_protocol_router
 
     app.include_router(
@@ -744,19 +670,19 @@ def create_app() -> FastAPI:
 
     app.include_router(workspace_router, prefix="/api/v1", tags=["workspace"])
     from src.platform.synchronize.public_router import router as synchronize_public_router
+
     app.include_router(synchronize_public_router, prefix="/api/v1")
     # Final resource release: only canonical binding/pull/push/webhook contracts.
     from src.platform.synchronize.github.public_router import router as synchronize_github_router
-    from src.platform.synchronize.github.public_router import webhook_router as synchronize_github_webhook_router
+    from src.platform.synchronize.github.public_router import (
+        webhook_router as synchronize_github_webhook_router,
+    )
 
     app.include_router(synchronize_github_router)
     app.include_router(synchronize_github_webhook_router)
     from src.platform.scope_sandbox.router import router as scope_sandbox_router
 
     app.include_router(scope_sandbox_router, tags=["scope-sandboxes"])
-    from src.platform.scope_sync.router import router as scope_sync_router
-
-    app.include_router(scope_sync_router, tags=["scope-sync"])
     from src.platform.auth.router import router as auth_router
 
     app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
@@ -790,6 +716,7 @@ def create_app() -> FastAPI:
     app.include_router(resource_dashboard_router, prefix="/api/v1", tags=["projects"])
     from src.platform.access.public_router import project_router as public_project_access_router
     from src.platform.access.public_router import router as public_access_router
+
     app.include_router(public_access_router, prefix="/api/v1")
     app.include_router(public_project_access_router, prefix="/api/v1")
     from src.provider.accounts.router import router as gateway_router

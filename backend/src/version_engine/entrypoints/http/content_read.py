@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import binascii
 import json as _json
-import re
 from contextlib import contextmanager
 from typing import Annotated
 from urllib.parse import quote
@@ -17,10 +16,14 @@ from pydantic import BaseModel, Field
 from zipstream import ZipStream
 
 from src.common_schemas import ApiResponse
-from src.infra.supabase.client import SupabaseClient
+from src.platform.auth.dependencies import get_current_user
+from src.platform.auth.models import CurrentUser
+from src.platform.authorization.dependencies import get_authorization_service
+from src.platform.authorization.service import AuthorizationService
+from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
+from src.version_engine.admission.validation import MAX_PATH_LENGTH, validate_path
 from src.version_engine.bootstrap.dependencies import get_product_operation_adapter
 from src.version_engine.domain.errors import (
-    NativeObjectNotFoundError,
     ObjectNotFoundError,
     PathNotFoundError,
     RepositoryRefNotFoundError,
@@ -28,7 +31,10 @@ from src.version_engine.domain.errors import (
     VersionReadError,
 )
 from src.version_engine.entrypoints.http.content_helpers import (
-    display_git_path, ensure_project_access, entry_to_response, git_path_b64,
+    display_git_path,
+    ensure_project_access,
+    entry_to_response,
+    git_path_b64,
 )
 from src.version_engine.entrypoints.http.download_token import (
     DEFAULT_TTL_SECONDS,
@@ -42,15 +48,8 @@ from src.version_engine.entrypoints.http.schemas import (
     StatResponse,
     TreeResponse,
 )
-from src.version_engine.admission.validation import MAX_PATH_LENGTH, validate_path
-from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
-from src.platform.auth.dependencies import get_current_user
-from src.platform.auth.models import CurrentUser
-from src.platform.authorization.dependencies import get_authorization_service
-from src.platform.authorization.service import AuthorizationService
 
 read_router = APIRouter()
-_LEGACY_ROOT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
 def _read_request_path(path: str, encoded: str | None) -> str:
@@ -67,8 +66,10 @@ def _read_request_path(path: str, encoded: str | None) -> str:
     except (ValueError, binascii.Error) as exc:
         raise HTTPException(400, "Invalid byte path") from exc
     decoded = raw.decode("utf-8", "surrogateescape")
-    if len(decoded) > MAX_PATH_LENGTH or b"\x00" in raw or (
-        raw and any(part in {b"", b".", b".."} for part in raw.split(b"/"))
+    if (
+        len(decoded) > MAX_PATH_LENGTH
+        or b"\x00" in raw
+        or (raw and any(part in {b"", b".", b".."} for part in raw.split(b"/")))
     ):
         raise HTTPException(400, "Invalid byte path")
     return decoded
@@ -97,7 +98,13 @@ def _product_read(ops, project_id, grant, *, byte_path=False, ref_b64=None):
         raise HTTPException(404, "Repository ref not found") from exc
     except RepositoryRefTypeError as exc:
         raise HTTPException(400, str(exc)) from exc
-    except (HTTPException, ObjectNotFoundError, FileNotFoundError, PathNotFoundError, VersionReadError):
+    except (
+        HTTPException,
+        ObjectNotFoundError,
+        FileNotFoundError,
+        PathNotFoundError,
+        VersionReadError,
+    ):
         raise
     except PermissionError as exc:
         raise HTTPException(403, "Repository action denied") from exc
@@ -105,83 +112,19 @@ def _product_read(ops, project_id, grant, *, byte_path=False, ref_b64=None):
         # A grant and a pin establish provenance, not ongoing authority. SQL
         # may deny an actor after the PDP check (including after lock waits).
         from postgrest.exceptions import APIError
+
         if isinstance(exc, APIError) and exc.message == "repository_action_denied":
             raise HTTPException(403, "Repository action denied") from exc
         raise HTTPException(503, "Repository read is temporarily unavailable") from exc
 
 
-def _is_marked_irrecoverable(project_id: str) -> bool:
-    """Classify a known root-loss incident without exposing it to browser roles."""
-
-    try:
-        response = (
-            SupabaseClient().client
-            .table("version_project_root_integrity_incidents")
-            .select("status")
-            .eq("project_id", project_id)
-            .eq("status", "irrecoverable")
-            .limit(1)
-            .execute()
-        )
-        return bool(response.data)
-    except Exception:
-        # Incident classification must never mask the original integrity
-        # failure if a rollout has not yet applied the incident migration.
-        return False
-
-
-def _has_unsupported_legacy_root(project_id: str) -> bool:
-    """Return true only for the retired 16-hex root identifier format.
-
-    This is consulted after an object read already failed.  It makes the
-    terminal state explicit without reintroducing legacy-object compatibility
-    or weakening the canonical 40-hex incident table constraint.
-    """
-
-    try:
-        response = (
-            SupabaseClient().client
-            .table("projects")
-            .select("version_root_hash")
-            .eq("id", project_id)
-            .limit(1)
-            .execute()
-        )
-        rows = response.data or []
-        root_hash = str(rows[0].get("version_root_hash") or "") if rows else ""
-        return bool(_LEGACY_ROOT_ID_RE.fullmatch(root_hash))
-    except Exception:
-        return False
-
-
-def _raise_storage_integrity_error(
-    project_id: str, path: str, exc: ObjectNotFoundError,
-) -> None:
+def _raise_storage_integrity_error(project_id: str, path: str, exc: ObjectNotFoundError) -> None:
     path = display_git_path(path)
-    target = path or "project root"
-    native = isinstance(exc, NativeObjectNotFoundError)
-    if not native and (_is_marked_irrecoverable(project_id) or _has_unsupported_legacy_root(project_id)):
-        raise HTTPException(
-            status_code=410,
-            detail={
-                "code": "VERSION_STORAGE_IRRECOVERABLE",
-                "message": (
-                    "This project's historical version content is unavailable and "
-                    "cannot be recovered from the configured storage."
-                ),
-                "path": path,
-            },
-        ) from exc
     raise HTTPException(
         status_code=500,
         detail={
             "code": "VERSION_STORAGE_INTEGRITY_ERROR",
-            "message": (
-                f"Canonical repository bytes are unavailable while reading {target}."
-                if native else
-                "Version storage integrity error while reading "
-                f"{target}. Run the version object namespace migration/repair."
-            ),
+            "message": f"Canonical repository bytes are unavailable while reading {path or 'project root'}.",
             "path": path,
         },
     ) from exc
@@ -231,7 +174,9 @@ def list_dir(
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+        with _product_read(
+            ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64
+        ) as (read, revision):
             entries = read.list_dir(project_id, clean_path)
             head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
@@ -240,13 +185,15 @@ def list_dir(
         _raise_directory_not_found(clean_path, exc)
     except VersionReadError as exc:
         _raise_version_read_error(clean_path, exc)
-    return ApiResponse.success(data=ListDirResponse(
-        path=display_git_path(clean_path),
-        path_bytes_b64=git_path_b64(clean_path) if revision else None,
-        repository_revision=revision,
-        entries=[entry_to_response(e) for e in entries],
-        head_commit_id=head_commit_id,
-    ))
+    return ApiResponse.success(
+        data=ListDirResponse(
+            path=display_git_path(clean_path),
+            path_bytes_b64=git_path_b64(clean_path) if revision else None,
+            repository_revision=revision,
+            entries=[entry_to_response(e) for e in entries],
+            head_commit_id=head_commit_id,
+        )
+    )
 
 
 @read_router.get(
@@ -267,15 +214,20 @@ def read_file(
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+        with _product_read(
+            ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64
+        ) as (read, revision):
             content = read.read_file(project_id, clean_path)
             head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"File not found: {display_git_path(clean_path)}")
+        raise HTTPException(
+            status_code=404, detail=f"File not found: {display_git_path(clean_path)}"
+        )
 
     from src.version_engine.read.tree_reader import detect_type
+
     node_type = detect_type(clean_path)
 
     content_json = None
@@ -292,16 +244,18 @@ def read_file(
     else:
         content_text = decoded_text
 
-    return ApiResponse.success(data=ReadFileResponse(
-        path=display_git_path(clean_path),
-        path_bytes_b64=git_path_b64(clean_path) if revision else None,
-        repository_revision=revision,
-        type=node_type,
-        content=content_json,
-        content_text=content_text,
-        content_hash=None,
-        head_commit_id=head_commit_id,
-    ))
+    return ApiResponse.success(
+        data=ReadFileResponse(
+            path=display_git_path(clean_path),
+            path_bytes_b64=git_path_b64(clean_path) if revision else None,
+            repository_revision=revision,
+            type=node_type,
+            content=content_json,
+            content_text=content_text,
+            content_hash=None,
+            head_commit_id=head_commit_id,
+        )
+    )
 
 
 @read_router.get(
@@ -322,14 +276,19 @@ def raw_file(
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, _revision):
+        with _product_read(
+            ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64
+        ) as (read, _revision):
             content = read.read_file(project_id, clean_path)
             entry = read.stat(project_id, clean_path)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"File not found: {display_git_path(clean_path)}")
+        raise HTTPException(
+            status_code=404, detail=f"File not found: {display_git_path(clean_path)}"
+        )
     from src.version_engine.read.tree_reader import detect_mime
+
     mime = detect_mime(clean_path) if entry else "application/octet-stream"
 
     filename = clean_path.rsplit("/", 1)[-1] if "/" in clean_path else clean_path
@@ -343,7 +302,10 @@ def raw_file(
     )
     if _revision is not None:
         response.headers["X-PuppyOne-Repository-Revision"] = _json.dumps(
-            _revision, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+            _revision,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
         )
     return response
 
@@ -356,9 +318,11 @@ def _content_disposition_inline(filename: str) -> str:
 def _content_disposition(filename: str, disposition: str) -> str:
     display = display_git_path(filename)
     ascii_name = display.encode("ascii", errors="replace").decode("ascii")
-    fallback = "".join(c if 32 <= ord(c) < 127 and c not in {'"', "\\"} else "_" for c in ascii_name)
+    fallback = "".join(
+        c if 32 <= ord(c) < 127 and c not in {'"', "\\"} else "_" for c in ascii_name
+    )
     encoded = quote(display, safe="")
-    return f'{disposition}; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
+    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
 def _parse_byte_range(range_header: str, total: int) -> tuple[int, int] | None:
@@ -530,9 +494,7 @@ def sign_download(
         f"?path={quote(clean_path, safe='')}&token={quote(token, safe='')}"
     )
 
-    return ApiResponse.success(
-        data=DownloadSignResponse(url=url, expires_at=expires_at)
-    )
+    return ApiResponse.success(data=DownloadSignResponse(url=url, expires_at=expires_at))
 
 
 @read_router.post(
@@ -567,9 +529,7 @@ def sign_inline(
         f"?path={quote(clean_path, safe='')}&token={quote(token, safe='')}"
     )
 
-    return ApiResponse.success(
-        data=InlineSignResponse(url=url, expires_at=expires_at)
-    )
+    return ApiResponse.success(data=InlineSignResponse(url=url, expires_at=expires_at))
 
 
 @read_router.get(
@@ -607,6 +567,7 @@ def inline_file(
         raise HTTPException(status_code=404, detail=f"File not found: {clean_path}")
 
     from src.version_engine.read.tree_reader import detect_mime
+
     mime = detect_mime(clean_path) or "application/octet-stream"
     filename = entry.name or clean_path.rsplit("/", 1)[-1] or "preview"
 
@@ -692,7 +653,7 @@ def download(
             for e in entries:
                 if any(part.startswith(".") for part in e.path.strip("/").split("/") if part):
                     continue
-                rel_path = e.path[len(prefix_with_slash):] if prefix_with_slash else e.path
+                rel_path = e.path[len(prefix_with_slash) :] if prefix_with_slash else e.path
                 if not rel_path:
                     continue
                 arcname = f"{folder_name}/{rel_path}"
@@ -742,6 +703,7 @@ def download(
         raise HTTPException(status_code=404, detail=f"File not found: {clean_path}")
 
     from src.version_engine.read.tree_reader import detect_mime
+
     mime = detect_mime(clean_path) or "application/octet-stream"
     filename = entry.name or clean_path.rsplit("/", 1)[-1] or "download"
 
@@ -778,41 +740,47 @@ def stat(
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+        with _product_read(
+            ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64
+        ) as (read, revision):
             head_commit_id = read.get_head_commit_id(project_id)
             scope_head_commit_id = read.get_scope_head_commit_id_for_path(project_id, clean_path)
             entry = read.stat(project_id, clean_path)
     except ObjectNotFoundError as exc:
         _raise_storage_integrity_error(project_id, clean_path, exc)
     if not entry:
-        return ApiResponse.success(data=StatResponse(
-            path=display_git_path(clean_path),
-            path_bytes_b64=git_path_b64(clean_path) if revision else None,
+        return ApiResponse.success(
+            data=StatResponse(
+                path=display_git_path(clean_path),
+                path_bytes_b64=git_path_b64(clean_path) if revision else None,
+                repository_revision=revision,
+                type="",
+                name="",
+                exists=False,
+                head_commit_id=head_commit_id,
+                scope_head_commit_id=scope_head_commit_id,
+            )
+        )
+
+    return ApiResponse.success(
+        data=StatResponse(
+            path=display_git_path(entry.path),
+            path_bytes_b64=git_path_b64(entry.path) if revision else None,
             repository_revision=revision,
-            type="",
-            name="",
-            exists=False,
+            git_mode=entry.git_mode,
+            type=entry.type,
+            name=display_git_path(entry.name),
+            name_bytes_b64=git_path_b64(entry.name) if revision else None,
+            content_hash=entry.content_hash,
+            size_bytes=entry.size_bytes,
+            mime_type=entry.mime_type,
+            children_count=entry.children_count,
+            integrity_status=entry.integrity_status,
+            exists=True,
             head_commit_id=head_commit_id,
             scope_head_commit_id=scope_head_commit_id,
-        ))
-
-    return ApiResponse.success(data=StatResponse(
-        path=display_git_path(entry.path),
-        path_bytes_b64=git_path_b64(entry.path) if revision else None,
-        repository_revision=revision,
-        git_mode=entry.git_mode,
-        type=entry.type,
-        name=display_git_path(entry.name),
-        name_bytes_b64=git_path_b64(entry.name) if revision else None,
-        content_hash=entry.content_hash,
-        size_bytes=entry.size_bytes,
-        mime_type=entry.mime_type,
-        children_count=entry.children_count,
-        integrity_status=entry.integrity_status,
-        exists=True,
-        head_commit_id=head_commit_id,
-        scope_head_commit_id=scope_head_commit_id,
-    ))
+        )
+    )
 
 
 @read_router.get(
@@ -834,7 +802,9 @@ def full_tree(
     clean_path = _read_request_path(path, path_bytes_b64)
 
     try:
-        with _product_read(ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64) as (read, revision):
+        with _product_read(
+            ops, project_id, grant, byte_path=path_bytes_b64 is not None, ref_b64=ref_b64
+        ) as (read, revision):
             entries = read.list_tree(project_id, clean_path, max_depth=max_depth)
             head_commit_id = read.get_head_commit_id(project_id)
     except ObjectNotFoundError as exc:
@@ -843,10 +813,12 @@ def full_tree(
         _raise_directory_not_found(clean_path, exc)
     except VersionReadError as exc:
         _raise_version_read_error(clean_path, exc)
-    return ApiResponse.success(data=TreeResponse(
-        path=display_git_path(clean_path),
-        path_bytes_b64=git_path_b64(clean_path) if revision else None,
-        repository_revision=revision,
-        entries=[entry_to_response(e) for e in entries],
-        head_commit_id=head_commit_id,
-    ))
+    return ApiResponse.success(
+        data=TreeResponse(
+            path=display_git_path(clean_path),
+            path_bytes_b64=git_path_b64(clean_path) if revision else None,
+            repository_revision=revision,
+            entries=[entry_to_response(e) for e in entries],
+            head_commit_id=head_commit_id,
+        )
+    )

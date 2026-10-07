@@ -7,12 +7,12 @@ import pytest
 
 from src.version_engine.write_engine.diff import diff_trees
 from src.version_engine.write_engine.tree_delta import (
-    build_file_map_delta,
-    build_tree_delta,
-    build_default_content_delta_registry,
-    changed_relative_paths,
     ContentDelta,
     ContentDeltaRegistry,
+    build_default_content_delta_registry,
+    build_file_map_delta,
+    build_tree_delta,
+    changed_relative_paths,
     changes_from_file_maps,
     changes_from_tree_delta,
     paths_from_tree_delta,
@@ -59,7 +59,10 @@ def test_tree_delta_records_structural_changes_with_object_identity(memory_store
     assert by_path["shape"].new_type == "tree"
 
 
-def test_tree_delta_expands_added_directories_for_write_history(server_repo):
+def test_tree_delta_expands_added_directories_for_write_history(memory_store):
+    from types import SimpleNamespace
+
+    server_repo = SimpleNamespace(store=memory_store)
     new_tree = build_tree_from_files(
         server_repo.store,
         {

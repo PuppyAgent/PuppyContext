@@ -32,6 +32,7 @@ router = APIRouter(
 # DI
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def get_scope_service() -> ScopeService:
     return ScopeService()
 
@@ -40,6 +41,7 @@ def get_scope_service() -> ScopeService:
 # Mappers
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _to_out(scope: RepositoryScope) -> ScopeOut:
     return ScopeOut(
         id=scope.id,
@@ -47,7 +49,7 @@ def _to_out(scope: RepositoryScope) -> ScopeOut:
         name=scope.name,
         path=scope.path,
         exclude=scope.exclude,
-        max_mode=scope.max_mode,           # type: ignore[arg-type]
+        max_mode=scope.max_mode,  # type: ignore[arg-type]
         created_at=scope.created_at,
         updated_at=scope.updated_at,
     )
@@ -64,9 +66,7 @@ def _to_out(scope: RepositoryScope) -> ScopeOut:
     summary="List scopes for a project",
 )
 def list_scopes(
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.ACCESS_READ)
-    ),
+    authorized: AuthorizedProject = Depends(require_project_action(ProjectAction.ACCESS_READ)),
     service: ScopeService = Depends(get_scope_service),
 ):
     scopes = service.list_for_project(str(authorized.project.id))
@@ -86,9 +86,7 @@ def list_scopes(
 )
 def create_scope(
     payload: ScopeIn,
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.SCOPE_MANAGE)
-    ),
+    authorized: AuthorizedProject = Depends(require_project_action(ProjectAction.SCOPE_MANAGE)),
     service: ScopeService = Depends(get_scope_service),
 ):
     scope = service.create(
@@ -109,9 +107,7 @@ def create_scope(
 def update_scope(
     scope_id: str,
     payload: ScopePatch,
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.SCOPE_MANAGE)
-    ),
+    authorized: AuthorizedProject = Depends(require_project_action(ProjectAction.SCOPE_MANAGE)),
     service: ScopeService = Depends(get_scope_service),
 ):
     existing = service.get(scope_id)
@@ -137,9 +133,7 @@ def update_scope(
 )
 def delete_scope(
     scope_id: str,
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.SCOPE_MANAGE)
-    ),
+    authorized: AuthorizedProject = Depends(require_project_action(ProjectAction.SCOPE_MANAGE)),
     service: ScopeService = Depends(get_scope_service),
 ):
     existing = service.get(scope_id)
@@ -148,19 +142,11 @@ def delete_scope(
     # Refuse deletion while user-configured Surfaces or external Connections
     # still target the Scope. Standard Git/CLI Surfaces cascade with it.
     from src.platform.access.model_repository import AccessModelRepository
+
     conn_repo = AccessModelRepository()
     n_third_party = conn_repo.count_third_party_for_scope(scope_id)
     service.delete(scope_id, has_bound_connectors=n_third_party > 0)
 
-    # Drop ``fs_path_index`` rows pinned to this scope's prefix —
-    # otherwise a future scope created at the same path would inherit
-    # stale rows pointing at the previous scope's blob hashes.
-    # Best-effort: failure here is logged inside the helper and does
-    # not bubble up because the scope is already gone.
-    from src.version_engine.derived.path_index import (
-        cleanup_fs_path_index_for_scope,
-    )
-    cleanup_fs_path_index_for_scope(str(authorized.project.id), existing.path or "")
     return ApiResponse.success(message="Scope deleted")
 
 
@@ -170,26 +156,21 @@ def delete_scope(
     summary="Suggest new scopes from current top-level folders",
 )
 def auto_suggest_scopes(
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.CONTENT_READ)
-    ),
+    authorized: AuthorizedProject = Depends(require_project_action(ProjectAction.CONTENT_READ)),
     service: ScopeService = Depends(get_scope_service),
 ):
     """Reads the current version tree's top-level folders and returns those
     not already covered by an existing scope as proposed scope candidates."""
     from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
-    ops = build_worker_version_engine_container().product_operations()
+
+    ops = build_worker_version_engine_container().product_operations().for_grant(authorized.grant)
     try:
         entries = ops.list_dir(str(authorized.project.id), "")
     except Exception:
         entries = []
     folder_names = [e.name for e in entries if getattr(e, "type", None) == "folder"]
-    suggestions = service.auto_suggest_from_tree(
-        str(authorized.project.id), folder_names
-    )
+    suggestions = service.auto_suggest_from_tree(str(authorized.project.id), folder_names)
     return ApiResponse.success(
-        data=ScopeAutoSuggestOut(suggestions=[
-            ScopeIn(**s) for s in suggestions
-        ]),
+        data=ScopeAutoSuggestOut(suggestions=[ScopeIn(**s) for s in suggestions]),
         message="Suggestions generated",
     )
