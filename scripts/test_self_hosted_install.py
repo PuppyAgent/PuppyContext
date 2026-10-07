@@ -217,7 +217,7 @@ def main():
                     (args.artifacts / "rejected-migration.log").write_text(failure_log)
                     if (
                         broken.name not in failure_log
-                        or "division by zero" not in failure_log
+                        or "SQLSTATE 22012" not in failure_log
                     ):
                         raise RuntimeError(
                             "Startup failed before executing the intended migration probe"

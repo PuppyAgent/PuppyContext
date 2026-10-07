@@ -65,6 +65,12 @@ def push_schema(root: Path, db: PsqlClient, target: str, password: str) -> None:
             return
         gate = re.search(r"DATA_MIGRATION_REQUIRED:([0-9A-Za-z_]+)", result.stdout + result.stderr)
         if not gate or gate[1] not in approved or gate[1] in attempted:
+            output = result.stdout + result.stderr
+            migrations = re.findall(r"Applying migration ([0-9A-Za-z_]+\.sql)", output)
+            state = re.search(r"SQLSTATE ([0-9A-Z]{5})", output)
+            # Preserve useful failure identity without printing SQL/row data.
+            print("Schema migration failed: " + (migrations[-1] if migrations else "unknown")
+                  + "; SQLSTATE " + (state[1] if state else "unknown"), file=sys.stderr)
             raise RuntimeError("Schema deployment failed outside an approved data gate")
         artifact = catalog.get(gate[1])
         if artifact.checksum != approved[gate[1]] or artifact.manifest.kind != "sql":
