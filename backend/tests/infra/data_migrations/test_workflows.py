@@ -40,6 +40,9 @@ def test_reusable_database_jobs_cannot_bypass_database_change_detection():
         "backend/src/infra/data_migrations/runner.py",
         ".github/workflows/_operator-data-verify.yml",
         "scripts/database_history.py",
+        "scripts/qubits_entrypoint_cutover.py",
+        "scripts/entrypoint_source_decisions.py",
+        ".github/workflows/entrypoint-cutover.yml",
     ],
 )
 def test_main_promotion_requires_staging_evidence_for_data_only_changes(filename):
