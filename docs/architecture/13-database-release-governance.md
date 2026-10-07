@@ -97,6 +97,9 @@ Both its dry-run plan and execution use `--include-all` so a reviewed migration
 merged from a parallel branch is applied even if its timestamp precedes an
 already-deployed version. This includes unapplied history only; it does not
 replay applied migrations, alter receipts, or bypass SQL Contract/data guards.
+The flag does **not** validate dependencies or prove that executing older SQL
+after newer SQL produces the intended schema. The merge admission rules below
+still apply; a successful dry run is only a plan, not an upgrade rehearsal.
 Supabase's direct GitHub integration does not execute this custom admission:
 an existing branch needs the protected transition before that integration can
 resume. Fresh preview databases can apply B1 normally. This repository change
@@ -149,6 +152,85 @@ its operator artifact and rollout sequence are documented in
 upgrade mechanism.
 
 ## Release orchestration
+
+### Migration merge admission
+
+A migration timestamp orders files; it is not proof that a release is ready.
+An older migration arriving from a parallel branch is not by itself a policy
+violation. An unexplained history gap, missing dependency, or premature
+Contract promotion MUST stop that release before a shared database write.
+
+Before merging a database-affecting change into an automatically deployed
+branch, the author and release owner MUST:
+
+1. Refresh the target branch and review the **entire resulting diff**, including
+   inherited migrations, release pointers and application/worker changes. A
+   feature's small final commit does not make a large accumulated branch a
+   small release. Separate independently releasable work; record unavoidable
+   dependencies and their rollout order.
+2. Record the candidate SHA, target/base SHA, target environment and its last
+   successful application/schema/data evidence. Use the full applied-version
+   set, not just the largest migration number. A partially failed release may
+   have applied some schema files while leaving the old application running.
+3. Classify each history difference using the table below. Obtain target
+   metadata through the protected release connection; ordinary PR jobs retain
+   synthetic fixtures and no shared credentials. Do not execute untrusted PR
+   code with protected-environment credentials to obtain this evidence.
+4. Verify the final schema and application contract through the appropriate
+   isolated upgrade fixture before enabling the release. Dependency review
+   includes replaced functions, grants/RLS, renames and data postconditions,
+   not just whether individual SQL statements return success.
+
+| Difference | Required treatment |
+| --- | --- |
+| New, unshared draft migration | Prefer a timestamp after the refreshed target history and all dependencies. Renumber only drafts not applied to a shared database, merged into a shared release branch, or pinned by an immutable artifact; update draft references and rebuild disposable tests together. |
+| Older, unapplied migration already shared or pinned | Preserve its identity and bytes. List the exact missing versions, why newer versions ran first, dependencies and checksums; rehearse that same history gap in an isolated database. A reviewed catch-up may use `--include-all`. |
+| Remote version missing from the checkout, duplicate version, or changed shared SQL | Reconcile the correct source/history before release. Never reset the shared database, delete its history, or stamp unapplied SQL as applied merely to make CI green. |
+| SQL cannot safely run after the deployed newer versions | Prepare an explicit forward recovery/catch-up plan with an upgrade fixture. `--include-all`, renumbering shared history, and a clean-install test are not repairs. |
+
+If another database change reaches the target while a PR is waiting, recheck
+the dependency set and affected upgrade evidence. This means reviewing version
+metadata and bounded fixtures, not auditing every historical project or scanning
+object storage. The exact catch-up plan and its successful receipt should make
+subsequent ordinary releases a verified no-op, not a recurring repair job.
+
+### Release scope and admission evidence
+
+An ordinary release is independently deployable with compatible schema changes.
+A rename/removal, representation change or old-writer shutdown is a phased
+cutover. The PR MUST identify which class it belongs to and which single phase
+it activates. A merge into `qubits` starts deployment; it is not a place to park
+an active migration whose prerequisites are expected to be completed later.
+
+For a phased cutover, the release owner MUST establish these facts before
+promoting the final Contract/application release:
+
+- prerequisite Expand deployment and data artifact identity/checksum;
+- required data verification receipts and actual preservation postconditions;
+- the exact API, workers, schedulers and any local/shared writers involved,
+  their stop/drain commands, relevant queues and the restart versions/config;
+- the credential path and a recoverable backup/restore procedure available in
+  that environment; prove they are usable before starting the maintenance window;
+- the applicable write freeze and consumer-exit evidence, captured while the
+  writers are stopped, with a current restore point and compatible recovery path.
+
+Some artifacts require a freeze **before** data copying. Follow their explicit
+ordering; the general state diagram does not waive that prerequisite. An empty
+queue while producers still run, a freeze flag alone, or a failed SQL guard does
+not prove consumer exit. Validation can happen earlier; records of actual
+stopping, backup creation and copying can only be recorded after those actions.
+
+PITR is one recovery mechanism, not a universal product requirement. A verified
+consistent logical backup can also satisfy the recovery plan when it covers the
+affected database state and has a usable restore procedure. Match the chosen
+mechanism to the target environment. A stale scheduled backup, an unavailable
+PITR window or an unverified archive must not be presented as current evidence.
+
+If prerequisites are not ready, keep cleanup in `contract.pending.sql` and ship
+the independently compatible phase. Do not merge the final-only application
+alongside an inactive Contract that it already requires. Changes already shared
+remain immutable; a release that has advanced partially needs an explicit
+recovery plan, not removal of migration files or bypassed checks.
 
 Ordinary application releases are not whole-database historical audits. Their
 acceptance scope is schema compatibility, synthetic regression fixtures and a
@@ -248,6 +330,11 @@ Expand -> Data -> Cutover -> Contract
 Do not put Expand and Contract in the same release. A fresh install with zero
 legacy rows may apply the final Contract without running irrelevant historical
 data jobs.
+
+Passing the fresh-install exception does not authorize that Contract against a
+populated Qubits or Production database. Contract SQL may be authored and tested
+in its artifact directory early, but promoting it into `supabase/migrations`
+requires the target environment's completed prerequisite evidence.
 
 An identity-representation cutover may intentionally use one atomic Contract
 without a dual-write phase only when both representations cannot safely coexist
@@ -352,6 +439,45 @@ PRs cannot publish success until every policy, rebuild, upgrade, and lint job
 succeeds. This avoids the required-check deadlock caused by workflow-level
 path filters.
 
+### Required checks and actual enforcement
+
+Release policy requires `Database validation result` to be a required merge
+check on both `qubits` and `main`, alongside their other required checks. The
+GitHub branch rule must be configured separately: a workflow or this document
+does not install that protection. A migration-relevant failed upgrade or runtime
+check must be resolved even if GitHub labels it advisory; a known unrelated
+failure needs a scoped, documented disposition, not a claim that all checks pass.
+
+The validation matrix MUST distinguish:
+
+- **Clean install:** proves that the full history builds a new database.
+- **Supported populated upgrade:** starts from the previously deployed schema
+  with synthetic representative rows and verifies preservation and new behavior.
+- **Out-of-order catch-up:** when applicable, reproduces the exact missing
+  versions and newer applied versions, including dependency/final-state checks.
+- **Refusal and retry:** missing receipts, live writers, stale fingerprints or
+  failed verification reject unsafe work without false completion receipts;
+  retry after the real prerequisite is satisfied succeeds.
+- **Hosted acceptance:** checks the declared project flows and telemetry against
+  the deployed candidate. This is separate from every fixture above.
+
+Per-PR validation MUST NOT require a full copy of hosted data or a whole-project
+historical audit. Protected deployment inspects migration metadata and bounded
+postconditions. A legitimate one-time conversion or accounting reconciliation
+has an explicit scope and receipt; it is not silently rerun on every push.
+
+**Enforcement snapshot, 2026-10-08 (`a937c363`):** Qubits branch protection was
+read directly and required only `Frontend Build` and `Run Gitleaks`; `strict`
+was false. `Database validation result` exists but was not a required Qubits
+check. The generic target-history/dependency admission described above is not
+yet an automated pre-merge check. Current SQL guards and the protected release
+workflow reject missing prerequisites at deployment time, which is later than
+the required release preparation. The new cutover CI adapter verifies PITR
+points only; logical-backup support there is also an implementation gap. These
+are open enforcement gaps, not completed work. Until corrected, release owners
+must apply the documented admission rules and must not treat the narrower
+GitHub merge button as release approval.
+
 Schema and data jobs for an environment share the same concurrency group and
 cannot cancel a running database operation. Production uses a protected GitHub
 Environment. A Production data `run` first verifies the same artifact checksum
@@ -406,6 +532,30 @@ requires the promoted Contract migration to be a byte-for-byte copy. Its
 receipt checksum proves which data transformation ran; exact-copy enforcement
 proves that reviewers approved the destructive SQL that is being promoted.
 
+### Release completion and failure reporting
+
+Record these states separately, naming the environment and immutable SHA:
+
+| State | Evidence |
+| --- | --- |
+| Implemented / tested | Source plus named checks, their scope and failures/skips |
+| Merged | PR and actual target-branch commit |
+| Database ready | Successful schema/data verification for that release and environment |
+| Deployed | Required API/worker/client versions and runtime configuration actually live |
+| Accepted | The bounded user flow succeeds on those versions, with required performance measurements |
+
+Only the final applicable state supports saying the requested release is
+complete. A mock model, local E2B smoke, healthy old deployment, merged PR, or
+passing build cannot substitute for real hosted acceptance.
+
+On failure, report the actual workflow/step/error, any already-applied phase,
+the version still serving users, and the next concrete recovery action. Fix that
+failure within the declared scope. Do not expand an ordinary release into an
+unrelated historical cleanup, repeatedly rerun a deterministic prerequisite
+failure, fabricate evidence, or require a fresh user approval for an action
+already authorized in the session. A real credential/permission restriction
+must be identified separately from the technical release defect.
+
 ## Environment secrets
 
 Create protected `staging` and `production` GitHub Environments. Store the same
@@ -441,6 +591,10 @@ teams not to change remote schemas through the Dashboard once migration history
 is in use. Seed files remain insertion-only bootstrap data, consistent with the
 [Supabase seeding guide](https://supabase.com/docs/guides/local-development/seeding-your-database).
 
+GitHub enforces merge checks through separately configured
+[protected branch rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
+Adding a workflow without requiring its result leaves a merge-admission gap.
+
 ## Commit and PR convention
 
 Branches:
@@ -475,6 +629,10 @@ baseline follow all current rules immediately.
 Every database PR states its phase, affected tables, compatibility window,
 estimated rows/runtime/locks, migration ID, verification, retry behavior,
 forward-fix plan, destructive operations, and Qubits evidence.
+It also supplies the refreshed base/target history, any exact missing-version
+catch-up plan, upgrade fixture and the cutover prerequisites that make this
+phase eligible to merge. Use the database section of the PR template; mark
+non-applicable items explicitly instead of implying they have been verified.
 
 ## Break glass
 

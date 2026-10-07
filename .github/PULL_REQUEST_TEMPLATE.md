@@ -42,22 +42,43 @@ How did you verify this change? Examples:
 
 ## Database release phase
 
-<!-- Complete this section only when the PR changes database schema or data. -->
+<!--
+Complete this section for schema/data, release-pointer, migration-runner/workflow,
+or application changes requiring a new database contract. Otherwise choose No
+database change and remove the remaining database fields. See
+docs/architecture/13-database-release-governance.md#migration-merge-admission.
+Choose the single phase this PR activates; preparing contract.pending.sql is
+not permission to activate Contract against a populated environment.
+-->
 
 - [ ] No database change
 - [ ] Expand — additive schema and old/new-compatible application behavior
 - [ ] Data — immutable `supabase/data_migrations/<id>` artifact
 - [ ] Cutover — application now uses only the new fact
-- [ ] Contract — destructive cleanup after Qubits and Production verification
+- [ ] Contract — cleanup after this target environment's prerequisite receipts and cutover evidence
 
 If this changes the database, provide:
 
 - Data migration ID / required Contract marker:
+- Candidate/base SHA, target environment and last successful release evidence:
+- Migration history differences and dependencies (exact missing versions/checksums, or none):
 - Affected tables and estimated rows:
+- Compatibility with the currently deployed API/workers; dependent releases:
 - Expected runtime and lock behavior:
+- Clean-install and populated-upgrade evidence; exact history-gap fixture if applicable:
 - Verification and safe retry behavior:
+- For cutovers: stopped writers/queues, current restore point and restart/config plan (or not applicable):
 - Forward-fix / break-glass plan:
 - Qubits evidence:
+
+<!-- A passing dry run / --include-all does not prove safe dependency order. -->
+- [ ] Reviewed the full diff against the refreshed target, including inherited migrations
+- [ ] Shared SQL/artifacts remain immutable; no history stamping or guard bypass
+- [ ] Database validation passed; applicable upgrade failures resolved or unrelated failures explicitly scoped
+- [ ] This phase is ready for automatic deployment; final Contract is inactive until its prerequisites are complete
+
+Release state being claimed: implemented / tested / merged / database ready / deployed / accepted.
+Provide evidence for that state; a merged PR is not a completed hosted release.
 
 ## Linked issues
 

@@ -91,16 +91,23 @@ rules (PR + required reviews + required status checks).
 
 ## CI Checks
 
-| Check                | Trigger                                  | Required for merge                  |
+| Check                | Trigger                                  | Release policy / role               |
 |----------------------|------------------------------------------|-------------------------------------|
-| **Frontend Build**   | PRs that touch `frontend/**`             | `main`, `qubits`                    |
+| **Frontend Build**   | All PRs; selected `main` pushes          | `main`, `qubits`                    |
 | **Run Gitleaks**     | All PRs, push to `main`, weekly schedule | `main`, `qubits`                    |
 | **Main Release Gate** | PRs targeting `main`                    | `main` (release/hotfix source + owner gate) |
 | **Database validation result** | All PRs; heavy jobs only for database paths | `main`, `qubits` |
-| **Deploy Schema to Qubits** | schema push to `qubits` | exact-SHA prerequisite for database releases |
+| **Deploy Database to Qubits** | Every push to `qubits` | exact-SHA prerequisite for application deployment |
 | **E2E Visual Tests** | Manual (`workflow_dispatch`)            | (manual release/debug check)        |
 | **Supabase Preview** | All PRs                                  | (advisory, not blocking)            |
 | **Branch housekeeping** | Weekly schedule                       | n/a (cleanup job)                   |
+
+The table states release policy, not proof of installed GitHub settings.
+On 2026-10-08, Qubits required only Frontend Build and Gitleaks; the database
+check existed but was not required by branch protection. See the
+[enforcement snapshot](docs/architecture/13-database-release-governance.md#required-checks-and-actual-enforcement).
+Reviewers must resolve applicable database/upgrade failures before merging;
+a mergeable PR alone does not demonstrate that a release is ready.
 
 Branch housekeeping may delete merged remote branches idle >14 days. Protected
 branches (`main`, `qubits`, `newmu`) are never deleted.
@@ -142,10 +149,20 @@ before changing a shared database.
 - Complex/long/Python/secret-dependent backfills use immutable
   `supabase/data_migrations/<id>` artifacts.
 - One PR owns one phase: Expand, Data, Cutover, or Contract.
+- Refresh the target before merge and review all inherited changes, not just
+  the last feature commit. Fill in the PR template's history/dependency and
+  populated-upgrade evidence; do not add unrelated historical data audits.
+- Prefer new draft migrations after the current target history. Already-shared
+  older migrations require an explicit catch-up plan and matching upgrade
+  fixture; `--include-all` alone is not proof of safe ordering.
+- Keep unready cleanup in `contract.pending.sql`. Do not activate Contract or
+  its final-only application until the real target prerequisites are complete.
 - Never edit a shared/applied migration. Add a forward artifact.
 - Never place “run this Python script next” instructions in schema SQL.
 - Never write to a shared remote database from SQL Editor or a laptop except
   through the documented incident break-glass process.
+- Report implemented/tested, merged, database-ready, deployed and accepted
+  separately, with the environment and exact commit for each claim.
 
 Database commit examples:
 
