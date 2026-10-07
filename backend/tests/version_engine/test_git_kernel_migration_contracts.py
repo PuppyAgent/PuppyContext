@@ -883,6 +883,9 @@ def test_access_tables_are_confined_to_repository_boundaries() -> None:
             or rel.endswith("access_credentials.py")
             or rel.endswith("access_surface_repository.py")
             or rel.endswith("scope_repository.py")
+            # Agent reads moved from repository.py into its typed query adapter.
+            # Keep this exact so application services cannot acquire table access.
+            or rel == "src/platform/access/adapters/agent/runtime/persistence/queries.py"
         )
         if allowed:
             continue

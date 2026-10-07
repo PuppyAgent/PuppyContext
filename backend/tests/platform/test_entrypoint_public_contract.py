@@ -253,6 +253,15 @@ def test_exact_resource_retirement_preserves_every_unrelated_contract():
         for name, change in engine[category]["changed"].items():
             assert expected["contract"][category][name] == change["before"]
             expected["contract"][category][name] = change["after"]
+    # Agent history is a bounded read operation. Preserve every historical
+    # fixture and register only this new route; no other wire may drift.
+    history = json.loads(
+        Path(__file__).with_name("cloud_agent_history_contract_delta.json").read_text()
+    )
+    assert set(history["paths"]) == {"/api/v1/agents/sessions"}
+    assert history["schemas"] == {}
+    assert not expected["contract"]["paths"].keys() & history["paths"].keys()
+    expected["contract"]["paths"].update(history["paths"])
     assert contract(app.openapi()) == expected["contract"]
 
 
