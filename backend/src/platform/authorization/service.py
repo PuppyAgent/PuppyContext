@@ -65,6 +65,22 @@ class AuthorizationService:
     def __init__(self, repository: AuthorizationRepository):
         self._repository = repository
 
+    @classmethod
+    def authorize_facts(cls, facts, project_id, user_id, action):
+        """Evaluate a caller-supplied consistent snapshot without database I/O.
+
+        Composition queries return facts from authorization_project_facts; they
+        never interpret roles or bypass this canonical policy.
+        """
+        if isinstance(facts, dict):
+            facts = ProjectAuthorizationFacts(**facts)
+        grant = (
+            cls._grant_from_facts(facts, user_id)
+            if facts and facts.project_id == project_id
+            else None
+        )
+        return cls._authorize_grant(grant, project_id, action, True)
+
     @staticmethod
     def _grant_from_facts(facts: ProjectAuthorizationFacts, user_id: str) -> ProjectGrant | None:
         # Organization membership is the tenant boundary. An explicit Project
@@ -143,6 +159,10 @@ class AuthorizationService:
         conceal_missing_grant: bool = True,
     ) -> ProjectGrant:
         grant = self.resolve_project_grant(project_id, user_id)
+        return self._authorize_grant(grant, project_id, action, conceal_missing_grant)
+
+    @staticmethod
+    def _authorize_grant(grant, project_id, action, conceal_missing_grant):
         if grant is None:
             _record_decision(
                 project_id=project_id,

@@ -1,0 +1,86 @@
+
+> context-base-ui@0.0.3 build
+> next build
+
+   ▲ Next.js 15.5.9
+   - Experiments (use with caution):
+     · cpus
+     · optimizePackageImports
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 5.9s
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/33) ...
+   Generating static pages (8/33)
+   Generating static pages (16/33)
+   Generating static pages (24/33)
+ ✓ Generating static pages (33/33)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                    Size  First Load JS
+┌ ƒ /_not-found                               191 B         103 kB
+├ ƒ /agent/billing/return                     191 B         103 kB
+├ ƒ /api/agent                                191 B         103 kB
+├ ƒ /api/backend/[...path]                    191 B         103 kB
+├ ƒ /api/health                               191 B         103 kB
+├ ƒ /api/ingest                               191 B         103 kB
+├ ƒ /api/upload                               191 B         103 kB
+├ ƒ /auth/callback                            191 B         103 kB
+├ ƒ /auth/confirm                             191 B         103 kB
+├ ƒ /billing                                  528 B         104 kB
+├ ƒ /connect                                1.61 kB         105 kB
+├ ƒ /dev/loading                            3.41 kB         109 kB
+├ ƒ /home                                   5.38 kB         211 kB
+├ ƒ /invite/[token]                         1.95 kB         172 kB
+├ ƒ /login                                  5.63 kB         168 kB
+├ ƒ /oauth/airtable/callback                2.52 kB         169 kB
+├ ƒ /oauth/github/callback                  2.62 kB         169 kB
+├ ƒ /oauth/gmail/callback                   2.54 kB         169 kB
+├ ƒ /oauth/google-calendar/callback         2.54 kB         169 kB
+├ ƒ /oauth/google-docs/callback             2.55 kB         169 kB
+├ ƒ /oauth/google-drive/callback            2.55 kB         169 kB
+├ ƒ /oauth/google-search-console/callback   2.51 kB         169 kB
+├ ƒ /oauth/google-sheets/callback           2.55 kB         169 kB
+├ ƒ /oauth/linear/callback                  2.54 kB         169 kB
+├ ƒ /oauth/notion/callback                  2.54 kB         169 kB
+├ ƒ /projects/[[...slug]]                     191 B         103 kB
+├ ƒ /projects/[projectId]                     191 B         103 kB
+├ ƒ /projects/[projectId]/access              947 B         113 kB
+├ ƒ /projects/[projectId]/changes           20.2 kB         228 kB
+├ ƒ /projects/[projectId]/conflicts           191 B         103 kB
+├ ƒ /projects/[projectId]/data/[[...path]]    191 B         103 kB
+├ ƒ /projects/[projectId]/develop             191 B         103 kB
+├ ƒ /projects/[projectId]/develop/logs      4.19 kB         176 kB
+├ ƒ /projects/[projectId]/history             191 B         103 kB
+├ ƒ /projects/[projectId]/home              13.4 kB         220 kB
+├ ƒ /projects/[projectId]/monitor             191 B         103 kB
+├ ƒ /projects/[projectId]/settings          2.14 kB         124 kB
+├ ƒ /projects/[projectId]/toolkit            9.1 kB         181 kB
+├ ƒ /projects/[projectId]/workflows         19.6 kB         206 kB
+├ ƒ /reset-password                         2.33 kB         165 kB
+├ ƒ /settings                                 191 B         103 kB
+├ ƒ /settings/about                           191 B         103 kB
+├ ƒ /settings/appearance                    3.97 kB         107 kB
+├ ƒ /settings/connect                       8.41 kB         196 kB
+├ ƒ /share/[token]                           2.7 kB         180 kB
+├ ƒ /team                                   9.89 kB         186 kB
+├ ƒ /templates                              2.67 kB         209 kB
+├ ƒ /templates/[templateId]                 2.09 kB         253 kB
+└ ƒ /tools-and-server                         191 B         103 kB
++ First Load JS shared by all                103 kB
+  ├ chunks/1255-37fdc005f9321e44.js         45.6 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js     54.2 kB
+  └ other shared chunks (total)             3.33 kB
+
+
+ƒ Middleware                                80.8 kB
+
+ƒ  (Dynamic)  server-rendered on demand
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Browserslist: browsers data (caniuse-lite) is 11 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme

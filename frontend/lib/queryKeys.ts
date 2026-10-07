@@ -20,3 +20,12 @@ export function isCommitInvalidationKey(key: unknown, projectId: string, folders
   if (key[0] === 'tree') return folders.has(key[2]);
   return ['project-history', 'pending-conflicts', 'activity', 'table'].includes(key[0]);
 }
+
+export const etlTaskKeys = {
+  list: (accountId: string) => ['etl-tasks', accountId] as const,
+  progress: (accountId: string) => ['etl-progress', accountId] as const,
+};
+
+export const importJobKeys = {
+  list: (accountId: string, projectId: string) => ['import-jobs', accountId, projectId] as const,
+};

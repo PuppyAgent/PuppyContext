@@ -8,6 +8,7 @@ import { GeistMono } from 'geist/font/mono';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import { SupabaseAuthProvider } from '@/contexts/SupabaseAuthProvider';
+import { TaskProvider } from '@/contexts/TaskProvider';
 import { BackgroundTaskNotifier } from '../components/BackgroundTaskNotifier';
 import { SWRGlobalProvider } from './SWRProvider';
 import { ThemeProvider } from '../components/theme/ThemeProvider';
@@ -41,9 +42,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           <ThemeProvider>
             <SWRGlobalProvider>
               <SupabaseAuthProvider>
-                <ScrollbarActivity />
-                {children}
-                <BackgroundTaskNotifier />
+                <TaskProvider>
+                  <ScrollbarActivity />
+                  {children}
+                  <BackgroundTaskNotifier />
+                </TaskProvider>
               </SupabaseAuthProvider>
             </SWRGlobalProvider>
           </ThemeProvider>

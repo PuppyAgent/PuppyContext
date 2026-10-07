@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class ActivityItemResponse(BaseModel):
     """One row of the ``context_activity_items`` view.
 
-    ``kind`` is ``upload`` | ``import`` | ``sync_run``. The remaining fields
+    ``kind`` is ``upload`` | ``import`` | ``synchronize_run``. The remaining fields
     are normalized across the three source tables by the view, so the client
     renders them uniformly without knowing which table produced the row.
     """
@@ -27,8 +27,3 @@ class ActivityItemResponse(BaseModel):
     result_commit_id: str | None = None
     created_at: str | None = None
     completed_at: str | None = None
-
-
-class ActivityListResponse(BaseModel):
-    items: list[ActivityItemResponse]
-    total: int

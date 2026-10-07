@@ -1,7 +1,5 @@
-"""Upload product resource.
+"""Upload owns local-file contracts, policy, task/state repositories and workers.
 
-Upload is the one-shot local file/folder transfer surface. The legacy
-``src.ingest`` package still owns ETL internals; this package is the product
-resource boundary exposed to callers.
+Reusable OCR/format/rule operations live below this domain in
+``src.infra.file_processing``. Legacy ingest routes delegate here.
 """
-

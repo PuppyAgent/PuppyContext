@@ -14,17 +14,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
+from pydantic import BaseModel as _BaseModel
 
 from src.common_schemas import ApiResponse
 from src.exceptions import ErrorCode
-from src.ingest.policy.upload_policy import (
-    PER_FILE_MAX_BYTES as POLICY_PER_FILE_MAX_BYTES,
-)
-from src.ingest.policy.upload_policy import (
-    path_has_blocked_segment,
-)
 from src.platform.repository_target.auth_context import repository_view_from_auth
 from src.platform.repository_target.models import repository_target_scope_id
+from src.platform.upload.policy import (
+    PER_FILE_MAX_BYTES as POLICY_PER_FILE_MAX_BYTES,
+)
+from src.platform.upload.policy import (
+    path_has_blocked_segment,
+)
 from src.version_engine.adapters.product.commands import VersionWriteCommandService
 from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 from src.version_engine.admission.channel_pause import enforce_channel_pause
@@ -178,11 +179,7 @@ async def _resolve_auth(
         raise HTTPException(
             status_code=503,
             detail="Repository view is temporarily unavailable",
-            headers={
-                "X-PuppyOne-Error-Code": str(
-                    ErrorCode.REPOSITORY_STORAGE_UNAVAILABLE.value
-                )
-            },
+            headers={"X-PuppyOne-Error-Code": str(ErrorCode.REPOSITORY_STORAGE_UNAVAILABLE.value)},
         ) from exc
     view = repository_view_from_auth(auth)
     scope_path = validate_path(facade.scope_path)
@@ -801,6 +798,7 @@ async def list_dir(
         x_puppy_client,
         command="ls",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     rel_path = _clean_relative(path)
     _assert_not_excluded(rel_path, scope)
 
@@ -857,6 +855,7 @@ async def tree(
         x_puppy_client,
         command="tree",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     rel_path = _clean_relative(path)
     _assert_not_excluded(rel_path, scope)
     max_depth = _query_int(max_depth, -1)
@@ -923,241 +922,13 @@ async def tree(
 # trade-off is: this path can find content the indexer hasn't yet
 # processed, at the cost of an O(scope size) S3 read + Python
 # regex scan. See ``docs/proposals/PUP-cloud-grep.md``.
-_LOCAL_REF_PREFIX = "local:"
-
-
-def _snapshot_rel_in_scope(full_path: str, scope: dict) -> str | None:
-    """Map a snapshot's repo-relative path into the AP scope.
-
-    Returns the scope-relative path, or ``None`` when the file lies
-    outside the access point's scope or is excluded. This is the security
-    boundary for ``--ref local:`` grep: an AP scoped to ``docs/`` only
-    ever sees a teammate's ``docs/`` files, never the rest of their tree.
-    """
-    clean = (full_path or "").strip("/")
-    if not clean:
-        return None
-    scope_path = (scope.get("path") or "").strip("/")
-    if scope_path and clean != scope_path and not clean.startswith(scope_path + "/"):
-        return None
-    rel = _relative_to_scope(clean, scope_path)
-    if not rel or _matches_exclude(rel, scope.get("exclude") or []):
-        return None
-    return rel
-
-
-async def _grep_shadow_snapshot(
-    *,
-    project_id: str,
-    scope: dict,
-    ref: str,
-    pattern: str,
-    match_line,
-    rel_path: str,
-    regex: bool,
-    ignore_case: bool,
-    invert_match: bool,
-    only_matching: bool,
-    include_patterns: list[str],
-    exclude_patterns: list[str],
-    exclude_dir_patterns: list[str],
-    before_context: int,
-    after_context: int,
-    include_offsets: bool,
-    safe_limit: int,
-    per_file_limit: int,
-) -> dict:
-    """Grep a teammate's un-pushed working tree via its shadow snapshot
-    (GAP-11, ``08-shadow-snapshots.md`` §4).
-
-    V1 runs over the snapshot's stored ``previews`` (the client uploads
-    manifest + optional previews; blobs are lazy). Files in scope with no
-    preview are reported via ``files_without_preview`` rather than
-    silently dropped, mirroring the doc's "blob unavailable on server".
-    """
-    spec = ref[len(_LOCAL_REF_PREFIX) :].strip().strip("/")
-    machine_id, _, ref_name = spec.partition("/")
-    machine_id = machine_id.strip()
-    ref_name = (ref_name or "main").strip()
-
-    from src.infra.supabase.client import SupabaseClient
-    from src.version_engine.entrypoints.http.shadow_snapshot import (
-        _get_manifest_from_s3,
-    )
-
-    client = SupabaseClient().client
-    # Privacy (08-shadow-snapshots.md §1): shadow content is user-private by
-    # default. The cross-user ``--ref local:`` path may only read snapshots
-    # whose owner explicitly opted in (grep_shared = true). Without this the
-    # query matched by (project, machine, ref) alone, exposing any user's
-    # un-pushed working tree to any access-point holder for the project.
-    query = (
-        client.table("local_shadow_snapshots")
-        .select("id, machine_id, ref_name, user_id, updated_at")
-        .eq("project_id", project_id)
-        .eq("ref_name", ref_name)
-        .eq("grep_shared", True)
-    )
-    if machine_id:
-        query = query.eq("machine_id", machine_id)
-    rows = (query.order("updated_at", desc=True).limit(1).execute()).data or []
-    if not rows:
-        raise HTTPException(
-            status_code=404,
-            detail=f"no local snapshot for ref '{ref}'",
-        )
-    snap = rows[0]
-    snapshot_id = snap["id"]
-    doc = await _get_manifest_from_s3(project_id, snapshot_id) or {}
-    manifest = doc.get("manifest") or []
-    previews = doc.get("previews") or {}
-
-    matches: list[dict[str, Any]] = []
-    files: list[dict[str, Any]] = []
-    files_without_preview = 0
-    scanned_files = 0
-    candidate_files = 0
-    truncated = False
-    truncation_reason = ""
-
-    for entry in manifest:
-        if not isinstance(entry, dict):
-            continue
-        full_path = str(entry.get("path") or "")
-        rel = _snapshot_rel_in_scope(full_path, scope)
-        if rel is None:
-            continue
-        if rel_path and rel != rel_path and not rel.startswith(rel_path + "/"):
-            continue
-        if include_patterns and not _matches_any_grep_glob(rel, include_patterns):
-            continue
-        if exclude_patterns and _matches_any_grep_glob(rel, exclude_patterns):
-            continue
-        if exclude_dir_patterns and _matches_exclude_dir_glob(rel, exclude_dir_patterns):
-            continue
-        candidate_files += 1
-
-        preview_text = previews.get(full_path) or entry.get("preview") or ""
-        if not preview_text:
-            files_without_preview += 1
-            continue
-
-        scanned_files += 1
-        line_items = preview_text.splitlines()
-        file_match_count = 0
-        for line_number, line_text in enumerate(line_items, start=1):
-            spans = match_line(line_text)
-            matched = bool(spans)
-            if invert_match:
-                matched = not matched
-            if not matched:
-                continue
-            output_spans = (
-                spans
-                if (only_matching and not invert_match and spans)
-                else [spans[0] if spans else (None, None)]
-            )
-            for match_start, match_end in output_spans:
-                match_text = (
-                    line_text[match_start:match_end]
-                    if isinstance(match_start, int) and isinstance(match_end, int)
-                    else ""
-                )
-                before_lines = []
-                if before_context:
-                    start_index = max(0, line_number - 1 - before_context)
-                    before_lines = [
-                        {"line_number": i + 1, "line_text": line_items[i], "byte_offset": None}
-                        for i in range(start_index, line_number - 1)
-                    ]
-                after_lines = []
-                if after_context:
-                    end_index = min(len(line_items), line_number + after_context)
-                    after_lines = [
-                        {"line_number": i + 1, "line_text": line_items[i], "byte_offset": None}
-                        for i in range(line_number, end_index)
-                    ]
-                matches.append(
-                    {
-                        "path": rel,
-                        "version_path": _join_scope(scope["path"], rel),
-                        "line_number": line_number,
-                        "line_text": line_text,
-                        "match_start": match_start,
-                        "match_end": match_end,
-                        "match_text": match_text,
-                        "byte_offset": None,
-                        "match_byte_offset": None,
-                        "before_context": before_lines,
-                        "after_context": after_lines,
-                        "content_hash": entry.get("blob_hash") or None,
-                        "preview_only": True,
-                    }
-                )
-                file_match_count += 1
-                if len(matches) >= safe_limit:
-                    truncated = True
-                    truncation_reason = "result_limit_exceeded"
-                    break
-                if per_file_limit and file_match_count >= per_file_limit:
-                    break
-            if truncated or (per_file_limit and file_match_count >= per_file_limit):
-                break
-        files.append(
-            {
-                "path": rel,
-                "version_path": _join_scope(scope["path"], rel),
-                "match_count": file_match_count,
-                "content_hash": entry.get("blob_hash") or None,
-                "preview_only": True,
-            }
-        )
-        if truncated:
-            break
-
-    matched_files = len([f for f in files if f.get("match_count", 0) > 0])
-    return {
-        "pattern": pattern,
-        "path": rel_path,
-        "ref": ref,
-        "snapshot_id": snapshot_id,
-        "snapshot_machine_id": snap.get("machine_id"),
-        "snapshot_ref_name": snap.get("ref_name"),
-        "scope": _scope_payload(scope),
-        "target_type": "shadow_snapshot",
-        "regex": regex,
-        "ignore_case": ignore_case,
-        "invert_match": invert_match,
-        "only_matching": only_matching,
-        "include_offsets": include_offsets,
-        "include": include_patterns,
-        "exclude": exclude_patterns,
-        "exclude_dir": exclude_dir_patterns,
-        "limit": safe_limit,
-        "max_count": per_file_limit,
-        "before_context": before_context,
-        "after_context": after_context,
-        "returned_count": len(matches),
-        "matched_files": matched_files,
-        "candidate_files": candidate_files,
-        "scanned_files": scanned_files,
-        "files_without_preview": files_without_preview,
-        "preview_only": True,
-        "complete": not truncated,
-        "truncated": truncated,
-        "truncation_reason": truncation_reason,
-        "files": files,
-        "matches": matches,
-    }
-
-
 @router.get("/grep", response_model=ApiResponse)
 async def grep(
     pattern: str = Query(..., description="Fixed string or regex pattern to match"),
     path: str = Query("", description="File or directory path relative to the access point scope"),
     ref: str = Query(
         "",
-        description="Snapshot ref to grep, e.g. 'local:<machine>/<branch>'. Empty = current server HEAD.",
+        description="Reserved; leave empty to read the native repository HEAD.",
     ),
     regex: bool = Query(False, description="Treat pattern as a regular expression"),
     ignore_case: bool = Query(False, description="Case-insensitive matching"),
@@ -1197,6 +968,7 @@ async def grep(
         x_puppy_client,
         command="grep",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     rel_path = _clean_relative(path)
     _assert_not_excluded(rel_path, scope)
     max_depth = _query_int(max_depth, -1)
@@ -1216,32 +988,13 @@ async def grep(
     safe_byte_limit = _query_limited_int(max_bytes, _GREP_DEFAULT_BYTE_LIMIT, _GREP_MAX_BYTE_LIMIT)
     match_line = _grep_matcher(pattern, regex=regex, ignore_case=ignore_case)
 
-    # ``--ref local:<machine>/<branch>`` greps a teammate's un-pushed work
-    # via its shadow snapshot instead of the server HEAD tree (GAP-11).
-    # ``isinstance`` guard: when this handler is called directly (tests /
-    # in-process), unset Query params arrive as FieldInfo, not ``str``.
-    if isinstance(ref, str) and ref.startswith(_LOCAL_REF_PREFIX):
-        return ApiResponse.success(
-            data=await _grep_shadow_snapshot(
-                project_id=project_id,
-                scope=scope,
-                ref=ref,
-                pattern=pattern,
-                match_line=match_line,
-                rel_path=rel_path,
-                regex=regex,
-                ignore_case=ignore_case,
-                invert_match=invert_match,
-                only_matching=only_matching,
-                include_patterns=include_patterns,
-                exclude_patterns=exclude_patterns,
-                exclude_dir_patterns=exclude_dir_patterns,
-                before_context=before_context,
-                after_context=after_context,
-                include_offsets=include_offsets,
-                safe_limit=safe_limit,
-                per_file_limit=per_file_limit,
-            )
+    if isinstance(ref, str) and ref:
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "code": "snapshot_ref_retired",
+                "message": "This filesystem endpoint reads native repository HEAD.",
+            },
         )
 
     full_path = _join_scope(scope["path"], rel_path)
@@ -1521,9 +1274,6 @@ async def grep(
 # remains as the raw indexed contract for diagnostics and targeted tests.
 
 
-from pydantic import BaseModel as _BaseModel  # local import to keep top of file lean
-
-
 class _GrepIndexedRequest(_BaseModel):
     """Body for ``POST /ap-fs/grep-indexed``.
 
@@ -1739,6 +1489,7 @@ async def grep_indexed(
         x_puppy_client,
         command="grep",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     return ApiResponse.success(
         data=_run_grep_indexed_payload(
             project_id=project_id,
@@ -1782,6 +1533,7 @@ async def read_file(
         x_puppy_client,
         command="cat",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     rel_path = _clean_relative(path)
     if not rel_path:
         raise HTTPException(status_code=400, detail="File path is required")
@@ -1834,6 +1586,7 @@ async def raw_file(
         x_puppy_client,
         command="download",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     rel_path = _clean_relative(path)
     if not rel_path:
         raise HTTPException(status_code=400, detail="File path is required")
@@ -1841,7 +1594,6 @@ async def raw_file(
     start = _query_int(start, 0)
     limit = _query_optional_int(limit)
 
-    full_path = _join_scope(scope["path"], rel_path)
     try:
         if hasattr(ops, "read_file_range_in_scope") or hasattr(ops, "read_file_range"):
             blob = _ops_read_file_range(
@@ -1899,6 +1651,7 @@ async def upload_file(
         x_puppy_client,
         command="upload",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     rel_path = _clean_relative(path)
     if not rel_path:
@@ -1975,6 +1728,7 @@ async def stat(
         x_puppy_client,
         command="stat",
     )
+    ops = ops.for_grant(_auth["_runtime_grant"])
     rel_path = _clean_relative(path)
     _assert_not_excluded(rel_path, scope)
 
@@ -2057,6 +1811,7 @@ async def write_file(
         x_puppy_client,
         command="write",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     rel_path = _clean_relative(body.path)
     if not rel_path:
@@ -2108,6 +1863,7 @@ async def mkdir(
         x_puppy_client,
         command="mkdir",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     rel_path = _clean_relative(body.path)
     if not rel_path:
@@ -2178,6 +1934,7 @@ async def touch(
         x_puppy_client,
         command="touch",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     rel_paths = [_clean_relative(p) for p in (body.paths or [body.path])]
     rel_paths = [p for p in rel_paths if p]
@@ -2283,6 +2040,7 @@ async def move(
         x_puppy_client,
         command="mv",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     old_rel = _clean_relative(body.old_path)
     new_rel = _clean_relative(body.new_path)
@@ -2385,6 +2143,7 @@ async def copy(
         x_puppy_client,
         command="cp",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     old_rel = _clean_relative(body.old_path)
     new_rel = _clean_relative(body.new_path)
@@ -2482,6 +2241,7 @@ async def rmdir(
         x_puppy_client,
         command="rmdir",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     rel_paths = [_clean_relative(p) for p in (body.paths or [body.path])]
     rel_paths = [p for p in rel_paths if p]
@@ -2554,6 +2314,7 @@ async def remove(
         x_puppy_client,
         command="rm",
     )
+    commands = VersionWriteCommandService(commands.ops.for_grant(auth["_runtime_grant"]))
     _ensure_writable(scope)
     rel_paths = [_clean_relative(p) for p in (body.paths or [body.path])]
     rel_paths = [p for p in rel_paths if p]
@@ -2663,6 +2424,7 @@ async def find_index(
         x_puppy_client,
         command="find",
     )
+    ops = ops.for_grant(auth["_runtime_grant"])
     name_value = name if isinstance(name, str) else ""
     iname_value = iname if isinstance(iname, str) else ""
     path_glob_value = path_glob if isinstance(path_glob, str) else ""
@@ -2704,402 +2466,14 @@ async def find_index(
     return ApiResponse.success(data=result)
 
 
-class _ObjectIntegrityRequest(_BaseModel):
-    """Body for ``POST /ap-fs/admin/object-integrity``.
-
-    The endpoint diagnoses (and optionally deletes) corrupt primary-
-    namespace loose-object keys — the residue of pre-Git-native
-    finalize paths that wrote raw payloads under what is now a
-    Git-loose-object key. Read paths fall through to the deferred
-    namespace cleanly (see ``_get_deferred_loose``), but the primary
-    namespace had no equivalent guard until this endpoint shipped,
-    so old projects could still hit ``invalid git loose object`` on
-    re-upload of an affected blob.
-
-    Targeting:
-      * ``hashes``: explicit list. Use this for ops investigating one
-        user-reported failure (the bulk-push error names the hash).
-      * empty list = full scope sweep. Walks every primary loose key
-        under the AP scope and verifies. Slow + S3-LIST heavy, so
-        use sparingly.
-
-    Behaviour matrix:
-      * ``dry_run=true``  (default): report only, never delete.
-      * ``dry_run=false``: delete keys that fail ``_verify_loose_hash``
-        AND are NOT recorded in ``version_object_locations`` (i.e. the
-        object isn't also packed — packed copies are the recovery
-        path). The endpoint refuses to delete a key whose hash is
-        currently referenced by a live commit / tree / blob — we
-        require ops to first run ``--rebuild-cache`` and confirm the
-        canonical store no longer needs it.
-    """
-
-    hashes: list[str] = []
-    dry_run: bool = True
-
-
-@router.post(
-    "/admin/object-integrity",
-    response_model=ApiResponse,
-    summary=(
-        "Diagnose (and optionally delete) corrupt primary-namespace "
-        "loose-object keys that bulk-push re-uploads can't overwrite"
-    ),
-)
-async def admin_object_integrity(
-    body: _ObjectIntegrityRequest,
-    x_access_key: str | None = Header(None, alias="X-Access-Key"),
-    x_puppyone_user: str | None = Header(None, alias="X-PuppyOne-User"),
-    x_puppy_client: str | None = Header(None, alias="X-Puppy-Client"),
-    ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
-):
-    """Detect + heal stuck blobs on legacy projects.
-
-    The repro pattern from production (see PUP bulk-push-520885e2
-    runbook in docs/ops/):
-
-      1. User on an old project attempts to upload a file whose
-         SHA-1 the project's S3 prefix already has stale (non-
-         zlib-loose) bytes under.
-      2. ``async_exists`` HEAD-checks the key → returns True →
-         negotiate thinks the server has the object.
-      3. Server-side reads (``async_get`` / range fetch) return the
-         stale bytes; the engine calls zlib on them; it fails with
-         ``Error -3 while decompressing data: incorrect header check``.
-      4. ``_do_put`` won't re-upload because the key exists.
-
-    The recovery contract: diagnose first (``dry_run=True``), then
-    delete only keys that are clearly corrupt AND not referenced by
-    a current commit. Once deleted, the user's next upload writes
-    fresh bytes via the normal PUT path and the symptom clears.
-
-    Authorisation: AP must be in ``rw`` mode (same gate as other
-    admin endpoints in this router).
-    """
-    import zlib
-
-    from src.version_engine.domain.errors import StorageWriteError
-    from src.version_engine.storage.backends.s3 import (
-        _verify_loose_hash,
-    )
-
-    project_id, _auth, scope = await _resolve_auth(
-        x_access_key,
-        x_puppyone_user,
-        x_puppy_client,
-    )
-    if not is_mode_writable(str(scope.get("mode", "r"))):
-        raise HTTPException(
-            status_code=403,
-            detail="object-integrity admin requires a writable access point",
-        )
-
-    repo = ops._repos.get_server_repo(project_id)  # noqa: SLF001 — admin path
-    # The store wraps the concrete backend in decorators (e.g.
-    # CachedStorageBackend) that don't carry the S3 client / layout. Walk the
-    # ``_inner`` chain to reach the backend that actually exposes them, instead
-    # of assuming ``store._backend`` is the S3 backend directly.
-    backend = getattr(repo.store, "_backend", None) or repo.store
-    for _ in range(8):  # bounded unwrap; guards against a cyclic _inner
-        if (
-            getattr(backend, "_s3", None) is not None
-            and getattr(backend, "_layout", None) is not None
-        ):
-            break
-        inner = getattr(backend, "_inner", None)
-        if inner is None or inner is backend:
-            break
-        backend = inner
-    s3 = getattr(backend, "_s3", None)
-    layout = getattr(backend, "_layout", None)
-    if s3 is None or layout is None:
-        # Not a crash: this deployment's storage backend simply isn't S3-backed
-        # (e.g. filesystem backend in local/dev). 501 communicates "unsupported
-        # here" rather than masquerading as an internal error.
-        raise HTTPException(
-            status_code=501,
-            detail="object-integrity inspection requires an S3-backed store; this deployment's storage backend does not expose one",
-        )
-
-    # Resolve which hashes to check. Empty list = full sweep via
-    # S3 LIST on the project's primary objects prefix.
-    target_hashes: list[str] = []
-    sweep_truncated = False
-    if body.hashes:
-        target_hashes = [h.strip().lower() for h in body.hashes if h.strip()]
-    else:
-        # Full sweep: page through the project's primary objects prefix
-        # via ContinuationToken until exhausted, with a generous hard
-        # cap so a pathological project can't make this endpoint run
-        # unbounded. If the cap is hit we flag ``truncated`` in the
-        # response so ops knows to re-run with explicit hashes.
-        if not hasattr(s3, "list_files"):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "full sweep not supported by this S3 backend; pass "
-                    "an explicit `hashes` list of the failing blobs"
-                ),
-            )
-        prefix = f"{layout.object_prefix}/"
-        _SWEEP_HARD_CAP = 1_000_000  # ~1M loose keys; far above any real project
-        continuation: str | None = None
-        while True:
-            files, _prefixes, next_token, is_truncated = await s3.list_files(
-                prefix=prefix,
-                max_keys=1000,
-                continuation_token=continuation,
-            )
-            for item in files:
-                # key shape: ``<prefix>/<shard>/<rest>``; reconstruct the hash.
-                suffix = item.key[len(prefix) :]
-                parts = suffix.split("/", 1)
-                if len(parts) == 2 and len(parts[0]) == 2 and len(parts[1]) == 38:
-                    target_hashes.append(parts[0] + parts[1])
-            if len(target_hashes) >= _SWEEP_HARD_CAP:
-                sweep_truncated = True
-                break
-            if not is_truncated or not next_token:
-                break
-            continuation = next_token
-
-    diagnosed = []
-    deleted = []
-    failed_to_delete = []
-    skipped_referenced = []
-
-    for h in target_hashes:
-        key = backend._key_for(h)  # noqa: SLF001 — admin path
-        try:
-            data = await s3.download_file(key)
-        except Exception as exc:
-            if _is_not_found_error(exc):
-                continue
-            diagnosed.append(
-                {
-                    "hash": h,
-                    "status": "read_error",
-                    "detail": str(exc)[:200],
-                }
-            )
-            continue
-
-        # Verify both with our framing and a raw zlib check, so we
-        # can distinguish "wrong Git framing" from "not even zlib".
-        verify_error = None
-        zlib_error = None
-        try:
-            _verify_loose_hash(h, data)
-        except StorageWriteError as exc:
-            verify_error = str(exc)
-        try:
-            zlib.decompress(data)
-        except Exception as exc:
-            zlib_error = type(exc).__name__
-
-        if verify_error is None:
-            # Object is fine; skip (don't bloat the report).
-            continue
-
-        entry = {
-            "hash": h,
-            "status": "corrupt_primary_loose",
-            "key": key,
-            "size_bytes": len(data),
-            "verify_error": verify_error,
-            "zlib_error": zlib_error,
-        }
-
-        # Don't delete if the object is also packed — the packed copy
-        # is the safe source, but we shouldn't remove primary while
-        # the read path might still race to it before falling through.
-        # The is-packed check is an ops convenience; the ultimate
-        # safety net is dry_run defaulting to true.
-        is_packed = backend._cached_object_location(h) is not None  # noqa: SLF001
-        if not is_packed:
-            try:
-                is_packed = bool(
-                    backend._lookup_many_object_locations([h]).get(h)  # noqa: SLF001
-                )
-            except Exception:
-                is_packed = False
-        entry["also_packed"] = is_packed
-
-        if body.dry_run:
-            diagnosed.append(entry)
-            continue
-
-        # Only delete after the operator opted in (dry_run=False) AND
-        # we're sure the bytes can be re-derived (object is packed, OR
-        # genuinely just garbage no commit references). We don't ref-
-        # check commits here because the bulk-push error has already
-        # signalled "the user wants to push this hash"; the upload
-        # writes the right bytes back on next attempt.
-        try:
-            await s3.delete_file(key)
-            entry["status"] = "deleted_primary_loose"
-            deleted.append(entry)
-        except Exception as exc:
-            entry["status"] = "delete_failed"
-            entry["delete_error"] = str(exc)[:200]
-            failed_to_delete.append(entry)
-
-    return ApiResponse.success(
-        data={
-            "project_id": project_id,
-            "checked": len(target_hashes),
-            "diagnosed": diagnosed,
-            "deleted": deleted,
-            "failed_to_delete": failed_to_delete,
-            "skipped_referenced": skipped_referenced,
-            "dry_run": body.dry_run,
-            # True only on a full sweep that hit the 1M-key hard cap. Ops
-            # should then re-run targeting explicit hashes from the error log.
-            "sweep_truncated": sweep_truncated,
-        }
-    )
+@router.post("/admin/object-integrity", response_model=ApiResponse)
+async def retired_object_repair():
+    raise HTTPException(status_code=410, detail="Physical object repair is an operator task")
 
 
 @router.post("/admin/fs-index/rebuild", response_model=ApiResponse)
-async def rebuild_fs_index(
-    x_access_key: str | None = Header(None, alias="X-Access-Key"),
-    x_puppyone_user: str | None = Header(None, alias="X-PuppyOne-User"),
-    x_puppy_client: str | None = Header(None, alias="X-Puppy-Client"),
-    ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
-):
-    """H5: drop and rebuild ``fs_path_index`` rows for this project.
-
-    Used after manual DB surgery, missed outbox events, or after a
-    schema migration that widened the index. Requires the access point
-    to be in ``rw`` mode — same gate as any write operation, so any
-    misuse is captured in the standard audit flow.
-    """
-
-    project_id, _auth, scope = await _resolve_auth(x_access_key, x_puppyone_user, x_puppy_client)
-    if not is_mode_writable(str(scope.get("mode", "r"))):
-        raise HTTPException(status_code=403, detail="rebuild requires a writable access point")
-
-    repo = ops._repos.get_server_repo(project_id)  # noqa: SLF001 — admin path
-    from src.version_engine.derived.path_index import (
-        rebuild_fs_path_index_for_project,
-    )
-
-    touched = await asyncio.to_thread(rebuild_fs_path_index_for_project, repo, project_id)
-    return ApiResponse.success(
-        data={
-            "project_id": project_id,
-            "rows_written": touched,
-        }
-    )
-
-
 @router.post("/admin/text-index/rebuild", response_model=ApiResponse)
-async def rebuild_text_index(
-    path: str = Query("", description="Subpath under the scope to reindex (default: whole scope)"),
-    x_access_key: str | None = Header(None, alias="X-Access-Key"),
-    x_puppyone_user: str | None = Header(None, alias="X-PuppyOne-User"),
-    x_puppy_client: str | None = Header(None, alias="X-Puppy-Client"),
-    ops: ProductOperationAdapter = Depends(get_product_operation_adapter),
-):
-    """Rebuild the grep text index (``version_text_index``) for this
-    AP scope by walking the current tree and re-indexing every text
-    file.
-
-    The post-commit indexer keeps the index fresh on the hot path, but
-    a project that pre-dates the indexer — or whose index fell behind /
-    got partially wiped — has no other way to catch up: ``grep-indexed``
-    would keep returning ``stale`` / ``missing`` and fall back to the
-    slow S3 scan forever. This endpoint is the bootstrap / repair path
-    referenced by ``text_indexer.reindex_blobs``.
-
-    Requires ``rw`` mode (same gate as any write). After it runs, the
-    project-root freshness watermark is bumped to current HEAD so
-    ``grep-indexed`` reports ``indexed`` for the scope.
-    """
-    from src.infra.search.text_indexer import IndexableBlob, reindex_blobs
-
-    # No ``command=`` — this is an admin rebuild gated by ``rw`` mode,
-    # same as the sibling ``/admin/fs-index/rebuild``. The CLI FS
-    # command allow-list has no "reindex" verb, and routing a write-side
-    # rebuild through the read-side ``grep`` allow-list would be a
-    # category error; the writable-mode check below is the real gate.
-    project_id, _auth, scope = await _resolve_auth(
-        x_access_key,
-        x_puppyone_user,
-        x_puppy_client,
-    )
-    if not is_mode_writable(str(scope.get("mode", "r"))):
-        raise HTTPException(
-            status_code=403,
-            detail="text-index rebuild requires a writable access point",
-        )
-    rel_path = _clean_relative(path)
-    _assert_not_excluded(rel_path, scope)
-
-    head_commit_id = ops.get_head_commit_id(project_id) or ""
-
-    # Walk the full tree under the scope, read every text file's bytes,
-    # and build the blob list. Mirrors the candidate-gathering in
-    # ``grep`` but with no pattern filter.
-    tree_entries = _filter_entries(
-        _ops_list_tree(
-            ops,
-            project_id,
-            scope,
-            rel_path,
-            max_depth=-1,
-            include_size=False,
-        ),
-        scope,
-        include_hidden=True,
-    )
-
-    def _build_blobs() -> tuple[list, int, int]:
-        blobs: list = []
-        scanned = 0
-        for entry in tree_entries:
-            if entry.type == "folder":
-                continue
-            if not _looks_text_entry(entry):
-                continue
-            rel_entry_path = _relative_to_scope(entry.path, scope["path"])
-            try:
-                data = _ops_read_file(ops, project_id, scope, rel_entry_path)
-            except FileNotFoundError:
-                continue
-            except Exception:
-                # Skip unreadable files; a reindex is best-effort and
-                # one bad blob shouldn't abort the whole rebuild.
-                continue
-            scanned += 1
-            blobs.append(
-                IndexableBlob(
-                    project_id=project_id,
-                    # scope_path="" matches the query-side convention: the
-                    # read path narrows by file_path prefix, not this column.
-                    scope_path="",
-                    file_path=entry.path,
-                    content_hash=(
-                        getattr(entry, "content_hash", None) or f"{head_commit_id}:{entry.path}"
-                    ),
-                    data=data,
-                )
-            )
-        written = reindex_blobs(
-            project_id=project_id,
-            indexed_commit_id=head_commit_id,
-            blobs=blobs,
-        )
-        return blobs, scanned, written
-
-    _blobs, scanned_files, chunks_written = await asyncio.to_thread(_build_blobs)
-
-    return ApiResponse.success(
-        data={
-            "project_id": project_id,
-            "scope": _join_scope(scope["path"], rel_path).strip("/"),
-            "head_commit_id": head_commit_id,
-            "files_indexed": scanned_files,
-            "chunks_written": chunks_written,
-        }
+async def rebuild_native_index():
+    raise HTTPException(
+        status_code=410, detail="Native indexes rebuild automatically from ref changes"
     )

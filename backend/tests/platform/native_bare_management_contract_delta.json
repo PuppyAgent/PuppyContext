@@ -1,0 +1,20 @@
+{
+  "changed_paths": {
+    "/api/v1/content/{project_id}/head": {
+      "after": "aac443ad5d6848b76fa6b188f574882d4472d9581b3b1fc5af8a4d8a18fe7152",
+      "before": "05898f7f145bff8a62857dda6bb745fe1d736699626afeb52debcbae0b6ff323"
+    }
+  },
+  "changed_schemas": {
+    "ProjectCreate": {
+      "after": "634f34cfab1cb659a6b9ff83f651efd3586ebf1e5f7a9c4f35e5df887599b64d",
+      "before": "685093e4372535f365bd1d43ff4583ec24cd8bc2c8353b95dc7445771fec6acc"
+    }
+  },
+  "paths": {},
+  "schemas": {
+    "NativeRepositoryCreate": "9b8e193d8e05383c9f0820be0e9c2542884f2619bb8502c3a41579bb46ce3f18",
+    "RepositoryHeadState": "93cff2cfd7b7c612723c600db294d4527ea73ccd36e8497581f2eed24e476b93",
+    "RepositoryHeadUpdate": "23b59fa70611ac248d4961894c62b0d49e60b777ad0e8c29ea33630d421f9161"
+  }
+}

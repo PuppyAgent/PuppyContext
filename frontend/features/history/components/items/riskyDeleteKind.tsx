@@ -28,7 +28,7 @@ import React from 'react';
  * be worse than no button. Users undo from History → the commit → rollback.
  *
  * Data source is the project history API (``audit_detail`` is now
- * plumbed onto each commit), not ``mut_conflicts``. Snooze is keyed by
+ * plumbed onto each commit), not ``version_conflicts``. Snooze is keyed by
  * commit_id so an acknowledged delete stays hidden.
  */
 

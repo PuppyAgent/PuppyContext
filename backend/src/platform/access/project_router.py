@@ -1,54 +1,48 @@
-"""HTTP API for connectors CRUD + run orchestration.
-
-Mounted at /api/v1/projects/{project_id}/connectors.
-"""
+"""Project Access operations; public_router owns the resource HTTP boundary."""
 
 from __future__ import annotations
 
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query
 
 from src.common_schemas import ApiResponse
 from src.exceptions import AppException
+from src.platform.access.models import AccessSurface
+from src.platform.access.router import _contains_secret_config_key, _redact_config, _require_access_identity
+from src.platform.access import public_schemas as contracts
+from src.platform.access.service import AccessService
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
 from src.platform.authorization.dependencies import AuthorizedProject, require_project_action
 from src.platform.authorization.models import ProjectAction
-from src.platform.repository_target.protocol import require_repository_target_contract
-from src.platform.repository_target.schemas import repository_target_domain, repository_target_schema
-from src.platform.access.service import AccessService
-from src.platform.access.models import AccessSurface
-from src.repo.schemas import (
-    ConnectorIn, ConnectorPatch, ConnectorOut, TargetAccessEnableIn,
+from src.platform.repository_target.schemas import (
+    repository_target_domain,
+    repository_target_schema,
 )
-
-
-router = APIRouter(
-    prefix="/projects/{project_id}/connectors",
-    tags=["connectors"],
-    dependencies=[Depends(require_repository_target_contract)],
-)
-
 
 def get_access_service() -> AccessService:
     return AccessService()
 
 
-def _to_out(c: AccessSurface) -> ConnectorOut:
-    return ConnectorOut(
+def _reject_credential_metadata(*values) -> None:
+    if any(_contains_secret_config_key(value) for value in values):
+        raise HTTPException(400, "Credentials cannot be written through Access metadata; use explicit credential issuance.")
+
+
+def _to_out(c: AccessSurface) -> contracts.AccessSurface:
+    _require_access_identity(c.kind, c.trigger)
+    return contracts.AccessSurface(
         id=c.id,
+        project_id=c.project_id,
         target=repository_target_schema(c.target),
-        provider=c.kind,
+        kind=c.kind,
         name=c.name,
         direction=c.direction,                    # type: ignore[arg-type]
-        config=c.config,
-        policy=c.policy,
+        config=_redact_config(c.config),
+        policy=_redact_config(c.policy),
         oauth_connection_id=c.oauth_connection_id,
-        trigger=c.trigger,
+        trigger=_redact_config(c.trigger),
         status=c.status,
-        last_run_at=c.last_run_at,
-        last_run_id=c.last_run_id,
+        last_activity_at=c.last_run_at,
         error_message=c.error_message,
         created_by=c.created_by,
         created_at=c.created_at,
@@ -56,21 +50,9 @@ def _to_out(c: AccessSurface) -> ConnectorOut:
     )
 
 
-@router.get(
-    "",
-    response_model=ApiResponse[list[ConnectorOut]],
-    summary="List connectors (optionally filtered)",
-)
 def list_connectors(
-    provider: Optional[str] = Query(None),
-    direction: Optional[str] = Query(None),
-    include_non_access: bool = Query(
-        False,
-        description=(
-            "Include legacy import-only connector rows. The default response "
-            "contains only ongoing Access methods."
-        ),
-    ),
+    provider: str | None = Query(None),
+    direction: str | None = Query(None),
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_READ)
     ),
@@ -80,30 +62,26 @@ def list_connectors(
         str(authorized.project.id),
         kind=provider,
         direction=direction,
-        access_surface_only=not include_non_access,
+        # Unexpected historical source rows require repair, not empty success.
+        access_surface_only=False,
     )
     return ApiResponse.success(data=[_to_out(c) for c in items], message="Connectors listed")
 
 
-@router.post(
-    "",
-    response_model=ApiResponse[ConnectorOut],
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a third-party connector",
-)
 def create_connector(
-    payload: ConnectorIn,
+    payload: contracts.AccessSurfaceCreate,
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_MANAGE)
     ),
     current_user: CurrentUser = Depends(get_current_user),
     service: AccessService = Depends(get_access_service),
 ):
+    _reject_credential_metadata(payload.config, payload.policy, payload.trigger.model_dump() if payload.trigger else None)
     try:
         c = service.create(
             project_id=str(authorized.project.id),
             target=repository_target_domain(payload.target),
-            kind=payload.provider,
+            kind=payload.kind,
             direction=payload.direction,
             name=payload.name,
             config=payload.config,
@@ -117,13 +95,8 @@ def create_connector(
     return ApiResponse.success(data=_to_out(c), message="Connector created")
 
 
-@router.post(
-    "/enable-target",
-    response_model=ApiResponse[list[ConnectorOut]],
-    summary="Enable Git and CLI for one repository target",
-)
 def enable_target_access(
-    payload: TargetAccessEnableIn,
+    payload: contracts.AccessTargetEnable,
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_MANAGE)
     ),
@@ -147,14 +120,9 @@ def enable_target_access(
     )
 
 
-@router.patch(
-    "/{connector_id}",
-    response_model=ApiResponse[ConnectorOut],
-    summary="Update connector fields",
-)
 def update_connector(
     connector_id: str,
-    payload: ConnectorPatch,
+    payload: contracts.AccessSurfaceUpdate,
     authorized: AuthorizedProject = Depends(
         require_project_action(ProjectAction.ACCESS_MANAGE)
     ),
@@ -163,9 +131,10 @@ def update_connector(
     existing = service.get(connector_id)
     if existing is None or existing.project_id != str(authorized.project.id):
         raise HTTPException(status_code=404, detail="Connector not found")
+    _reject_credential_metadata(payload.config, payload.policy, payload.trigger.model_dump() if payload.trigger else None)
     patch = payload.model_dump(exclude_unset=True)
     if "trigger" in patch and patch["trigger"] is not None:
-        # Pydantic gave us a TriggerSpec dict-like; pass through.
+        # The canonical trigger is already a dictionary after model_dump.
         patch["trigger"] = dict(patch["trigger"])
     try:
         updated = service.update(connector_id, patch)
@@ -176,11 +145,6 @@ def update_connector(
     return ApiResponse.success(data=_to_out(updated), message="Connector updated")
 
 
-@router.post(
-    "/{connector_id}/activate-agent",
-    response_model=ApiResponse[ConnectorOut],
-    summary="Activate the built-in AI Agent connector",
-)
 def activate_agent_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -200,33 +164,6 @@ def activate_agent_connector(
     return ApiResponse.success(data=_to_out(updated), message="Agent connector activated")
 
 
-@router.post(
-    "/{connector_id}/run",
-    response_model=ApiResponse[dict],
-    summary="Trigger a connector run now",
-)
-async def run_connector(
-    connector_id: str,
-    authorized: AuthorizedProject = Depends(
-        require_project_action(ProjectAction.AUTOMATION_RUN)
-    ),
-    service: AccessService = Depends(get_access_service),
-):
-    existing = service.get(connector_id)
-    if existing is None or existing.project_id != str(authorized.project.id):
-        raise HTTPException(status_code=404, detail="Connector not found")
-    try:
-        run_id = await service.run_now(connector_id)
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
-    return ApiResponse.success(data={"run_id": run_id}, message="Run triggered")
-
-
-@router.post(
-    "/{connector_id}/pause",
-    response_model=ApiResponse[None],
-    summary="Pause a connector",
-)
 def pause_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -241,11 +178,6 @@ def pause_connector(
     return ApiResponse.success(message="Connector paused")
 
 
-@router.post(
-    "/{connector_id}/resume",
-    response_model=ApiResponse[None],
-    summary="Resume a connector",
-)
 def resume_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(
@@ -260,11 +192,6 @@ def resume_connector(
     return ApiResponse.success(message="Connector resumed")
 
 
-@router.delete(
-    "/{connector_id}",
-    response_model=ApiResponse[None],
-    summary="Delete a non-builtin connector",
-)
 def delete_connector(
     connector_id: str,
     authorized: AuthorizedProject = Depends(

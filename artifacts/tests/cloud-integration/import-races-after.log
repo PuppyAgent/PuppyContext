@@ -1,0 +1,13 @@
+
+> context-base-ui@0.0.3 test:unit
+> vitest run --no-cache tests/workspace/task-refresh.test.tsx tests/workspace/task-lifetime.test.tsx
+
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  08:49:08
+   Duration  1.68s (transform 577ms, setup 338ms, import 737ms, tests 859ms, environment 940ms)

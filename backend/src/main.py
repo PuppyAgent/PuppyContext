@@ -124,13 +124,13 @@ from src.platform.profile.router import router as profile_router
 profile_router_duration = time.time() - profile_router_start
 
 imports_router_start = time.time()
-from src.platform.activity.router import router as activity_router
+from src.platform.activity.public_router import router as activity_public_router
 from src.platform.imports.router import router as imports_router
 
 imports_router_duration = time.time() - imports_router_start
 
 database_import_router_start = time.time()
-from src.platform.imports.database.router import router as database_import_router
+from src.platform.imports.database.public_router import router as import_database_sources_router
 
 database_import_router_duration = time.time() - database_import_router_start
 
@@ -248,7 +248,7 @@ async def _init_file_ingest() -> None:
         log_info("📄 Initializing File Ingest service...")
         from pathlib import Path
 
-        from src.ingest.file.dependencies import get_etl_service
+        from src.platform.upload.dependencies import get_etl_service
 
         file_ingest_service = await get_etl_service()
         Path(".mineru_cache").mkdir(parents=True, exist_ok=True)
@@ -283,51 +283,6 @@ def _init_provider_registry() -> None:
         registry_duration = time.time() - registry_init_start
         log_error(
             f"❌ ProviderRegistry initialization failed (took: {registry_duration * 1000:.2f}ms): {e}"
-        )
-
-
-async def _init_version_trees() -> None:
-    """Auto-initialize empty Version Engine trees for projects missing a root."""
-    version_init_start = time.time()
-    try:
-        log_info("🌳 Checking and initializing Version Engine trees...")
-        from src.infra.supabase.client import SupabaseClient as _SC
-        from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
-        from src.version_engine.infrastructure.supabase.db_names import PROJECT_ROOT_HASH_COLUMN
-
-        _sb = _SC()
-        resp = (
-            _sb.client.table("projects")
-            .select("id")
-            # Startup compatibility repair is only for already-published
-            # legacy rows. New initializing rows belong exclusively to the
-            # durable creation reconciler; in particular, a deferred/template
-            # publication must never be replaced by an empty root here.
-            .eq("lifecycle_status", "ready")
-            .or_(f"{PROJECT_ROOT_HASH_COLUMN}.is.null,{PROJECT_ROOT_HASH_COLUMN}.eq.")
-            .execute()
-        )
-        uninit_projects = resp.data or []
-        if uninit_projects:
-            _writer = build_worker_version_engine_container().admin_service()
-            for row in uninit_projects:
-                try:
-                    await _writer.init_tree(row["id"])
-                except Exception as init_err:
-                    log_error(
-                        f"  ❌ Failed to init Version Engine tree for {row['id']}: {init_err}"
-                    )
-            log_info(f"  ✅ Initialized Version Engine tree for {len(uninit_projects)} project(s)")
-        else:
-            log_info("  ✅ All projects already have a Version Engine tree")
-        version_init_duration = time.time() - version_init_start
-        log_info(
-            f"✅ Version Engine tree check completed (took: {version_init_duration * 1000:.2f}ms)"
-        )
-    except Exception as e:
-        version_init_duration = time.time() - version_init_start
-        log_error(
-            f"❌ Version Engine tree initialization failed (took: {version_init_duration * 1000:.2f}ms): {e}"
         )
 
 
@@ -447,6 +402,7 @@ def _init_storage_reconciler(app: FastAPI) -> None:
 
     service = StorageReconciliationService(
         repo_manager=app.state.version_engine.repo_manager,
+        checked_reconciler=app.state.version_engine.repo_manager.create_usage_reconciler(),
     )
     stop_event = asyncio.Event()
 
@@ -491,7 +447,7 @@ async def _shutdown_services() -> None:
 
     if settings.etl_enabled:
         try:
-            from src.ingest.file.dependencies import get_etl_service
+            from src.platform.upload.dependencies import get_etl_service
 
             file_ingest_service = await get_etl_service()
             await file_ingest_service.stop()
@@ -521,32 +477,12 @@ async def app_lifespan(app: FastAPI):
         probe=settings.APP_ENV not in {"development", "test"},
     )
 
-    # Wire the outbox → agent-resolver bridge. Until a real runner
-    # is installed via ``AgentResolverDispatcher.install(...)`` the
-    # outbox hook gracefully defers agent-kind pending rows (logging
-    # the deferral) — agent_review / agent_auto_resolve policies
-    # still queue conflicts but they'll wait for a human in the
-    # interim. The hook itself is a thin router; install your agent
-    # backend wherever you boot model integration (typically in the
-    # workers, e.g. ARQ ``WorkerSettings.on_startup``).
-    from src.version_engine.derived.agent_resolver import (
-        AgentResolverDispatcher,
-        NoopAgentRunner,
-        agent_resolver_outbox_hook,
-    )
-    from src.version_engine.derived.outbox import register_pending_conflict_hook
-
-    register_pending_conflict_hook(agent_resolver_outbox_hook)
-    if AgentResolverDispatcher.get() is None:
-        AgentResolverDispatcher.install(NoopAgentRunner())
-
     _log_import_times()
 
     await _init_mcp_health_check()
     await _init_scheduler()
     await _init_file_ingest()
     _init_provider_registry()
-    await _init_version_trees()
     _init_scope_sandbox_reaper(app)
     _init_entitlement_provisioner(app)
     _init_seat_proposal_worker(app)
@@ -640,6 +576,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-PuppyOne-Repository-Revision"],
     )
     cors_duration = time.time() - cors_start
 
@@ -647,6 +584,9 @@ def create_app() -> FastAPI:
     from src.utils.middleware import RequestContextMiddleware
 
     app.add_middleware(RequestContextMiddleware)
+    from src.platform.access.adapters.agent.runtime.telemetry import AgentDatabaseTelemetry
+
+    app.add_middleware(AgentDatabaseTelemetry)
 
     # Keep lifecycle admission outside Version Engine internals while making
     # every FastAPI Product command hold a renewable Project write lease.
@@ -708,12 +648,6 @@ def create_app() -> FastAPI:
     from src.version_engine.entrypoints.http.audit import router as audit_router
 
     app.include_router(audit_router, prefix="/api/v1", tags=["audit-logs"])
-    from src.version_engine.entrypoints.http.conflict import router as conflict_router
-
-    app.include_router(conflict_router, prefix="/api/v1/content", tags=["conflicts"])
-    from src.version_engine.entrypoints.http.shadow_snapshot import router as shadow_router
-
-    app.include_router(shadow_router, prefix="/api/v1", tags=["shadow-snapshots"])
     from src.version_engine.entrypoints.git.router import router as git_protocol_router
 
     app.include_router(
@@ -721,6 +655,13 @@ def create_app() -> FastAPI:
         tags=["git-protocol"],
         dependencies=[Depends(git_project_write_lease)],
     )
+    # Metadata/results use current Runtime authorization in their own handlers,
+    # not the transport-cache lease (whose acquisition is itself a mutation).
+    from src.version_engine.entrypoints.git.operations import (
+        operations_router as git_metadata_router,
+    )
+
+    app.include_router(git_metadata_router, prefix="/git", tags=["git-protocol"])
     # WebSocket /ws — server→client commit_update notifications.
     from src.version_engine.entrypoints.http.websocket import ws_router as version_ws_router
 
@@ -731,40 +672,34 @@ def create_app() -> FastAPI:
     from src.platform.workspace.router import router as workspace_router
 
     app.include_router(workspace_router, prefix="/api/v1", tags=["workspace"])
-    from src.platform.synchronize.router import router as synchronize_router
+    from src.platform.synchronize.public_router import router as synchronize_public_router
 
-    app.include_router(synchronize_router, prefix="/api/v1", tags=["integrations"])
-    # GitHub Synchronize: bind a project to a (repo, branch) pair, run
-    # imports/exports, receive webhooks. Two routers because the webhook
-    # callback isn't per-project.
-    from src.platform.synchronize.github.router import (
-        router as github_sync_router,
-    )
-    from src.platform.synchronize.github.router import (
-        webhook_router as github_webhook_router,
+    app.include_router(synchronize_public_router, prefix="/api/v1")
+    # Final resource release: only canonical binding/pull/push/webhook contracts.
+    from src.platform.synchronize.github.public_router import router as synchronize_github_router
+    from src.platform.synchronize.github.public_router import (
+        webhook_router as synchronize_github_webhook_router,
     )
 
-    app.include_router(github_sync_router, tags=["github-integration"])
-    app.include_router(github_webhook_router, tags=["github-integration"])
+    app.include_router(synchronize_github_router)
+    app.include_router(synchronize_github_webhook_router)
     from src.platform.scope_sandbox.router import router as scope_sandbox_router
 
     app.include_router(scope_sandbox_router, tags=["scope-sandboxes"])
-    from src.platform.scope_sync.router import router as scope_sync_router
-
-    app.include_router(scope_sync_router, tags=["scope-sync"])
     from src.platform.auth.router import router as auth_router
 
     app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
     app.include_router(analytics_router, tags=["analytics"])
     app.include_router(profile_router, tags=["profile"])
     app.include_router(imports_router, prefix="/api/v1", tags=["imports"])
-    app.include_router(activity_router, prefix="/api/v1", tags=["activity"])
-    app.include_router(database_import_router, prefix="/api/v1", tags=["db-connector"])
+    app.include_router(activity_public_router, prefix="/api/v1", tags=["activity"])
+    app.include_router(import_database_sources_router, prefix="/api/v1")
     app.include_router(organization_router, prefix="/api/v1", tags=["organizations"])
     from src.platform.billing.router import router as billing_router
 
     app.include_router(billing_router, prefix="/api/v1", tags=["billing"])
-    from src.platform.managed_ai.router import router as managed_ai_router, internal_router as managed_ai_internal_router
+    from src.platform.managed_ai.router import internal_router as managed_ai_internal_router
+    from src.platform.managed_ai.router import router as managed_ai_router
 
     app.include_router(managed_ai_router, prefix="/api/v1")
     app.include_router(managed_ai_internal_router)
@@ -774,27 +709,29 @@ def create_app() -> FastAPI:
     from src.platform.landing.router import router as landing_router
 
     app.include_router(landing_router, prefix="/api/v1", tags=["landing"])
-    from src.platform.access.adapters.sandbox_endpoint.router import router as sandbox_endpoint_router
+    from src.platform.access.adapters.sandbox_endpoint.router import (
+        router as sandbox_endpoint_router,
+    )
 
     app.include_router(sandbox_endpoint_router, prefix="/api/v1", tags=["sandbox-endpoints"])
-    from src.platform.project.dashboard_router import router as dashboard_router
+    from src.platform.project.resource_dashboard import router as resource_dashboard_router
 
-    app.include_router(dashboard_router, prefix="/api/v1", tags=["projects"])
-    from src.platform.access.router import router as access_router
+    app.include_router(resource_dashboard_router, prefix="/api/v1", tags=["projects"])
+    from src.platform.access.public_router import project_router as public_project_access_router
+    from src.platform.access.public_router import router as public_access_router
 
-    app.include_router(access_router, prefix="/api/v1", tags=["access"])
+    app.include_router(public_access_router, prefix="/api/v1")
+    app.include_router(public_project_access_router, prefix="/api/v1")
     from src.provider.accounts.router import router as gateway_router
 
     app.include_router(gateway_router, prefix="/api/v1", tags=["gateways"])
 
-    # Repository data-plane surface: scope CRUD, repo identity, connectors.
-    from src.platform.access.project_router import router as project_access_router
+    # Repository identity is separate from Access resource inventory.
     from src.repo.identity_router import router as repo_identity_router
     from src.repo.scope_router import router as repo_scope_router
 
     app.include_router(repo_scope_router, prefix="/api/v1", tags=["repo-scopes"])
     app.include_router(repo_identity_router, prefix="/api/v1", tags=["repo-identity"])
-    app.include_router(project_access_router, prefix="/api/v1", tags=["connectors"])
     router_register_duration = time.time() - router_register_start
 
     # Register exception handlers

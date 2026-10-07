@@ -3,14 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).parents[3]
-MIGRATION = ROOT / (
-    "supabase/archive/before_b1/migrations/"
-    "20260716020000_project_deletion_storage_and_org_guard.sql"
-)
+MIGRATION = ROOT / "supabase/migrations/20261007070000_expand_native_deletion_prefixes.sql"
 VERSION_STORAGE = ROOT / "backend/src/version_engine/storage/backends/s3.py"
-SHADOW_SNAPSHOTS = ROOT / ("backend/src/version_engine/entrypoints/http/shadow_snapshot.py")
+RECOVERY_ARCHIVE = ROOT / "supabase/data_migrations/20261007_repository_recovery_archive/run.py"
 INGEST_ROUTER = ROOT / "backend/src/platform/upload/handlers.py"
-INGEST_JOBS = ROOT / "backend/src/ingest/file/jobs/jobs.py"
+INGEST_JOBS = ROOT / "backend/src/platform/upload/jobs.py"
 LANDING = ROOT / "backend/src/platform/landing/service.py"
 
 
@@ -21,15 +18,14 @@ def _read(path: Path) -> str:
 def test_cleanup_manifest_covers_every_project_owned_object_layout() -> None:
     migration = _read(MIGRATION)
     version = _read(VERSION_STORAGE)
-    shadow = _read(SHADOW_SNAPSHOTS)
+    recovery = _read(RECOVERY_ARCHIVE)
     ingest_router = _read(INGEST_ROUTER)
     ingest_jobs = _read(INGEST_JOBS)
 
-    # Canonical + deferred immutable Git object namespaces.
+    # Runtime uses only the canonical immutable Git object namespace.
     assert '_CANONICAL_STORAGE_NAMESPACE = "version"' in version
-    assert '_DEFERRED_STORAGE_NAMESPACE = "".join(("m", "ut"))' in version
+    assert "_DEFERRED_STORAGE_NAMESPACE" not in version
     assert "'version/' || p_project_id || '/'" in migration
-    assert "'mut/' || p_project_id || '/'" in migration
 
     # Current upload staging/final-source namespace.
     assert 'f"projects/{project_id}/files/' in ingest_router
@@ -38,7 +34,7 @@ def test_cleanup_manifest_covers_every_project_owned_object_layout() -> None:
 
     # Local-only manifests are S3 objects even though their ownership row is
     # removed by the Project FK cascade.
-    assert 'f"shadow-snapshots/{project_id}/{snapshot_id}/manifest.json"' in shadow
+    assert 'f"shadow-snapshots/{self.project}/"' in recovery
     assert "'shadow-snapshots/' || p_project_id || '/'" in migration
 
     # Historical ETL layouts put the user before the Project in the key, so

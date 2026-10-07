@@ -1,0 +1,969 @@
+{
+  "frontend/app/(main)/layout.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/_components/ProjectAccessPanel.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/access/page.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/develop/logs/page.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/home/components/AccessPointsListCard.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/home/components/TreeRows.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/home/page.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/toolkit/page.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowCatalog.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 7
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowNodeForms.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowNodes.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowPrimitives.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowRuns.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/(main)/projects/[projectId]/workflows/hooks/useWorkflowController.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/app/(main)/settings/layout.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/app/(main)/team/page.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/api/backend/[...path]/route.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/dev/loading/page.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/app/invite/[token]/page.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/login/page.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/app/share/[token]/page.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/ActivityIconButton.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/components/AppSidebar.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/components/ConnectContentView.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 6
+    }
+  },
+  "frontend/components/CrawlOptionsPanel.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/ItemActionMenu.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/MoveToDialog.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/ProjectGitHealthBadge.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/components/ProjectManageDialog.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/ProjectWorkspaceView.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/components/RightAuxiliaryPanel/DocumentEditor.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/SupabaseConnectDialog.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/SupabaseSQLEditorDialog.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/TableManageDialog.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/components/TaskStatusWidget.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/components/UserMenuPanel.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 8
+    }
+  },
+  "frontend/components/agent/views/AgentDetailView.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 6
+    }
+  },
+  "frontend/components/agent/views/ChatRuntimeView.tsx": {
+    "complexity": {
+      "count": 3
+    },
+    "max-depth": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/agent/views/McpConnectionView.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/agent/views/SyncDetailView.tsx": {
+    "complexity": {
+      "count": 2
+    },
+    "no-nested-ternary": {
+      "count": 10
+    }
+  },
+  "frontend/components/agent/views/configs/ChatAgentConfig.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/components/agent/views/configs/SaaSyncConfig.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 6
+    }
+  },
+  "frontend/components/agent/views/configs/ScheduleAgentConfig.tsx": {
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/components/agent/views/configs/SyncPreview.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/components/agent/views/configs/SyncTargetConfig.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 7
+    }
+  },
+  "frontend/components/chat/MarkdownRenderer.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/code/MonacoJsonEditor.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-depth": {
+      "count": 2
+    }
+  },
+  "frontend/components/editors/spreadsheet/CsvTableViewer.tsx": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 5
+    }
+  },
+  "frontend/components/editors/table/JsonEditorComponent.tsx": {
+    "max-depth": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/table/TableDiscreteEditor.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/table/components/ContextMenu.tsx": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/table/components/ImportModal.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/table/components/NodeContextMenu.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/table/components/ValueRenderer.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/editors/table/components/VirtualRow.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/components/file-import/FileImportDialog.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/components/onboarding/GettingStartedPanel.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/project/ProjectSettingsDialog.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/sidebar/ProjectSwitcher.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/sidebar/ResponsiveDrawer.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/sidebar/SidebarLayout.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/components/sidebar/WorkspaceProjectRail.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/templates/TemplateCatalogView.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/components/templates/TemplateDetailView.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/ui/Field.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/components/ui/ToggleSwitch.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/contexts/AgentContext.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/contexts/VersionWebSocketContext.tsx": {
+    "react-hooks/rules-of-hooks": {
+      "count": 1
+    }
+  },
+  "frontend/features/access/components/ConnectorCard.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 7
+    }
+  },
+  "frontend/features/access/components/ConnectorConnectDialog.tsx": {
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/features/access/components/ConnectorMethodList.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/access/components/ConnectorMethodRow.tsx": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 15
+    }
+  },
+  "frontend/features/access/components/CreateAccessModal.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/features/access/components/FolderAccessTree.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/access/components/McpConnectCard.tsx": {
+    "no-nested-ternary": {
+      "count": 5
+    }
+  },
+  "frontend/features/access/components/SandboxConnectCard.tsx": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 13
+    }
+  },
+  "frontend/features/access/components/ScopeDetailPanel.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/access/components/ScopeHeader.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/access/components/ScopeSidebar.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/access/components/SyncActivityPanel.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/access/lib/format.ts": {
+    "no-nested-ternary": {
+      "count": 6
+    }
+  },
+  "frontend/features/auth/auth-errors.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/FileWorkspaceQueriesProvider.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/FilesWorkspace.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/files/components/DataNoFileSelectedState.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/features/files/components/DataPageOverlays.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/features/files/components/DataWorkspaceSurface.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/files/components/SyncConfigPanel.tsx": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/access-points/AccessPointRow.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/features/files/components/access-points/AccessPointsListPanel.tsx": {
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/features/files/components/access-points/DataAccessQuickModal.tsx": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/access-points/ScopeSettingsBlock.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/access-points/ScopedConnectorsListPanel.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/features/files/components/access-points/connect-methods/CliCredentialIssuePanel.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/access-points/connect-methods/GitCredentialIssuePanel.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/features/files/components/access-points/connect-methods/MethodCard.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/access-points/connect-methods/PromptBlock.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/access-points/utils.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/explorer/ExplorerRowActions.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/explorer/ExplorerRowMenus.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/files/components/explorer/ExplorerSidebar.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/explorer/ExplorerTreeRow.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 12
+    }
+  },
+  "frontend/features/files/components/github-integration/GithubBoundPanel.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/right-panel/DataPageRightPanel.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/components/views/GridView.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/features/files/components/views/ListView.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 4
+    }
+  },
+  "frontend/features/files/editor/session.ts": {
+    "max-depth": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/hooks/useDataCreateFlow.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/files/hooks/useDataGridController.ts": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/files/usePathResolver.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/features/history/GitWorkspace.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 5
+    }
+  },
+  "frontend/features/history/components/CommitDetail.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 8
+    }
+  },
+  "frontend/features/history/components/CommitTimeline.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/history/components/items/conflictKind.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/features/projects/components/imports/github/GithubImportJobWorkspaceState.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/features/projects/components/imports/github/githubImportUtils.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/workspace/navigation/routes.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/features/workspace/usePaneMotion.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/lib/apiClient.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/lib/conflictMarkers.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/lib/contentTreeApi.ts": {
+    "max-params": {
+      "count": 1
+    }
+  },
+  "frontend/lib/fileIcons.tsx": {
+    "no-nested-ternary": {
+      "count": 3
+    }
+  },
+  "frontend/lib/hooks/useData.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/lib/importApi.ts": {
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/lib/uploadApi.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/packages/cloud-core/src/endpoints/activity.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/packages/cloud-core/src/endpoints/resourceDashboard.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/core/fileFormats.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/data/DataWorkspace.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/data/ExplorerTree.tsx": {
+    "complexity": {
+      "count": 2
+    },
+    "no-nested-ternary": {
+      "count": 2
+    }
+  },
+  "frontend/shared-ui/src/data/FilePreview.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/EditorHost.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/PuppyoneEditorHost.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/ai-edits/diff.ts": {
+    "max-params": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/conflictMarkers.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/markdown/markdownAiEditExtension.ts": {
+    "max-params": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/markdown/markdownCodeMirrorExtensions.ts": {
+    "max-lines": {
+      "count": 1
+    },
+    "max-params": {
+      "count": 5
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/markdown/rendering/markdownHtmlPolicy.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/viewers/HtmlViewer.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "frontend/shared-ui/src/editor/viewers/TextEditorFrame.tsx": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "frontend/tests/workspace/boundaries.test.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
+  "packages/editor-ui/src/PuppyoneEditorHost.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "packages/editor-ui/src/conflictMarkers.ts": {
+    "no-nested-ternary": {
+      "count": 1
+    }
+  }
+}

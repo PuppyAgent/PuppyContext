@@ -1,0 +1,5 @@
+
+> context-base-ui@0.0.3 lint:dependencies
+> node scripts/readability/run-dependencies.mjs
+
+687 modules; 59 dependency violations; 0 new.

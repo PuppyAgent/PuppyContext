@@ -1,0 +1,223 @@
+{
+  "live": true,
+  "execution_environment": "docker",
+  "application": true,
+  "native_pg": false,
+  "s3": true,
+  "object_environment": "owned_supabase_s3",
+  "database_environment": "supabase",
+  "target": true,
+  "started_at": "2026-10-06T09:13:07.976002+00:00",
+  "pytest_arguments": [
+    "-k",
+    "native_s3 or bare_repository_application or docker_native_git_application or bare_resource_limits or direct_object_transport or native_transport_protocol or native_execution",
+    "--disable-warnings",
+    "-x"
+  ],
+  "git_version": "git version 2.50.1",
+  "python_version": "3.12.11 (main, Sep 30 2025, 00:41:12) [GCC 12.2.0]",
+  "product_commit": "9e2e47e0115499df0358072f6f0d4b211ff2758f",
+  "worktree_dirty": true,
+  "schema_sha256": {
+    "20260926000000_baseline_b1.sql": "023a3b7cfa03dee8498dcff81e371c52a22aa99919863c92d3ecf8196ba6330c",
+    "20260927010000_expand_entrypoint_storage.sql": "1005afe51f2580ee7567d150cf18fc615dcfd0a242209d8fce49401946c3331f",
+    "20261003000000_contain_internal_data_api_access.sql": "fa43984766bc2f998f0e56f95f6492a6cfc7f672388ac41d9278aff28558124f",
+    "20261003010000_expand_repository_ref_authority.sql": "6811c69511523a7de09168a2acf1e4101f01dae0d094eb4b3c3442a07562d544",
+    "20261003020000_harden_repository_authority_search_path.sql": "3b54faad0863a426e3fda8ba128433c5a9e2280923b4ba84e74059518824fa95",
+    "20261003030000_fix_legacy_publication_head_cas.sql": "1e55c0a61884040f7b95165c38573be81cfd5d42b2aac72dca592facdcd6cff6",
+    "20261003040000_expand_publication_pins_and_gc_fence.sql": "2d575fe6af0ad4a0ac35fa5b89bbbd440f08e16845d3a984aeb386260bc09e0a",
+    "20261003220000_expand_final_entrypoint_storage.sql": "0040cf524a19baf6608b83debdb4c77a3a7bd2f1cd5bb19fa3f8ef040e6e4df5",
+    "20261003230000_contract_entrypoint_storage.sql": "ac1993a37621955c221cc5ca87d26ff459d657432d27bc976e9a64e703ddf0c5",
+    "20261003230100_contract_final_entrypoint_storage.sql": "2d01e0c7cf8f2f2f090c763261a263179e8613e8617a00e14b05a9c848427948",
+    "20261004010000_expand_object_location_publication_fence.sql": "3bfccd754b47f3c27624afb6874448785c726c3b5193bb0bab5573f42a71d09f",
+    "20261004020000_expand_repository_write_admission.sql": "d126a5f536c32d1e2b2dd486f277b06db99815b4a90c830c2c00648065f8784b",
+    "20261004030000_expand_repository_capacity_reservations.sql": "5191be95b062a8e1ba4c6d2d032b6ead36c47ddd4332acc2228eb700e8d1bc14",
+    "20261004040000_expand_repository_logical_billing.sql": "3f9e2c372ab1588286dbde4f5dcd40ad482b18aa2fa3edf7b4245800c41a92f5",
+    "20261004050000_expand_repository_usage_reconciliation.sql": "124552649d14c520d7945d12b0fb8bd871bbf9f5276a0ca9cd7cb8142f766316",
+    "20261004060000_expand_repository_file_admission.sql": "3eb318dc78070f672995296731148507a441a895d4c6b1daee53c9d1869bf9e1",
+    "20261004070000_expand_checked_root_initialization.sql": "daca991f55dfdc799a2356bceb3e20303cd3bb503ad13c2ca4e59ff48628419d",
+    "20261004080000_expand_admitted_pin_renewal.sql": "361a181afc0aba5db46b5a361e29a25b3eb6d5884049aca1b7bc48b7183761a6",
+    "20261005010000_expand_product_operation_journal.sql": "376ecc1eb634aeb63624e7a5d92372593c89d8af7d75844f3560edbd69ffa663",
+    "20261005020000_expand_product_publication_attempts.sql": "4ca4d644ef4eda172929d874e7a7a2d78bb4689c481eccf7e3e94c48c5e95c00",
+    "20261005030000_expand_native_operation_status.sql": "edc8ba04764e9740a368333e2b37c3fa7a3491ba7258d273578fbf8baae59a01",
+    "20261006010000_create_native_project_repository.sql": "32afcb368be0e811a9935028555206267e8dd74f9cfe49eb11f215c29859bd63",
+    "20261006020000_close_native_repository_deletion.sql": "63d28afda286a95abd7d5c572b5b7f65c066242a67fc48b56bf0c165a01f57a6",
+    "20261006030000_guard_bare_repository_limits.sql": "a5393a4157131bf4a96dcb53462ec1fc10660af73472e91567d707631b92502f"
+  },
+  "docker_image": "sha256:2552b569b1d18c2b65af9a0e041fbdc1188db9e28050b451b4e8f3944e8b5cca",
+  "supabase_sql_suite_executed": true,
+  "supabase_image_registry": "docker.io",
+  "supabase_cli_version": "2.67.1",
+  "supabase_startup": {
+    "container": "supabase_db_puppy-baseline-ae9opbt9",
+    "timeout_seconds": 300,
+    "created_timeout_seconds": 60,
+    "database": {
+      "status": "running",
+      "running": true,
+      "exit_code": 0,
+      "oom_killed": false,
+      "health": "healthy"
+    },
+    "elapsed_seconds": 32.176,
+    "reason": "started"
+  },
+  "sql_exit": 0,
+  "supabase_sql_counts": {
+    "files": 9,
+    "tests": 329
+  },
+  "supabase_sql_skip_or_todo_reported": false,
+  "supabase_sql_complete": true,
+  "container_environment": {
+    "platform": "Linux-6.10.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.12.11 (main, Sep 30 2025, 00:41:12) [GCC 12.2.0]",
+    "git": "git version 2.50.1",
+    "psql": "psql (PostgreSQL) 17.6 (Debian 17.6-2.pgdg12+1)",
+    "environment_names": [
+      "HOSTING_TEST_ANON_KEY",
+      "HOSTING_TEST_DB_URL",
+      "HOSTING_TEST_S3",
+      "HOSTING_TEST_STACK",
+      "HOSTING_TEST_SUPABASE",
+      "S3_ACCESS_KEY_ID",
+      "S3_BUCKET_NAME",
+      "S3_ENDPOINT_URL",
+      "S3_REGION",
+      "S3_SECRET_ACCESS_KEY",
+      "SUPABASE_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_URL"
+    ],
+    "skip_auth": false,
+    "dotenv_inherited": false,
+    "startup_checks": [
+      "settings",
+      "production_supabase_client",
+      "executable_test_tmpfs"
+    ],
+    "services": [
+      "owned_postgres",
+      "owned_auth_postgrest",
+      "owned_s3"
+    ]
+  },
+  "orchestrator_environment": {
+    "git_version": "git version 2.50.1 (Apple Git-155)",
+    "python_version": "3.12.12 (main, Nov 19 2025, 22:30:44) [Clang 21.1.4 ]"
+  },
+  "container_resources": {
+    "init_process": "docker-init",
+    "before": {
+      "pids.current": "5",
+      "pids.max": "1024",
+      "memory.peak": "64671744",
+      "memory.max": "4294967296",
+      "pids.events": {
+        "max": 0
+      },
+      "memory.events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      }
+    },
+    "after": {
+      "pids.current": "4",
+      "pids.max": "1024",
+      "memory.peak": "863600640",
+      "memory.max": "4294967296",
+      "pids.events": {
+        "max": 0
+      },
+      "memory.events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      }
+    },
+    "failures": [],
+    "observed_peak": {
+      "pids": 48,
+      "processes": [
+        {
+          "Name": "docker-init",
+          "Pid": "1",
+          "PPid": "0",
+          "State": "S (sleeping)",
+          "Threads": "1"
+        },
+        {
+          "Name": "python",
+          "Pid": "6",
+          "PPid": "1",
+          "State": "S (sleeping)",
+          "Threads": "9"
+        },
+        {
+          "Name": "python",
+          "Pid": "15",
+          "PPid": "6",
+          "State": "S (sleeping)",
+          "Threads": "1"
+        },
+        {
+          "Name": "python",
+          "Pid": "158",
+          "PPid": "15",
+          "State": "S (sleeping)",
+          "Threads": "32"
+        },
+        {
+          "Name": "git",
+          "Pid": "3029",
+          "PPid": "15",
+          "State": "S (sleeping)",
+          "Threads": "1"
+        },
+        {
+          "Name": "git",
+          "Pid": "3030",
+          "PPid": "3029",
+          "State": "S (sleeping)",
+          "Threads": "1"
+        },
+        {
+          "Name": "git-remote-http",
+          "Pid": "3031",
+          "PPid": "3030",
+          "State": "S (sleeping)",
+          "Threads": "1"
+        },
+        {
+          "Name": "git",
+          "Pid": "3032",
+          "PPid": "3031",
+          "State": "S (sleeping)",
+          "Threads": "2"
+        }
+      ]
+    }
+  },
+  "pytest_exit": 0,
+  "layers": {
+    "hosting_application": {
+      "passed": 163
+    },
+    "hosting_s3": {
+      "passed": 150
+    },
+    "hosting_component": {
+      "passed": 45
+    }
+  },
+  "gaps": [],
+  "finished_at": "2026-10-06T09:36:25.539702+00:00",
+  "exit_code": 0
+}

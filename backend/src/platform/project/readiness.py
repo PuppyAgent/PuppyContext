@@ -76,8 +76,8 @@ class ProjectReadinessService:
     def resolve(self, project_id: str) -> ProjectReadiness:
         facts = self._repository.load(project_id)
         project_head = str(facts["project_head_commit_id"])
-        project_head_exists = len(project_head) == 40 and all(
-            character in "0123456789abcdef" for character in project_head.lower()
+        project_head_exists = len(project_head) in (40, 64) and all(
+            character in "0123456789abcdef" for character in project_head
         )
         return ProjectReadiness(
             project_id=project_id,

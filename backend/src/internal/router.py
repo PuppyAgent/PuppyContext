@@ -123,10 +123,10 @@ def _enforce_acting_user_project_access(
     return acting_user
 
 
-def _create_write_commands() -> VersionWriteCommandService:
+def _create_write_commands(project_id, user_id) -> VersionWriteCommandService:
     from src.platform.project.write_lease import build_leased_worker_write_commands
 
-    return build_leased_worker_write_commands()
+    return build_leased_worker_write_commands(project_id=project_id, user_id=user_id)
 
 
 def _enforce_acting_user_table_access(
@@ -141,7 +141,9 @@ def _enforce_acting_user_table_access(
     table = table_service.get_by_id(table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
-    return _enforce_acting_user_project_access(request, table.project_id, action=action)
+    user_id = _enforce_acting_user_project_access(request, table.project_id, action=action)
+    table_service.bind_user(user_id)
+    return user_id
 
 
 # ============================================================
@@ -491,7 +493,10 @@ async def resolve_node_path(
         project_id = payload.get("project_id", "")
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_READ)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_READ
+        )
+        ops = ops.for_user(project_id, acting_user_id)
         path = payload.get("path", "")
 
         if not path or path == "/":
@@ -532,7 +537,10 @@ async def list_node_children(
     try:
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_READ)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_READ
+        )
+        ops = ops.for_user(project_id, acting_user_id)
         path = path.strip("/")
         entries = ops.list_dir(project_id, path)
 
@@ -571,7 +579,10 @@ async def read_node_content(
     try:
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_READ)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_READ
+        )
+        ops = ops.for_user(project_id, acting_user_id)
         path = path.strip("/")
         entry = ops.stat(project_id, path)
         if not entry:
@@ -647,7 +658,9 @@ async def write_node_content(
         project_id = payload.get("project_id", "")
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_WRITE)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_WRITE
+        )
         path = payload.get("path", "").strip("/")
         content = payload.get("content")
         operator_id = payload.get("operator_id", "mcp_agent")
@@ -660,7 +673,7 @@ async def write_node_content(
                 status_code=400, detail=f"Unsupported content type: {type(content).__name__}"
             )
 
-        commands = _create_write_commands()
+        commands = _create_write_commands(project_id, acting_user_id)
         outcome = await commands.write_file(
             project_id,
             path,
@@ -709,7 +722,9 @@ async def create_node(
         project_id = payload.get("project_id", "")
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_WRITE)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_WRITE
+        )
         path = payload.get("path", "").strip("/")
         node_type = payload.get("node_type", "")
         content = payload.get("content")
@@ -723,7 +738,7 @@ async def create_node(
                 status_code=400, detail=f"Unsupported node type for creation: {node_type}"
             )
 
-        commands = _create_write_commands()
+        commands = _create_write_commands(project_id, acting_user_id)
 
         if node_type == "folder":
             outcome = await commands.mkdir(
@@ -780,13 +795,15 @@ async def remove_node(
         project_id = payload.get("project_id", "")
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_WRITE)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_WRITE
+        )
         path = payload.get("path", "").strip("/")
         user_id = payload.get("user_id", "mcp_agent")
 
         if not path:
             raise HTTPException(status_code=400, detail="path is required")
-        commands = _create_write_commands()
+        commands = _create_write_commands(project_id, acting_user_id)
         if commands.ops.stat(project_id, path) is None:
             raise HTTPException(status_code=404, detail=f"Path not found: {path}")
 
@@ -826,7 +843,9 @@ async def rename_node(
         project_id = payload.get("project_id", "")
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_WRITE)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_WRITE
+        )
         path = payload.get("path", "").strip("/")
         new_name = payload.get("new_name", "")
         if not new_name:
@@ -837,7 +856,7 @@ async def rename_node(
         parent = "/".join(path.split("/")[:-1])
         new_path = f"{parent}/{new_name}" if parent else new_name
 
-        commands = _create_write_commands()
+        commands = _create_write_commands(project_id, acting_user_id)
         await commands.move(
             project_id,
             path,
@@ -871,7 +890,9 @@ async def move_node_internal(
         project_id = payload.get("project_id", "")
         from src.platform.authorization.models import ProjectAction
 
-        _enforce_acting_user_project_access(request, project_id, ProjectAction.CONTENT_WRITE)
+        acting_user_id = _enforce_acting_user_project_access(
+            request, project_id, ProjectAction.CONTENT_WRITE
+        )
         path = payload.get("path", "").strip("/")
         new_parent_path = payload.get("new_parent_path", "").strip("/")
 
@@ -881,7 +902,7 @@ async def move_node_internal(
         name = path.split("/")[-1]
         new_path = f"{new_parent_path}/{name}" if new_parent_path else name
 
-        commands = _create_write_commands()
+        commands = _create_write_commands(project_id, acting_user_id)
         await commands.move(
             project_id,
             path,

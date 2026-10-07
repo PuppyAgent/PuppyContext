@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from jsonschema import ValidationError
 
-from src.ingest.file.rules.engine import RuleEngine
-from src.ingest.file.rules.schemas import ETLRule, TransformationResult
+from src.infra.file_processing.rules.engine import RuleEngine
+from src.infra.file_processing.rules.schemas import ETLRule, TransformationResult
 from src.infra.llm.exceptions import LLMError
 from src.infra.llm.schemas import TextModelResponse
 

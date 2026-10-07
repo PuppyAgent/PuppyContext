@@ -53,6 +53,8 @@ def test_platform_acl_detection_never_filters_application_role_grants():
         {"projects": 1},
         {baseline.INVENTORY_TABLE: 2},
         {baseline.INVENTORY_TABLE: 1, "profiles": 1},
+        {baseline.INVENTORY_TABLE: 1, "repository_entitlement_source": 0},
+        {baseline.INVENTORY_TABLE: 1, "repository_entitlement_source": 2},
     ],
 )
 def test_fresh_capture_rejects_missing_seed_or_user_data(counts):
@@ -62,6 +64,7 @@ def test_fresh_capture_rejects_missing_seed_or_user_data(counts):
 
 def test_fresh_capture_accepts_only_reviewed_seed():
     baseline.validate_fresh_rows({baseline.INVENTORY_TABLE: 1, "projects": 0})
+    baseline.validate_fresh_rows({baseline.INVENTORY_TABLE: 1, "repository_entitlement_source": 1})
 
 
 @pytest.mark.parametrize("component", ["schema", "auth_triggers", "reference_data"])

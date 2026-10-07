@@ -191,9 +191,7 @@ class ProjectWriteLease:
                 details={"code": "project_write_admission_closed"},
             )
         if result not in {"acquired", "replayed"}:
-            raise RuntimeError(
-                f"Project write lease was not acquired: {result or 'missing'}"
-            )
+            raise RuntimeError(f"Project write lease was not acquired: {result or 'missing'}")
         self._owner = asyncio.current_task()
         self._active = True
         live = tuple(lease for lease in active if lease.is_active)
@@ -324,22 +322,30 @@ def lease_write_commands(
 def build_leased_worker_write_commands(
     *,
     write_lease_factory: ProjectWriteLeaseFactory = ProjectWriteLease,
+    project_id: str | None = None,
+    user_id: str | None = None,
+    operation_key: str | None = None,
 ) -> LeasedVersionWriteCommandService:
+    from src.version_engine.adapters.product.commands import VersionWriteCommandService
     from src.version_engine.bootstrap.dependencies import (
         build_worker_version_engine_container,
     )
 
+    container = build_worker_version_engine_container()
+    ops = container.product_operations()
+    if project_id is not None or user_id is not None:
+        if not project_id or not user_id:
+            raise PermissionError("producer requires its Project and initiating user")
+        ops = ops.for_user(project_id, user_id, operation_key=operation_key)
     return lease_write_commands(
-        build_worker_version_engine_container().write_commands(),
+        VersionWriteCommandService(ops),
         write_lease_factory=write_lease_factory,
     )
 
 
 def get_leased_version_write_command_service(
     container: VersionEngineContainer = Depends(get_version_engine_container),
-    write_lease_factory: ProjectWriteLeaseFactory = Depends(
-        get_project_write_lease_factory
-    ),
+    write_lease_factory: ProjectWriteLeaseFactory = Depends(get_project_write_lease_factory),
 ) -> LeasedVersionWriteCommandService:
     return lease_write_commands(
         container.write_commands(),
@@ -358,13 +364,9 @@ async def git_project_write_lease(request: Request) -> AsyncIterator[None]:
     """
 
     path = request.url.path
-    is_mutation = path.endswith("/git-receive-pack") or path.endswith(
-        "/rebuild-cache"
-    )
+    is_mutation = path.endswith("/git-receive-pack") or path.endswith("/rebuild-cache")
     if path.endswith("/info/refs"):
-        is_mutation = (
-            str(request.query_params.get("service") or "") == "git-receive-pack"
-        )
+        is_mutation = str(request.query_params.get("service") or "") == "git-receive-pack"
 
     project_id = str(request.path_params.get("project_id") or "")
     auth: dict[str, Any] | None = None

@@ -1,0 +1,13 @@
+
+> context-base-ui@0.0.3 lint
+> next lint --no-cache --format json --output-file ../artifacts/tests/issue-105/legacy-default.json
+
+`next lint` is deprecated and will be removed in Next.js 16.
+For new projects, use create-next-app to choose your preferred linter.
+For existing projects, migrate to the ESLint CLI:
+npx @next/codemod@canary next-lint-to-eslint-cli .
+
+   The output file has been created: /Users/supersayajin/project/puppyone-cloud-frontend-readability/artifacts/tests/issue-105/legacy-default.json
+[JSON formatter output retained as normalized legacy-default.json; embedded source omitted.]
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules

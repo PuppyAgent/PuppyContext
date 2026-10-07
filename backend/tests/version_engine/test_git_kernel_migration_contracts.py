@@ -6,16 +6,15 @@ import ast
 import random
 import re
 import subprocess
-from contextlib import contextmanager
+from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from src.ingest.file.jobs.jobs import stage_blob_from_s3
 from src.platform.authorization.models import RuntimeGrant, RuntimeMode, RuntimePrincipal
 from src.platform.repository_target.models import ResolvedRepositoryView, ScopeTarget
-from src.version_engine.adapters.git.object_quarantine import GitObjectQuarantine
+from src.platform.upload.jobs import stage_blob_from_s3
 from src.version_engine.admission.repo_facade import repo_facade_from_auth
 from src.version_engine.domain.errors import ObjectNotFoundError
 from src.version_engine.infrastructure.supabase.db_names import OBJECT_LOCATIONS_TABLE
@@ -45,8 +44,8 @@ REPO_ROOT = BACKEND_ROOT.parent
 PRODUCT_WRITE_MODULES = (
     "src/version_engine/adapters/product/operation_adapter.py",
     "src/version_engine/write_engine/engine.py",
-    "src/version_engine/derived/projection.py",
-    "src/version_engine/derived/hooks.py",
+    "src/version_engine/write_engine/native_operation_writer.py",
+    "src/version_engine/derived/native_events.py",
     "src/version_engine/entrypoints/http/content_write.py",
 )
 
@@ -73,6 +72,8 @@ ACTIVE_RUNTIME_SCAN_ROOTS = (
 )
 
 ALLOWED_DEFERRED_DB_NAME_FILES = {
+    # Negative migration fixture: verifies old namespace is NOT runtime-readable.
+    "backend/tests/version_engine/test_deferred_loose_self_heal.py",
     "backend/src/version_engine/infrastructure/supabase/db_names.py",
 }
 
@@ -132,7 +133,7 @@ def test_git_tree_and_commit_helpers_round_trip() -> None:
             "tag v1.0\n"
             "tagger A <a@example.com> 1767225602 +0000\n"
             "\nRelease v1.0\n"
-        ).encode("utf-8")
+        ).encode()
     )
     assert tag["object"] == "4" * 40
     assert tag["type"] == "commit"
@@ -171,7 +172,7 @@ def test_empty_git_tree_is_virtual_builtin_object(tmp_path) -> None:
 
     store = ObjectStore(tmp_path / "objects", backend=_NoStorageBackend())
 
-    assert EMPTY_TREE_SHA1 == hash_object("tree", b"")
+    assert hash_object("tree", b"") == EMPTY_TREE_SHA1
     assert decode_object(EMPTY_TREE_LOOSE_BYTES) == ("tree", b"")
     assert store.exists(EMPTY_TREE_SHA1) is True
     assert store.get_object(EMPTY_TREE_SHA1) == ("tree", b"")
@@ -179,76 +180,11 @@ def test_empty_git_tree_is_virtual_builtin_object(tmp_path) -> None:
     assert store.put_tree(b"") == EMPTY_TREE_SHA1
 
 
-def test_git_quarantine_promotion_blind_writes_receive_pack_new_objects(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    work = tmp_path / "work"
-    work.mkdir()
-    _run_git_cmd(["init"], work)
-    _run_git_cmd(["config", "user.name", "Git User"], work)
-    _run_git_cmd(["config", "user.email", "git@example.com"], work)
-
-    (work / "a.txt").write_text("a\n", encoding="utf-8")
-    _run_git_cmd(["add", "a.txt"], work)
-    _run_git_cmd(["commit", "-m", "initial"], work)
-    first = _run_git_cmd(["rev-parse", "HEAD"], work).decode("ascii").strip()
-
-    (work / "b.txt").write_text("b\n", encoding="utf-8")
-    _run_git_cmd(["add", "b.txt"], work)
-    _run_git_cmd(["commit", "-m", "second"], work)
-    second = _run_git_cmd(["rev-parse", "HEAD"], work).decode("ascii").strip()
-
-    expected_new = _git_rev_list_objects(work / ".git", second, exclude=first)
-    assert expected_new
-    assert first not in expected_new
-
-    class _FakeStore:
-        def __init__(self):
-            self.exists_many_calls: list[list[str]] = []
-            self.puts: dict[str, bytes] = {}
-
-        def exists_many(self, hashes: list[str]) -> set[str]:
-            raise AssertionError("receive-pack promotion should not probe existence")
-
-        def put_loose(self, object_id: str, loose: bytes) -> None:
-            self.puts[object_id] = loose
-
-    class _FakeRepo:
-        def __init__(self):
-            self.store = _FakeStore()
-
-    flushes: list[int] = []
-
-    @contextmanager
-    def _fake_stage_object_writes(_store):
-        yield SimpleNamespace(flush=lambda: flushes.append(1))
-
-    monkeypatch.setattr(
-        "src.version_engine.adapters.git.object_quarantine.stage_object_writes",
-        _fake_stage_object_writes,
-    )
-    repo = _FakeRepo()
-    quarantine = GitObjectQuarantine(
-        repo=repo,
-        bare_dir=work / ".git",
-        roots=[second],
-        exclude_roots=[first],
-    )
-
-    quarantine.promote_reachable()
-
-    assert repo.store.exists_many_calls == []
-    assert set(repo.store.puts) == expected_new
-    assert flushes == [1]
-
-
 def _run_git_cmd(args: list[str], cwd: Path) -> bytes:
     return subprocess.run(
         ["git", *args],
         cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
     ).stdout
 
@@ -259,8 +195,7 @@ def _git_rev_list_objects(git_dir: Path, root: str, *, exclude: str = "") -> set
         args.extend(["--not", exclude])
     out = subprocess.run(
         args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
     ).stdout
     return {line.split(maxsplit=1)[0].decode("ascii") for line in out.splitlines() if line}
@@ -375,6 +310,11 @@ async def test_object_batch_writes_one_bundle_with_location_index() -> None:
     assert "/object-bundles/" in pack_key
     assert all("/objects/" not in key for key in s3.uploads)
     assert len(supabase.rows) == 3
+    # One physical readback per bundle precedes location publication. Keep the
+    # independent cold-read contract below: readers still use ranges, not a
+    # fresh full-bundle download for every member.
+    assert s3.download_file_keys == [pack_key]
+    s3.download_file_keys.clear()
 
     # Simulate a fresh backend instance: lookup must work through the durable
     # location index, not through the writer's in-memory cache.
@@ -522,7 +462,7 @@ async def test_object_batch_chunks_large_objects_below_storage_object_cap() -> N
     assert large_slice == large_loose[10:35]
 
 
-def test_s3_backend_reads_deferred_namespace_but_writes_final_namespace() -> None:
+def test_s3_backend_only_reads_and_writes_canonical_namespace() -> None:
     object_id, loose = encode_object("blob", b"from deferred storage\n")
     deferred_namespace = "".join(("m", "ut"))
     deferred_key = f"{deferred_namespace}/proj/objects/{object_id[:2]}/{object_id[2:]}"
@@ -553,10 +493,11 @@ def test_s3_backend_reads_deferred_namespace_but_writes_final_namespace() -> Non
             return key in self.uploads
 
     s3 = _FakeS3()
-    backend = S3StorageBackend(s3, "proj", allow_deferred_namespace_reads=True)
+    backend = S3StorageBackend(s3, "proj")
 
-    assert backend.get(object_id) == loose
-    assert backend.exists(object_id) is True
+    with pytest.raises(ObjectNotFoundError):
+        backend.get(object_id)
+    assert backend.exists(object_id) is False
 
     new_id, new_loose = encode_object("blob", b"new canonical write\n")
     backend.put(new_id, new_loose)
@@ -565,7 +506,10 @@ def test_s3_backend_reads_deferred_namespace_but_writes_final_namespace() -> Non
     assert s3.uploaded_keys == [expected_new_key]
     assert s3.uploads[expected_new_key] == new_loose
 
-    strict_backend = S3StorageBackend(s3, "proj", allow_deferred_namespace_reads=False)
+    strict_backend = S3StorageBackend(
+        s3,
+        "proj",
+    )
     with pytest.raises(ObjectNotFoundError):
         strict_backend.get(object_id)
 
@@ -616,10 +560,27 @@ def test_access_point_auth_maps_to_repo_facade_not_physical_repo() -> None:
     assert facade.read_only is False
 
 
+@pytest.fixture
+def legacy_upload_admission():
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    @asynccontextmanager
+    async def lease(_project, _channel):
+        yield
+
+    return {
+        "repo_manager": SimpleNamespace(repository_metadata=lambda _project: None),
+        "write_lease_factory": lease,
+    }
+
+
 @pytest.mark.asyncio
-async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
+async def test_upload_staging_keeps_private_bytes_until_admitted_publication(
+    legacy_upload_admission,
+) -> None:
     raw = b"raw upload bytes"
-    source_key = "uploads/file.bin"
+    source_key = "projects/project-1/uploads/file.bin"
 
     class _Client:
         def head_object(self, *, Bucket, Key):
@@ -635,9 +596,15 @@ async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
             self.uploads: dict[str, bytes] = {}
 
         async def download_file_stream(self, key: str, chunk_size: int):
-            assert key == source_key
-            yield raw[:4]
-            yield raw[4:]
+            from src.infra.s3.exceptions import S3FileNotFoundError
+
+            if key == source_key:
+                yield raw[:4]
+                yield raw[4:]
+            elif key in self.uploads:
+                yield self.uploads[key]
+            else:
+                raise S3FileNotFoundError(key)
 
         async def object_exists(self, key: str) -> bool:
             return key in self.uploads
@@ -647,34 +614,30 @@ async def test_upload_staging_writes_git_loose_blob_bytes() -> None:
             self.uploads[key] = content
 
     s3 = _FakeS3()
-    ref = await stage_blob_from_s3(s3, project_id="project-1", src_key=source_key)
+    ref = await stage_blob_from_s3(
+        s3, project_id="project-1", src_key=source_key, **legacy_upload_admission
+    )
 
     expected_hash = hash_object("blob", raw)
-    expected_key = f"version/project-1/objects/{expected_hash[:2]}/{expected_hash[2:]}"
     assert ref.hash == expected_hash
     assert ref.size == len(raw)
-    assert set(s3.uploads) == {expected_key}
-    assert decode_object(s3.uploads[expected_key]) == ("blob", raw)
+    assert ref.content == raw
+    assert not s3.uploads
 
 
 @pytest.mark.asyncio
-async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
-    """Regression: a pre-existing **raw-bytes** entry at the version object
-    key (left behind by the historic ``copy_object``-based finalize path
-    described in ``infra/s3/service.py::copy_object``) must be detected
-    via a size mismatch and overwritten with the proper Git loose-object
-    bytes — otherwise the subsequent ``zlib.decompress`` on read blows
-    up with ``invalid git loose object … incorrect header check`` and
-    bulk push fails for the whole batch.
-    """
-    from datetime import datetime, timezone
+async def test_upload_staging_cannot_modify_existing_canonical_bytes(
+    legacy_upload_admission,
+) -> None:
+    """Only the admitted native publication path can repair canonical bytes."""
+    from datetime import datetime
 
     from src.infra.s3.exceptions import S3FileNotFoundError
     from src.infra.s3.schemas import FileMetadata
 
     raw = b"hello world content for the legacy raw bytes test"
-    source_key = "uploads/legacy-collision.bin"
-    blob_hash, loose_bytes = encode_object("blob", raw)
+    source_key = "projects/project-2/uploads/legacy-collision.bin"
+    blob_hash, _loose_bytes = encode_object("blob", raw)
     dst_key = f"version/project-2/objects/{blob_hash[:2]}/{blob_hash[2:]}"
 
     class _Client:
@@ -693,8 +656,12 @@ async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
             self.uploads: dict[str, bytes] = {dst_key: raw}
 
         async def download_file_stream(self, key, chunk_size):
-            assert key == source_key
-            yield raw
+            if key == source_key:
+                yield raw
+            elif key in self.uploads:
+                yield self.uploads[key]
+            else:
+                raise S3FileNotFoundError(key)
 
         async def object_exists(self, key):
             return key in self.uploads
@@ -708,7 +675,7 @@ async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
                 bucket="bucket",
                 size=len(data),
                 etag="x",
-                last_modified=datetime.now(timezone.utc),
+                last_modified=datetime.now(UTC),
                 content_type=None,
                 metadata={},
             )
@@ -717,14 +684,18 @@ async def test_upload_staging_overwrites_legacy_raw_bytes_at_dst_key() -> None:
             self.uploads[key] = content
 
     s3 = _FakeS3()
-    ref = await stage_blob_from_s3(s3, project_id="project-2", src_key=source_key)
+    ref = await stage_blob_from_s3(
+        s3, project_id="project-2", src_key=source_key, **legacy_upload_admission
+    )
 
     # The legacy raw bytes happened to be exactly len(raw) — different
     # from len(loose_bytes) since zlib framing changes the size. The
-    # staging path must have detected the mismatch and overwritten.
+    # staging path must have detected invalid framing/content and overwritten.
     assert ref.hash == blob_hash
-    assert s3.uploads[dst_key] == loose_bytes
-    assert decode_object(s3.uploads[dst_key]) == ("blob", raw)
+    assert ref.content == raw
+    assert (
+        s3.uploads[dst_key] == raw
+    )  # Unadmitted staging cannot repair or publish canonical bytes.
 
 
 def test_backend_python_no_longer_imports_external_legacy_version_package() -> None:
@@ -912,6 +883,9 @@ def test_access_tables_are_confined_to_repository_boundaries() -> None:
             or rel.endswith("access_credentials.py")
             or rel.endswith("access_surface_repository.py")
             or rel.endswith("scope_repository.py")
+            # Agent reads moved from repository.py into its typed query adapter.
+            # Keep this exact so application services cannot acquire table access.
+            or rel == "src/platform/access/adapters/agent/runtime/persistence/queries.py"
         )
         if allowed:
             continue

@@ -1,29 +1,29 @@
-"""Database Import Repository over Project-owned connections."""
+"""Database Import source configuration in its independent, Project-owned store.
+
+Never reads or writes Synchronize bindings. The encrypted config envelope is
+preserved for migrated sources; provider/name/ownership come from source columns,
+not guesses based on a binding's provider, trigger or nested metadata.
+"""
 
 from datetime import datetime, timezone
-from typing import Optional, List
 
-from src.infra.supabase.client import SupabaseClient
-from src.platform.imports.database.models import DBConnection
 from src.infra.security.crypto import (
     decrypt_db_connection_config,
     encrypt_db_connection_config,
 )
+from src.infra.supabase.client import SupabaseClient
+from src.platform.imports.database.models import DBConnection
 from src.utils.id_generator import generate_uuid_v7
-
-DB_PROVIDER = "database"
 
 
 class DBConnectionRepository:
-    """Database connector CRUD over the canonical Connect table."""
-
-    TABLE = "connections"
+    TABLE = "import_database_sources"
 
     def __init__(self, supabase_client: SupabaseClient):
         self.client = supabase_client.client
 
     def _query(self):
-        return self.client.table(self.TABLE).select("*").eq("provider", DB_PROVIDER)
+        return self.client.table(self.TABLE).select("*")
 
     def _project_org_id(self, project_id: str) -> str | None:
         response = (
@@ -34,21 +34,22 @@ class DBConnectionRepository:
             .execute()
         )
         rows = response.data or []
-        return rows[0].get("org_id") if rows else None
+        if not rows:
+            raise ValueError("Database Import source requires an existing Project")
+        return rows[0].get("org_id")
 
-    def _row_to_model(self, row: dict) -> DBConnection:
-        config = row.get("config") or {}
-        db_config = config.get("db_config") or {}
-        plain_config = decrypt_db_connection_config(db_config) if db_config else {}
+    @staticmethod
+    def _row_to_model(row: dict) -> DBConnection:
+        config = row["config"].get("db_config") or {}
         return DBConnection(
             id=str(row["id"]),
-            created_by=row.get("created_by") or config.get("created_by"),
+            created_by=row.get("created_by"),
             project_id=str(row["project_id"]),
-            name=row.get("name") or config.get("name", ""),
-            provider=config.get("db_provider", "supabase"),
-            config=plain_config,
-            is_active=(row.get("status", "active") == "active"),
-            last_used_at=row.get("last_synced_at"),
+            name=row["name"],
+            provider=row["provider"],
+            config=decrypt_db_connection_config(config) if config else {},
+            is_active=row["status"] == "active",
+            last_used_at=row.get("last_used_at"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -61,61 +62,39 @@ class DBConnectionRepository:
         provider: str,
         config: dict,
     ) -> DBConnection:
-        encrypted_config = encrypt_db_connection_config(config)
-        data = {
+        response = self.client.table(self.TABLE).insert({
             "id": generate_uuid_v7(),
             "org_id": self._project_org_id(project_id),
             "project_id": project_id,
-            "scope_id": None,
-            "provider": DB_PROVIDER,
+            "provider": provider,
             "name": name,
-            "direction": "inbound",
             "status": "active",
-            "trigger_type": "manual",
-            "trigger_config": {},
             "created_by": created_by,
-            "config": {
-                "name": name,
-                "db_provider": provider,
-                "db_config": encrypted_config,
-            },
-        }
-        response = self.client.table(self.TABLE).insert(data).execute()
+            "config": {"db_config": encrypt_db_connection_config(config)},
+        }).execute()
         if not response.data:
-            raise Exception("Failed to create db access")
+            raise RuntimeError("Database Import source creation returned no row")
         return self._row_to_model(response.data[0])
 
-    def get_by_id(self, connection_id: str) -> Optional[DBConnection]:
-        response = (
-            self._query()
-            .eq("id", connection_id)
-            .execute()
-        )
-        if response.data:
-            return self._row_to_model(response.data[0])
-        return None
+    def get_by_id(self, source_id: str) -> DBConnection | None:
+        rows = self._query().eq("id", source_id).execute().data or []
+        return self._row_to_model(rows[0]) if rows else None
 
-    def list_by_project(self, project_id: str) -> List[DBConnection]:
-        response = (
+    def list_by_project(self, project_id: str) -> list[DBConnection]:
+        # Inactive classified sources remain discoverable, not silently hidden.
+        rows = (
             self._query()
             .eq("project_id", project_id)
-            .eq("status", "active")
             .order("created_at", desc=True)
             .execute()
-        )
-        return [self._row_to_model(row) for row in response.data]
+        ).data or []
+        return [self._row_to_model(row) for row in rows]
 
-    def update_last_used(self, connection_id: str) -> None:
-        self.client.table(self.TABLE).update(
-            {"last_synced_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", connection_id).execute()
+    def update_last_used(self, source_id: str) -> None:
+        self.client.table(self.TABLE).update({
+            "last_used_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", source_id).execute()
 
-    def delete(self, connection_id: str) -> bool:
-        response = (
-            self.client.table(self.TABLE)
-            .delete()
-            .eq("id", connection_id)
-            .eq("provider", DB_PROVIDER)
-            .execute()
-        )
+    def delete(self, source_id: str) -> bool:
+        response = self.client.table(self.TABLE).delete().eq("id", source_id).execute()
         return bool(response.data)

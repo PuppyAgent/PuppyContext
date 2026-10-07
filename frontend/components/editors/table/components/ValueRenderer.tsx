@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { PendingTaskRenderer, isPendingNullValue } from './EtlStatusRenderer';
+import React, { useState, useCallback, useRef } from 'react';
+import { PendingTaskRenderer, usePendingNullValue } from './EtlStatusRenderer';
 
 // ============================================
 // Types
@@ -74,14 +74,7 @@ function PrimitiveValueEditor({
   const editableRef = useRef<HTMLDivElement>(null);
   const typeInfo = getTypeInfo(value);
 
-  // 监听任务状态变化，触发重新渲染
-  const [, forceUpdate] = useState(0);
-  useEffect(() => {
-    const handleTaskUpdate = () => forceUpdate(n => n + 1);
-    window.addEventListener('etl-tasks-updated', handleTaskUpdate);
-    return () =>
-      window.removeEventListener('etl-tasks-updated', handleTaskUpdate);
-  }, []);
+  const pendingTask = usePendingNullValue(value, nodeKey, tableId);
 
   // 处理 contentEditable 保存
   const handleContentEditableBlur = useCallback(() => {
@@ -132,9 +125,8 @@ function PrimitiveValueEditor({
   // null 值 + pending task 检测
   // 如果值为 null 且对应一个正在处理的 ETL 任务，显示处理中状态
   if (value === null && nodeKey) {
-    const pendingTask = isPendingNullValue(value, nodeKey, tableId);
     if (pendingTask) {
-      return <PendingTaskRenderer task={pendingTask} filename={nodeKey} />;
+      return <PendingTaskRenderer />;
     }
   }
 

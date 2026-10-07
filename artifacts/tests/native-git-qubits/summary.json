@@ -1,0 +1,43 @@
+{
+  "native_candidate_commit": "5b237fb5854efdb275d563d87cd6a28596ecac9b",
+  "backend_candidate_commit": "c3cd01056b4cc8d261a55f2a18cbbbdb61ed661c",
+  "verified_git_objects": {
+    "backend/src": "046bf05f752ca3b7b33e5f9fc7d6cb5c1e4e490d",
+    "backend/pyproject.toml": "a10ded0938b4769fe05866e8a0513adee549fcc2",
+    "backend/uv.lock": "c4f1abd85d3e10c324a87f769a91ef643d794335",
+    "supabase/migrations": "b107efb30876399858791861f9077958eb70d8e8",
+    "scripts/testing": "3730de2390b3fb7a173b2abc745073386ef62175",
+    "backend/tests/repository_hosting/integration/test_bare_collaboration.py": "0ed69ff87ce68b653ce4957b3735df03b3df9f05"
+  },
+  "backend": {
+    "command": "uv run --frozen pytest -q -m 'not e2e and not integration and not network'",
+    "counts": {
+      "passed": 3726,
+      "failed": 0,
+      "skipped": 904,
+      "xfailed": 34
+    },
+    "deselected": 110,
+    "seconds": 542.49,
+    "junit_sha256": "d956c37a51cae1882ca55f71fb66b24afdb54a28877de4803c2313871b0ce4e4",
+    "local_junit": "/private/tmp/puppyone-qubits-backend-final-20261006.xml"
+  },
+  "contract_repair": {
+    "removed_paths": [
+      "/api/v1/agents"
+    ],
+    "added_run_paths": 7,
+    "removed_schemas": [
+      "AgentRequest",
+      "ChatHistoryItem"
+    ],
+    "added_schemas": [
+      "Approval",
+      "SubmitRun"
+    ],
+    "targeted_passed": 32
+  },
+  "remote_push": false,
+  "hosted_deployment": false,
+  "hosted_load_test": false
+}

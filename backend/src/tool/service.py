@@ -11,9 +11,8 @@ from src.exceptions import (
     NotFoundException,
     PermissionException,
 )
-from src.platform.access.adapters.mcp_cache import invalidate_mcp_surface_cache
 from src.infra.supabase.dependencies import get_supabase_repository
-from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
+from src.platform.access.adapters.mcp_cache import invalidate_mcp_surface_cache
 from src.platform.authorization.models import ProjectAction
 from src.platform.authorization.service import AuthorizationService
 from src.tool.models import Tool
@@ -24,11 +23,13 @@ from src.tool.supabase_schemas import (
 from src.tool.supabase_schemas import (
     ToolUpdate as SbToolUpdate,
 )
+from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 
 
 @dataclass
 class ToolCreateParams:
     """Groups the parameters for creating a Tool."""
+
     org_id: str
     path: str | None
     json_path: str
@@ -86,19 +87,22 @@ class ToolService:
         Returns a simple object with project_id and type attributes.
         """
         from types import SimpleNamespace
-        tool = self.repo.get_by_path(path) if hasattr(self.repo, 'get_by_path') else None
+
+        tool = self.repo.get_by_path(path) if hasattr(self.repo, "get_by_path") else None
         project_id = tool.project_id if tool else None
 
         if not project_id:
-            all_tools = self.repo.get_by_path_simple(path) if hasattr(self.repo, 'get_by_path_simple') else []
+            all_tools = (
+                self.repo.get_by_path_simple(path)
+                if hasattr(self.repo, "get_by_path_simple")
+                else []
+            )
             if all_tools:
                 project_id = all_tools[0].project_id
 
         if project_id:
-            self.authorization.authorize(
-                project_id, user_id, ProjectAction.CONTENT_READ
-            )
-            entry = self._ops.stat(project_id, path)
+            grant = self.authorization.authorize(project_id, user_id, ProjectAction.CONTENT_READ)
+            entry = self._ops.for_grant(grant).stat(project_id, path)
             if entry:
                 return SimpleNamespace(
                     project_id=project_id,
@@ -107,9 +111,7 @@ class ToolService:
                     path=entry.path,
                 )
 
-        raise NotFoundException(
-            f"Node not found: {path}", code=ErrorCode.NOT_FOUND
-        )
+        raise NotFoundException(f"Node not found: {path}", code=ErrorCode.NOT_FOUND)
 
     def _invalidate_bound_agents_mcp(self, tool_id: str) -> None:
         """
@@ -153,9 +155,7 @@ class ToolService:
                     code=ErrorCode.VALIDATION_ERROR,
                 )
 
-    def _assert_name_update_no_conflict(
-        self, tool_id: str, user_id: str, new_name: str
-    ) -> None:
+    def _assert_name_update_no_conflict(self, tool_id: str, user_id: str, new_name: str) -> None:
         """
         Check if updating tool name would conflict with sibling tools
         in the same connection (Agent or MCP).
@@ -192,9 +192,7 @@ class ToolService:
         limit: int = 1000,
     ) -> list[Tool]:
         self.get_path_with_access_check(user_id, path)
-        return self.repo.get_by_org_id(
-            org_id, skip=skip, limit=limit, path=path
-        )
+        return self.repo.get_by_org_id(org_id, skip=skip, limit=limit, path=path)
 
     def get_by_id(self, tool_id: str) -> Tool | None:
         return self.repo.get_by_id(tool_id)
@@ -207,9 +205,7 @@ class ToolService:
     ) -> Tool:
         tool = self.repo.get_by_id(tool_id)
         if not tool:
-            raise NotFoundException(
-                f"Tool not found: {tool_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Tool not found: {tool_id}", code=ErrorCode.NOT_FOUND)
         if tool.project_id:
             try:
                 self.authorization.authorize(tool.project_id, user_id, action)
@@ -218,9 +214,7 @@ class ToolService:
                     f"Tool not found: {tool_id}", code=ErrorCode.NOT_FOUND
                 ) from None
         elif tool.created_by and str(tool.created_by) != str(user_id):
-            raise NotFoundException(
-                f"Tool not found: {tool_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Tool not found: {tool_id}", code=ErrorCode.NOT_FOUND)
         return tool
 
     def create(self, *, params: ToolCreateParams) -> Tool:
@@ -243,9 +237,7 @@ class ToolService:
             description = _get_default_tool_description(str(params.type))
 
         if project_id and created_by:
-            self.authorization.authorize(
-                project_id, created_by, ProjectAction.AGENT_MANAGE
-            )
+            self.authorization.authorize(project_id, created_by, ProjectAction.AGENT_MANAGE)
 
         created = self.repo.create(
             SbToolCreate(
@@ -269,9 +261,7 @@ class ToolService:
         return created
 
     def update(self, *, tool_id: str, user_id: str, patch: dict[str, Any]) -> Tool:
-        existing = self.get_by_id_with_access_check(
-            tool_id, user_id, ProjectAction.AGENT_MANAGE
-        )
+        existing = self.get_by_id_with_access_check(tool_id, user_id, ProjectAction.AGENT_MANAGE)
 
         # Only process fields that were passed in (router layer used exclude_unset to generate patch)
         name = patch.get("name")
@@ -306,9 +296,7 @@ class ToolService:
         )
         if not updated:
             # Should not happen in practice (already did get_by_id_with_access_check); this is a safety net
-            raise BusinessException(
-                "Tool update failed", code=ErrorCode.INTERNAL_SERVER_ERROR
-            )
+            raise BusinessException("Tool update failed", code=ErrorCode.INTERNAL_SERVER_ERROR)
 
         if updated.org_id != existing.org_id:
             raise BusinessException(
@@ -328,24 +316,14 @@ class ToolService:
         project_id: str,
         limit: int = 1000,
     ) -> list[Tool]:
-        grant = self.authorization.authorize(
-            project_id, user_id, ProjectAction.AGENT_READ
-        )
+        grant = self.authorization.authorize(project_id, user_id, ProjectAction.AGENT_READ)
         if grant.org_id != org_id:
-            raise NotFoundException(
-                f"Project not found: {project_id}", code=ErrorCode.NOT_FOUND
-            )
-        return self.repo.get_by_org_id(
-            org_id, skip=0, limit=limit, project_id=project_id
-        )
+            raise NotFoundException(f"Project not found: {project_id}", code=ErrorCode.NOT_FOUND)
+        return self.repo.get_by_org_id(org_id, skip=0, limit=limit, project_id=project_id)
 
     def delete(self, tool_id: str, user_id: str) -> None:
-        _ = self.get_by_id_with_access_check(
-            tool_id, user_id, ProjectAction.AGENT_MANAGE
-        )
+        _ = self.get_by_id_with_access_check(tool_id, user_id, ProjectAction.AGENT_MANAGE)
         ok = self.repo.delete(tool_id)
         if not ok:
-            raise BusinessException(
-                "Tool delete failed", code=ErrorCode.INTERNAL_SERVER_ERROR
-            )
+            raise BusinessException("Tool delete failed", code=ErrorCode.INTERNAL_SERVER_ERROR)
         self._invalidate_bound_agents_mcp(tool_id)

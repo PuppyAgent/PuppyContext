@@ -1,0 +1,14 @@
+
+> context-base-ui@0.0.3 dependencies:prune
+> node scripts/readability/run-dependencies.mjs --prune
+
+components-no-features: frontend/components/BackgroundTaskNotifier.tsx -> frontend/features/tasks/model.ts
+components-no-features: frontend/components/BackgroundTaskNotifier.tsx -> frontend/features/tasks/TaskProvider.tsx
+components-no-features: frontend/components/editors/table/components/EtlStatusRenderer.tsx -> frontend/features/tasks/model.ts
+components-no-features: frontend/components/editors/table/components/EtlStatusRenderer.tsx -> frontend/features/tasks/TaskProvider.tsx
+components-no-features: frontend/components/TableManageDialog.tsx -> frontend/features/tasks/TaskProvider.tsx
+components-no-features: frontend/components/TaskStatusWidget.tsx -> frontend/features/tasks/model.ts
+components-no-features: frontend/components/TaskStatusWidget.tsx -> frontend/features/tasks/TaskProvider.tsx
+lib-no-application: frontend/lib/hooks/useImportJobs.ts -> frontend/contexts/SupabaseAuthProvider.tsx
+lib-no-application: frontend/lib/hooks/useImportJobs.ts -> frontend/features/tasks/invalidation.ts
+688 modules; 68 dependency violations; 9 new.

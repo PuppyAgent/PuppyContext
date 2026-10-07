@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -23,108 +23,35 @@ from tests.authorization_fakes import authorization_for, install_authorization
 PROJECT_ID = "project-1"
 
 
-class _ScopeBackend:
-    def list_all(self):
-        return []
-
-
-class _RepoManager:
-    def __init__(self):
-        self.repo = object()
-        self.scope_backend = _ScopeBackend()
-
-    def get_server_repo(self, project_id: str):
-        assert project_id == PROJECT_ID
-        return self.repo
-
-    def get_scope_backend(self, project_id: str):
-        assert project_id == PROJECT_ID
-        return self.scope_backend
-
-
-def test_human_health_uses_project_owned_root_view_and_explicit_repair_capability(
-    monkeypatch,
-):
+def test_health_and_rebuild_bind_the_native_endpoint_to_the_human_grant(monkeypatch):
     from src.platform.project import git_view as module
 
-    manager = _RepoManager()
-    captured = {}
-
-    def fake_health(repo, **kwargs):
-        captured["repo"] = repo
-        captured.update(kwargs)
-        return {"health": "healthy", "read_only": kwargs["read_only"]}
-
-    monkeypatch.setattr(module, "git_view_health_payload", fake_health)
+    manager = MagicMock()
+    endpoint = MagicMock()
+    endpoint.health.return_value = {"health": "healthy"}
+    endpoint.rebuild.return_value = {"required": False}
+    factory = MagicMock(return_value=endpoint)
+    monkeypatch.setattr(module, "NativeGitEndpoint", factory)
+    grant = object()
     service = ProjectGitViewService(manager)
-
-    payload = service.health(
-        PROJECT_ID,
-        content_write_allowed=False,
-        cache_rebuild_allowed=True,
+    assert service.health(
+        PROJECT_ID, grant=grant, content_write_allowed=False, cache_rebuild_allowed=True
+    ) == {"health": "healthy", "can_rebuild": True}
+    factory.assert_called_once_with(
+        manager.get_native_service.return_value, grant, manager.get_audit.return_value
     )
-
-    assert captured == {
-        "repo": manager.repo,
-        "project_id": PROJECT_ID,
-        "scope_path": "",
-        "scope_excludes": [],
-        "read_only": True,
-    }
-    assert payload["can_rebuild"] is True
+    assert service.rebuild(PROJECT_ID, grant=grant) == {"required": False}
+    endpoint.rebuild.assert_called_once_with()
 
 
-def test_human_rebuild_rewarms_both_root_cache_variants(monkeypatch):
-    from src.platform.project import git_view as module
-
-    calls = []
-
-    def fake_rebuild(repo, **kwargs):
-        calls.append((repo, kwargs))
-        return {
-            "history_mode": "full" if kwargs["follow_history"] else "receive-boundary",
-            "blob_mode": "included" if kwargs["include_blobs"] else "omitted",
-        }
-
-    manager = _RepoManager()
-    monkeypatch.setattr(module, "rebuild_git_transport_view", fake_rebuild)
-    service = ProjectGitViewService(manager)
-
-    result = service.rebuild(PROJECT_ID)
-
-    assert [call[1] for call in calls] == [
-        {
-            "scope_path": "",
-            "scope_excludes": [],
-            "follow_history": True,
-            "include_blobs": True,
-        },
-        {
-            "scope_path": "",
-            "scope_excludes": [],
-            "follow_history": False,
-            "include_blobs": False,
-        },
-    ]
-    assert result == {
-        "variants": [
-            {"history_mode": "full", "blob_mode": "included"},
-            {"history_mode": "receive-boundary", "blob_mode": "omitted"},
-        ]
-    }
-
-
-def test_human_git_view_never_reads_a_scope_row_for_project_root():
-    manager = _RepoManager()
-    service = ProjectGitViewService(manager)
-
-    _repo, facade = service._root_view(PROJECT_ID)
-
-    assert facade.project_id == PROJECT_ID
-    assert facade.repo_id == f"{PROJECT_ID}:root"
-    assert facade.scope_path == ""
-    assert facade.excludes == ()
-    assert facade.read_only is False
+def test_unmigrated_repository_has_no_old_view_fallback():
+    manager = MagicMock()
+    manager.get_native_service.return_value = None
+    with pytest.raises(RuntimeError, match="migration required"):
+        ProjectGitViewService(manager).health(
+            PROJECT_ID, grant=object(), content_write_allowed=False, cache_rebuild_allowed=False
+        )
+    manager.get_server_repo.assert_not_called()
 
 
 def _app(role: str):
@@ -166,6 +93,7 @@ def test_health_control_plane_uses_project_read_and_passes_capabilities(
     assert response.status_code == 200, response.text
     git_view.health.assert_called_once_with(
         PROJECT_ID,
+        grant=ANY,
         content_write_allowed=content_write,
         cache_rebuild_allowed=can_rebuild,
     )
@@ -174,16 +102,12 @@ def test_health_control_plane_uses_project_read_and_passes_capabilities(
 def test_cache_rebuild_control_plane_requires_project_management():
     viewer_app, viewer_service = _app("viewer")
     with TestClient(viewer_app) as client:
-        denied = client.post(
-            f"/api/v1/projects/{PROJECT_ID}/git-view/rebuild-cache"
-        )
+        denied = client.post(f"/api/v1/projects/{PROJECT_ID}/git-view/rebuild-cache")
     assert denied.status_code == 403, denied.text
     viewer_service.rebuild.assert_not_called()
 
     admin_app, admin_service = _app("admin")
     with TestClient(admin_app) as client:
-        allowed = client.post(
-            f"/api/v1/projects/{PROJECT_ID}/git-view/rebuild-cache"
-        )
+        allowed = client.post(f"/api/v1/projects/{PROJECT_ID}/git-view/rebuild-cache")
     assert allowed.status_code == 200, allowed.text
-    admin_service.rebuild.assert_called_once_with(PROJECT_ID)
+    admin_service.rebuild.assert_called_once_with(PROJECT_ID, grant=ANY)

@@ -41,7 +41,7 @@ def _prepare_export(monkeypatch) -> _FakeApi:
     api = _FakeApi("token")
 
     async def load_oauth(_oauth_id: str):
-        return {"access_token": "token"}
+        return {"access_token": "token", "user_id": "initiator"}
 
     monkeypatch.setattr(
         "src.platform.synchronize.github.importer._load_oauth_token",
@@ -77,7 +77,7 @@ async def test_cancellation_waits_for_remote_export_before_releasing_lease(monke
             write_lease_factory=lease_factory,
         )
     )
-    await remote_started.wait()
+    await asyncio.wait_for(remote_started.wait(), timeout=2)
 
     task.cancel()
     await asyncio.sleep(0)

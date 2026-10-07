@@ -3,7 +3,7 @@
 One commit per export. The flow:
 
 1. Resolve integration → repo coords + OAuth token + branch name.
-2. List the version scope's files via :class:`VersionTreeReader` — the
+2. List the repository files through an admitted native snapshot — the
    server-side authoritative read path (S3-backed, cache-aware).
 3. For each file, ``POST /repos/.../git/blobs`` with the raw bytes.
    GitHub returns a blob SHA per file. (Existing-blob short-circuit
@@ -15,13 +15,14 @@ One commit per export. The flow:
    branch HEAD as parent, and the configured author identity.
 6. ``PATCH /repos/.../git/refs/heads/<branch>`` to fast-forward the
    branch ref. ``force=False`` so we surface non-FF as a clear error.
-7. Persist a ``github_sync_log`` row + bump ``last_exported_*``.
+7. Persist a ``synchronize_github_logs`` row + bump ``last_pushed_*``.
 
 PR-mode (when the branch is protected and direct push is forbidden)
 is a documented gap — we surface the GitHub 422 error and let the
 user know to switch the integration to PR mode (which we'll add as
 a follow-up).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,23 +34,24 @@ from src.platform.project.write_lease import (
     ProjectWriteLease,
     ProjectWriteLeaseFactory,
 )
-from src.provider.github.client import GithubApi, GithubApiError
+from src.platform.synchronize.github.public_schemas import SynchronizeGithubResult
 from src.platform.synchronize.github.repository import (
-    GithubSyncRepository,
     GithubSyncLogRepository,
+    GithubSyncRepository,
 )
-from src.platform.synchronize.github.schemas import GithubSyncRunResult
+from src.provider.github.client import GithubApi, GithubApiError
 from src.utils.logger import log_error, log_info
 from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
 
 
 async def export_to_branch(
-    binding: dict, *,
+    binding: dict,
+    *,
     branch: str | None = None,
     message: str | None = None,
     triggered_by: str = "manual",
     write_lease_factory: ProjectWriteLeaseFactory = ProjectWriteLease,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     project_id = binding["project_id"]
     owner = binding["github_repo_owner"]
@@ -83,7 +85,7 @@ async def _export_with_write_lease(
     owner: str,
     repo_name: str,
     write_lease_factory: ProjectWriteLeaseFactory,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     # Admission is the first side-effecting step. Even an export that later
     # fails OAuth validation must be rejected once Project deletion closes.
     async with write_lease_factory(project_id, "github.export"):
@@ -105,7 +107,7 @@ async def _export_after_admission(
     project_id: str,
     owner: str,
     repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     oauth_id = binding.get("oauth_connection_id")
     sync_log = GithubSyncLogRepository()
@@ -113,14 +115,19 @@ async def _export_after_admission(
 
     if oauth_id is None:
         return await _record_failure(
-            sync_log, binding_id, "no oauth_connection_id on integration",
+            sync_log,
+            binding_id,
+            "no oauth_connection_id on integration",
         )
 
     from src.platform.synchronize.github.importer import _load_oauth_token
+
     oauth = await _load_oauth_token(oauth_id)
     if not oauth:
         return await _record_failure(
-            sync_log, binding_id, f"oauth_connection {oauth_id} not found",
+            sync_log,
+            binding_id,
+            f"oauth_connection {oauth_id} not found",
         )
 
     api = GithubApi(oauth["access_token"])
@@ -131,6 +138,7 @@ async def _export_after_admission(
                 binding=binding,
                 target_branch=target_branch,
                 commit_message=message,
+                user_id=oauth["user_id"],
                 sync_log=sync_log,
                 binding_repo=binding_repo,
                 project_id=project_id,
@@ -148,12 +156,13 @@ async def _do_export_with_failure_recording(
     binding: dict,
     target_branch: str,
     commit_message: str | None,
+    user_id: str,
     sync_log: GithubSyncLogRepository,
     binding_repo: GithubSyncRepository,
     project_id: str,
     owner: str,
     repo_name: str,
-) -> GithubSyncRunResult:
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
     try:
         return await _do_export(
@@ -161,6 +170,7 @@ async def _do_export_with_failure_recording(
             binding=binding,
             target_branch=target_branch,
             commit_message=commit_message,
+            user_id=user_id,
             sync_log=sync_log,
             binding_repo=binding_repo,
             project_id=project_id,
@@ -203,24 +213,37 @@ async def _await_true_completion[T](awaitable: Awaitable[T]) -> T:
 
 
 async def _do_export(
-    *, api: GithubApi, binding: dict, target_branch: str,
-    commit_message: str | None, sync_log: GithubSyncLogRepository,
+    *,
+    api: GithubApi,
+    binding: dict,
+    target_branch: str,
+    commit_message: str | None,
+    user_id: str,
+    sync_log: GithubSyncLogRepository,
     binding_repo: GithubSyncRepository,
-    project_id: str, owner: str, repo_name: str,
-) -> GithubSyncRunResult:
+    project_id: str,
+    owner: str,
+    repo_name: str,
+) -> SynchronizeGithubResult:
     binding_id = binding["id"]
 
     # 1. List the version scope's current contents.
-    files = await _list_scope_files(project_id)
+    files, head = await asyncio.to_thread(_read_native_export, project_id, user_id)
     if not files:
         msg = "version scope is empty — nothing to export"
         await sync_log.record(
-            binding_id, direction="export", status="failed",
+            binding_id,
+            direction="outbound",
+            status="failed",
             error_message=msg,
         )
-        return GithubSyncRunResult(
-            status="failed", direction="export",
-            git_sha=None, version_commit_id=None, files_changed=0,
+        return SynchronizeGithubResult(
+            synchronize_github_binding_id=binding_id,
+            status="failed",
+            direction="outbound",
+            git_sha=None,
+            version_commit_id=None,
+            files_changed=0,
             error_message=msg,
         )
 
@@ -233,97 +256,103 @@ async def _do_export(
     tree_entries: list[dict] = []
     for path, content in files.items():
         blob_sha = await api.create_blob(owner, repo_name, content)
-        tree_entries.append({
-            "path": path, "mode": "100644", "type": "blob", "sha": blob_sha,
-        })
+        tree_entries.append(
+            {
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob_sha,
+            }
+        )
 
     # 4. Build the tree (using base_tree means unchanged sibling paths
     #    in the target branch but outside the version scope are preserved
     #    — important when the project mirrors only a subdirectory
     #    of the GitHub repo, but at the moment we always export at root).
     tree_sha = await api.create_tree(
-        owner, repo_name, tree_entries, base_tree=base_tree_sha,
+        owner,
+        repo_name,
+        tree_entries,
+        base_tree=base_tree_sha,
     )
 
     # 5. Commit.
-    head = _local_head_commit_id(project_id) or "head"
+    head = head or "head"
     msg = commit_message or f"Sync from Puppyone ({head[:12]})"
     new_git_sha = await api.create_commit(
-        owner, repo_name,
-        message=msg, tree_sha=tree_sha, parent_shas=[parent_sha],
+        owner,
+        repo_name,
+        message=msg,
+        tree_sha=tree_sha,
+        parent_shas=[parent_sha],
     )
 
     # 6. Fast-forward the branch.
     await api.update_ref(
-        owner, repo_name, f"heads/{target_branch}", new_git_sha,
+        owner,
+        repo_name,
+        f"heads/{target_branch}",
+        new_git_sha,
     )
 
     files_changed = len(tree_entries)
     await sync_log.record(
-        binding_id, direction="export", status="success",
-        git_sha=new_git_sha, version_commit_id=head,
+        binding_id,
+        direction="outbound",
+        status="success",
+        git_sha=new_git_sha,
+        version_commit_id=head,
         files_changed=files_changed,
     )
     await binding_repo.update_watermark(
         binding_id,
-        last_exported_sha=new_git_sha,
-        last_exported_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        last_pushed_sha=new_git_sha,
+        last_pushed_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
 
     log_info(
         f"[GithubExport] done integration={binding_id} "
         f"git_sha={new_git_sha[:12]} files={files_changed}"
     )
-    return GithubSyncRunResult(
-        status="success", direction="export",
-        git_sha=new_git_sha, version_commit_id=head,
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
+        status="success",
+        direction="outbound",
+        git_sha=new_git_sha,
+        version_commit_id=head,
         files_changed=files_changed,
     )
 
 
-async def _list_scope_files(project_id: str) -> dict[str, bytes]:
-    """Walk the Project root view and return ``{path: bytes}``.
-
-    Uses ``tree_to_flat`` directly off the project's current root_hash
-    so we don't have to instantiate per-file readers.
-    """
-    import asyncio
-
-    from src.version_engine.write_engine.tree import tree_to_flat
-
-    repo_manager = build_worker_version_engine_container().repo_manager
-    repo = repo_manager.get_server_repo(project_id)
-    root_hash = await asyncio.to_thread(repo.get_root_hash) or ""
-    if not root_hash:
-        return {}
-
-    flat = await asyncio.to_thread(tree_to_flat, repo.store, root_hash)
-    files: dict[str, bytes] = {}
-    for path, blob_hash in flat.items():
-        content = await asyncio.to_thread(repo.store.get, blob_hash)
-        files[path] = content
-    return files
-
-
-def _local_head_commit_id(project_id: str) -> str:
-    repo_manager = build_worker_version_engine_container().repo_manager
-    repo = repo_manager.get_server_repo(project_id)
-    try:
-        return repo.get_head_commit_id() or ""
-    except Exception:
-        return ""
-
-
 async def _record_failure(
     sync_log: GithubSyncLogRepository,
-    binding_id: str, error: str,
-) -> GithubSyncRunResult:
+    binding_id: str,
+    error: str,
+) -> SynchronizeGithubResult:
     await sync_log.record(
-        binding_id, direction="export", status="failed",
+        binding_id,
+        direction="outbound",
+        status="failed",
         error_message=error,
     )
-    return GithubSyncRunResult(
-        status="failed", direction="export",
-        git_sha=None, version_commit_id=None,
-        files_changed=None, error_message=error,
+    return SynchronizeGithubResult(
+        synchronize_github_binding_id=binding_id,
+        status="failed",
+        direction="outbound",
+        git_sha=None,
+        version_commit_id=None,
+        files_changed=None,
+        error_message=error,
     )
+
+
+def _read_native_export(project_id, user_id):
+    ops = build_worker_version_engine_container().product_operations().for_user(project_id, user_id)
+    with ops.open_read(project_id, ops._grant) as reader:
+        entries = reader.list_tree(project_id)
+        files = {
+            e.path: reader.read_file(project_id, e.path)
+            for e in entries
+            if e.type not in {"folder", "gitlink"}
+        }
+        return files, reader.get_head_commit_id(project_id)

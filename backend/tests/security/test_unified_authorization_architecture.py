@@ -83,6 +83,9 @@ def test_every_project_path_route_has_an_authorization_contract():
     derived_project_resource_params = {
         "agent_id",
         "connection_id",
+        "access_surface_id",
+        "synchronize_binding_id",
+        "import_database_source_id",
         "endpoint_id",
         "job_id",
         "publish_id",

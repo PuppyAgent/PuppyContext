@@ -19,10 +19,10 @@ from dataclasses import dataclass, field
 
 from src.config import settings
 from src.infra.supabase.client import SupabaseClient
+from src.utils.logger import log_error, log_info, log_warning
 from src.version_engine.bootstrap.dependencies import (
     build_worker_version_engine_container,
 )
-from src.utils.logger import log_error, log_info, log_warning
 
 
 @dataclass
@@ -64,13 +64,13 @@ def process_object_integrity_projects(
     for project_id in ids:
         try:
             results.append(_scan_one_project(repos, project_id, heal=do_heal))
-        except Exception as exc:  # noqa: BLE001 — one project must not stop the pass.
+        except Exception as exc:
             log_warning(f"[integrity-scan] project {project_id} failed: {exc}")
     return results
 
 
 def _scan_one_project(repos, project_id: str, *, heal: bool) -> IntegrityScanResult:
-    repo = repos.get_server_repo(project_id)
+    repo = repos.get_gc_repo(project_id)
     # Unwrap decorator backends (e.g. CachedStorageBackend) to reach the
     # concrete backend that implements the scan; otherwise every project is
     # silently reported unsupported because the wrapper lacks the method.
@@ -125,6 +125,6 @@ def _list_project_ids(client, *, limit: int) -> list[str]:
             .execute()
         )
         return [row["id"] for row in (resp.data or []) if row.get("id")]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log_error(f"[integrity-scan] failed to list projects: {exc}")
         return []

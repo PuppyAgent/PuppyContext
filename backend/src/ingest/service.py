@@ -7,6 +7,11 @@ File uploads use the ETL service. SaaS/URL imports use durable ImportJob rows.
 import asyncio
 import logging
 
+from fastapi import HTTPException
+from src.exceptions import AppException
+from src.platform.imports.service import ImportJobService
+from src.platform.imports.dependencies import get_import_arq_client
+
 from src.ingest.schemas import (
     IngestStatus,
     IngestTaskResponse,
@@ -94,18 +99,17 @@ class IngestService:
     ) -> bool:
         """Cancel a task."""
         if source_type != SourceType.FILE:
-            job = self.import_job_repo.get(task_id)
-            if not job or not self._can_access_project(
-                job.project_id, user_id, ProjectAction.INGEST_WRITE
-            ):
-                return False
-            if job.status in {
-                ImportJobStatus.COMPLETED.value,
-                ImportJobStatus.FAILED.value,
-                ImportJobStatus.CANCELLED.value,
-            }:
-                return True
-            self.import_job_repo.mark_cancelled(task_id)
+            service = ImportJobService(
+                repo=self.import_job_repo,
+                authorization=self.authorization,
+                arq_client=get_import_arq_client(),
+            )
+            try:
+                service.cancel(task_id, user_id)
+            except (HTTPException, AppException) as exc:
+                if exc.status_code in {403, 404}:
+                    return False
+                raise
             return True
         try:
             # See note in ``get_task``: task_id is a UUID string, not an int.

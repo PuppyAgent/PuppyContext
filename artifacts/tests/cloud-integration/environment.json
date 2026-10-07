@@ -1,0 +1,11 @@
+{
+  "node": "v22.22.3",
+  "npm": "10.9.8",
+  "source_commit": "4050128e150426fb90fea24deab2fd911e3dabb2",
+  "dependencies_local_directory": true,
+  "next": "15.5.9",
+  "eslint": "9.39.1",
+  "dependency-cruiser": "17.4.3",
+  "vitest": "4.1.11",
+  "swr": "2.3.7"
+}

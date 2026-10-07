@@ -7,20 +7,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.provider._base import (
-    AuthRequirement,
-    BaseProvider,
-    Capability,
-    ProviderSpec,
-    Credentials,
-    FetchResult,
-)
-from src.provider.github.adapter import GithubProvider
 from src.platform.imports.jobs import execute_import_job
 from src.platform.imports.repository import ImportJob
 from src.platform.imports.runner import ImportRunResult, OneTimeImportRunner
 from src.platform.imports.schemas import ImportJobCreateRequest
 from src.platform.imports.service import ImportJobService
+from src.provider._base import (
+    AuthRequirement,
+    BaseProvider,
+    Capability,
+    Credentials,
+    FetchResult,
+    ProviderSpec,
+)
+from src.provider.github.adapter import GithubProvider
 from tests.authorization_fakes import authorization_for
 
 
@@ -95,6 +95,11 @@ class FakeOps:
     def __init__(self):
         self.bulk_write_call = None
 
+    def for_user(self, project_id, user_id, *, operation_key):
+        assert project_id == "project-1" and user_id == "user-1"
+        assert operation_key.startswith("import:")
+        return self
+
     async def bulk_write(
         self,
         project_id,
@@ -114,7 +119,7 @@ class FakeOps:
             "deleted": deleted,
             "message": message,
         }
-        return SimpleNamespace(result=SimpleNamespace(commit_id="commit-1"))
+        return SimpleNamespace(commit_id="commit-1")
 
     async def write_bytes(self, *args, **kwargs):
         raise AssertionError("multi-file imports must use bulk_write")
@@ -131,7 +136,7 @@ async def test_import_runner_writes_without_creating_sync_binding(monkeypatch):
     monkeypatch.setattr(
         version_deps,
         "build_worker_version_engine_container",
-        lambda: SimpleNamespace(write_commands=lambda: fake_ops),
+        lambda: SimpleNamespace(product_operations=lambda: fake_ops),
     )
 
     job = ImportJob(
@@ -154,7 +159,7 @@ async def test_import_runner_writes_without_creating_sync_binding(monkeypatch):
             "repo/.puppyone/import.json": b'{"source":"github"}',
         },
         "actor": "import:github:job-1",
-        "deleted": None,
+        "deleted": [],
         "message": "Import from GitHub acme/repo",
     }
 
@@ -165,8 +170,8 @@ async def test_import_runner_uses_real_github_connector_archive_flow(monkeypatch
     fake_ops = FakeOps()
     connector = GithubProvider(github_service=None, s3_service=None)
 
-    import src.provider.github.adapter as github_module
     import src.platform.imports.runner as runner_module
+    import src.provider.github.adapter as github_module
     import src.version_engine.bootstrap.dependencies as version_deps
 
     async def fake_fetch_repo_metadata(client, headers, repo_ref):
@@ -184,11 +189,13 @@ async def test_import_runner_uses_real_github_connector_archive_flow(monkeypatch
         return "abcdef1234567890"
 
     async def fake_download_zipball(client, headers, repo_ref, ref, config):
-        return _zip_bytes({
-            "octo-tiny-sha/README.md": b"# Tiny\n",
-            "octo-tiny-sha/src/app.py": b"print('ok')\n",
-            "octo-tiny-sha/.env": b"SECRET=1",
-        })
+        return _zip_bytes(
+            {
+                "octo-tiny-sha/README.md": b"# Tiny\n",
+                "octo-tiny-sha/src/app.py": b"print('ok')\n",
+                "octo-tiny-sha/.env": b"SECRET=1",
+            }
+        )
 
     monkeypatch.setattr(github_module, "_fetch_repo_metadata", fake_fetch_repo_metadata)
     monkeypatch.setattr(github_module, "_fetch_commit_sha", fake_fetch_commit_sha)
@@ -201,7 +208,7 @@ async def test_import_runner_uses_real_github_connector_archive_flow(monkeypatch
     monkeypatch.setattr(
         version_deps,
         "build_worker_version_engine_container",
-        lambda: SimpleNamespace(write_commands=lambda: fake_ops),
+        lambda: SimpleNamespace(product_operations=lambda: fake_ops),
     )
 
     job = ImportJob(
@@ -257,7 +264,7 @@ async def test_live_github_import_smoke_octocat_hello_world(monkeypatch):
     monkeypatch.setattr(
         version_deps,
         "build_worker_version_engine_container",
-        lambda: SimpleNamespace(write_commands=lambda: fake_ops),
+        lambda: SimpleNamespace(product_operations=lambda: fake_ops),
     )
 
     job = ImportJob(

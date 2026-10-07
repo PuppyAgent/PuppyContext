@@ -32,6 +32,8 @@ export interface PanelState {
   type: PanelType;
   nodeId?: string;
   accessEndpointId?: string;
+  /** Exact binding selected from a Synchronize resource, not an Access ID. */
+  synchronizeBindingId?: string;
   agentId?: string;
   mcpEndpointId?: string;
   sandboxEndpointId?: string;
@@ -125,6 +127,7 @@ export const createProjectSession = () => createStore<ProjectSession>((set, get)
       cur.type === panel.type &&
       cur.nodeId === panel.nodeId &&
       cur.accessEndpointId === panel.accessEndpointId &&
+      cur.synchronizeBindingId === panel.synchronizeBindingId &&
       cur.agentId === panel.agentId &&
       cur.mcpEndpointId === panel.mcpEndpointId &&
       cur.sandboxEndpointId === panel.sandboxEndpointId &&

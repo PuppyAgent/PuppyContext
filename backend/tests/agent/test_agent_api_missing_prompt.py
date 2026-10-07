@@ -40,5 +40,5 @@ def create_test_app() -> FastAPI:
 def test_agents_missing_prompt_returns_422():
     app = create_test_app()
     with TestClient(app) as client:
-        resp = client.post("/agents", json={})
+        resp = client.post("/agents/runs", json={})
     assert resp.status_code == 422

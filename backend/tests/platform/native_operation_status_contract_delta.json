@@ -1,0 +1,11 @@
+{
+  "baseline_commit": "48f20dc418344a6881352054a937265fa7675cea",
+  "paths": {
+    "/api/v1/content/{project_id}/operations/{request_key}": "115b788e028455535731bcac7d99086b6fc89fbc225d9a60e0ded905cfeafac0",
+    "/git/{project_id}.git/operations/{request_key}": "e9ee6e4c608114797b9001be9c4922cfd9ef45ef0e00a4fa4373927902cfd95d"
+  },
+  "schemas": {
+    "NativeOperationStatusEnvelope": "bac7a43a7254f43ec7d52955458ec8d21e5235e0dbabb36273fb3ba575a87399",
+    "NativeOperationStatusResponse": "a364d90e6b916152be841fe7188c00afceb57d1a2d213594256e4ff85f557b69"
+  }
+}

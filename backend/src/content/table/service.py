@@ -22,7 +22,6 @@ from src.utils.logger import log_info
 
 
 class TableService:
-
     def __init__(
         self,
         repo: TableRepositoryBase,
@@ -34,6 +33,11 @@ class TableService:
         self._version_writer = version_write
         self._repos = repo_manager
         self._node_repo = node_repo
+        self._user_id = None
+        self._read_states = {}
+
+    def bind_user(self, user_id):
+        self._user_id = user_id
 
     # ================================================================
     # ObjectStore helpers
@@ -46,57 +50,48 @@ class TableService:
                 code=ErrorCode.INTERNAL_SERVER_ERROR,
             )
 
-    def _get_ops(self):
-        from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
-        return build_worker_version_engine_container().product_operations()
+    def _get_ops(self, project_id):
+        if not self._user_id:
+            raise PermissionError("table content requires an explicit principal")
+        from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 
-    def _get_write_commands(self):
-        from src.platform.project.write_lease import build_leased_worker_write_commands
+        return ProductOperationAdapter(self._repos).for_user(project_id, self._user_id)
 
-        return build_leased_worker_write_commands()
+    def _get_write_commands(self, project_id):
+        from src.version_engine.adapters.product.commands import VersionWriteCommandService
 
-    def _table_version_path(self, _project_id: str, table_id: str) -> str:
-        """Standard path for Table in the version tree"""
+        return VersionWriteCommandService(self._get_ops(project_id))
+
+    def _table_version_path(self, _project_id, table_id):
         return f"tables/{table_id}.json"
 
-    def _read_json_from_version_store(self, project_id: str, version_path: str) -> dict:
-        """Read JSON from version ObjectStore (source of truth)"""
-        repo = self._repos.get_repo(project_id)
-        root = repo.history.get_root_hash()
-        if not root:
-            return {}
-        from src.version_engine.write_engine.tree import tree_to_flat
-        flat = tree_to_flat(repo.store, root)
-        blob_hash = flat.get(version_path, "")
-        if not blob_hash:
-            return {}
-        raw = repo.store.get(blob_hash)
-        return json.loads(raw.decode("utf-8"))
+    def _read_json_from_version_store(self, project_id, version_path):
+        from src.version_engine.domain.intents import ProjectWriteState
 
-    def _read_table_data(self, table: Table) -> dict:
-        """Read Table JSON data - from ObjectStore (source of truth)"""
+        ops = self._get_ops(project_id)
+        with ops.open_read(project_id, ops._grant) as reader:
+            data = json.loads(reader.read_file(project_id, version_path))
+            self._read_states[project_id] = ProjectWriteState(
+                project_id,
+                "",
+                repository_grant=ops._grant,
+                repository_revision=reader.get_read_revision(project_id),
+            )
+            return data
+
+    def _read_table_data(self, table):
         self._ensure_version_repo()
         if not table.project_id:
-            raise BusinessException(
-                "Table has no project_id, cannot read from ObjectStore",
-                code=ErrorCode.BAD_REQUEST,
-            )
-        version_path = self._table_version_path(table.project_id, table.id)
-        try:
-            data = self._read_json_from_version_store(table.project_id, version_path)
-            if data:
-                return data
-        except Exception:
-            pass
-        return table.data or {}
+            raise ValueError("Table has no Project")
+        return self._read_json_from_version_store(
+            table.project_id, self._table_version_path(table.project_id, table.id)
+        )
 
     # ================================================================
     # Read-only queries (from DB index or ObjectStore)
     # ================================================================
 
-    def get_projects_with_tables_by_org_id(
-        self, org_id: str
-    ) -> list[ProjectWithTables]:
+    def get_projects_with_tables_by_org_id(self, org_id: str) -> list[ProjectWithTables]:
         return self.repo.get_projects_with_tables_by_org_id(org_id)
 
     def get_by_id(self, table_id: str) -> Table | None:
@@ -114,9 +109,11 @@ class TableService:
         data: dict,
         project_id: str,
     ) -> Table:
+        self.bind_user(user_id)
         self._ensure_version_repo()
 
         from src.utils.id_generator import generate_uuid_v7
+
         table_id = generate_uuid_v7()
         version_path = self._table_version_path(project_id, table_id)
 
@@ -128,9 +125,11 @@ class TableService:
         }
         content = json.dumps(table_blob, ensure_ascii=False, indent=2).encode("utf-8")
 
-        commands = self._get_write_commands()
+        commands = self._get_write_commands(project_id)
         await commands.write_bytes(
-            project_id, version_path, content,
+            project_id,
+            version_path,
+            content,
             actor=f"user:{user_id}",
             message=f"create table {name}",
         )
@@ -151,6 +150,7 @@ class TableService:
             log_info(f"[Table] Failed to persist table {table_id} to index: {e}")
             # version write succeeded, return synthetic object
             from datetime import datetime
+
             return Table(
                 id=table_id,
                 name=name,
@@ -172,9 +172,7 @@ class TableService:
 
         table = self.repo.get_by_id(table_id)
         if not table:
-            raise NotFoundException(
-                f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND)
 
         if not table.project_id:
             raise BusinessException(
@@ -193,9 +191,12 @@ class TableService:
         }
         content = json.dumps(table_blob, ensure_ascii=False, indent=2).encode("utf-8")
 
-        commands = self._get_write_commands()
+        commands = self._get_write_commands(table.project_id)
         await commands.write_bytes(
-            table.project_id, version_path, content,
+            table.project_id,
+            version_path,
+            content,
+            project_write_state=self._read_states.get(table.project_id),
             actor="system:table_update",
             message=f"update table {table_id}",
         )
@@ -207,9 +208,7 @@ class TableService:
     async def delete(self, table_id: str) -> None:
         table = self.repo.get_by_id(table_id)
         if not table:
-            raise NotFoundException(
-                f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND)
 
         if not table.project_id:
             raise BusinessException(
@@ -219,9 +218,10 @@ class TableService:
 
         self._ensure_version_repo()
         version_path = self._table_version_path(table.project_id, table_id)
-        commands = self._get_write_commands()
+        commands = self._get_write_commands(table.project_id)
         await commands.delete(
-            table.project_id, [version_path],
+            table.project_id,
+            [version_path],
             actor="system:table_delete",
             message=f"delete table {table_id}",
         )
@@ -232,18 +232,20 @@ class TableService:
     # ================================================================
 
     @staticmethod
-    def _resolve_parent(actual_data: Any, pointer_path: str, *, not_found_exc: type = BusinessException) -> Any:
+    def _resolve_parent(
+        actual_data: Any, pointer_path: str, *, not_found_exc: type = BusinessException
+    ) -> Any:
         """Resolve a JSON pointer path and return the parent node, raising on failure."""
         try:
             parent = resolve_pointer(actual_data, pointer_path, None)
         except Exception as e:
-            raise BusinessException(
-                f"Invalid path: {e!s}", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException(f"Invalid path: {e!s}", code=ErrorCode.BAD_REQUEST)
         if parent is None:
             raise not_found_exc(
                 f"Path not found: {pointer_path}",
-                code=ErrorCode.BAD_REQUEST if not_found_exc is BusinessException else ErrorCode.NOT_FOUND,
+                code=ErrorCode.BAD_REQUEST
+                if not_found_exc is BusinessException
+                else ErrorCode.NOT_FOUND,
             )
         return parent
 
@@ -263,9 +265,7 @@ class TableService:
                     f"Key '{element['key']}' already exists", code=ErrorCode.VALIDATION_ERROR
                 )
 
-        existing_content_strs = {
-            json.dumps(parent[k], sort_keys=True) for k in parent
-        }
+        existing_content_strs = {json.dumps(parent[k], sort_keys=True) for k in parent}
         for element in elements:
             self._require_element_field(element, "content")
             content_str = json.dumps(element["content"], sort_keys=True)
@@ -309,9 +309,7 @@ class TableService:
                     code=ErrorCode.BAD_REQUEST,
                 )
             if idx < 0 or idx >= len(parent):
-                raise NotFoundException(
-                    f"Index '{idx}' not found", code=ErrorCode.NOT_FOUND
-                )
+                raise NotFoundException(f"Index '{idx}' not found", code=ErrorCode.NOT_FOUND)
             parent[idx] = element["content"]
 
     @staticmethod
@@ -319,9 +317,7 @@ class TableService:
         """Validate and delete keys from a dict parent node."""
         for key in keys:
             if key not in parent:
-                raise NotFoundException(
-                    f"Key '{key}' not found", code=ErrorCode.NOT_FOUND
-                )
+                raise NotFoundException(f"Key '{key}' not found", code=ErrorCode.NOT_FOUND)
         for key in keys:
             del parent[key]
 
@@ -333,13 +329,9 @@ class TableService:
             try:
                 idx = int(key)
             except (TypeError, ValueError):
-                raise BusinessException(
-                    f"Invalid list index: {key}", code=ErrorCode.BAD_REQUEST
-                )
+                raise BusinessException(f"Invalid list index: {key}", code=ErrorCode.BAD_REQUEST)
             if idx < 0 or idx >= len(parent):
-                raise NotFoundException(
-                    f"Index '{idx}' not found", code=ErrorCode.NOT_FOUND
-                )
+                raise NotFoundException(f"Index '{idx}' not found", code=ErrorCode.NOT_FOUND)
             indices.append(idx)
         for idx in sorted(set(indices), reverse=True):
             del parent[idx]
@@ -348,9 +340,7 @@ class TableService:
         """Fetch table, read its data, and return (table, data_copy, actual_data)."""
         table = self.repo.get_by_id(table_id)
         if not table:
-            raise NotFoundException(
-                f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND)
         data = self._read_table_data(table).copy()
         actual_data = data.get("data", data) if "data" in data else data
         return table, data, actual_data
@@ -366,9 +356,7 @@ class TableService:
         elif isinstance(parent, list):
             self._insert_into_list(parent, elements)
         else:
-            raise BusinessException(
-                "Path points to non-dict/list node", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException("Path points to non-dict/list node", code=ErrorCode.BAD_REQUEST)
 
         await self._write_table_data(table, data)
         return resolve_pointer(actual_data, mounted_json_pointer_path)
@@ -376,9 +364,7 @@ class TableService:
     def get_context_data(self, table_id: str, json_pointer_path: str) -> Any:
         table = self.repo.get_by_id(table_id)
         if not table:
-            raise NotFoundException(
-                f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND)
 
         data = self._read_table_data(table)
         actual_data = data.get("data", data) if "data" in data else data
@@ -393,24 +379,22 @@ class TableService:
         except Exception as e:
             if isinstance(e, NotFoundException):
                 raise
-            raise BusinessException(
-                f"Invalid path: {e!s}", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException(f"Invalid path: {e!s}", code=ErrorCode.BAD_REQUEST)
 
     async def update_context_data(
         self, table_id: str, json_pointer_path: str, elements: list[dict]
     ) -> Any:
         table, data, actual_data = self._get_table_and_data(table_id)
-        parent = self._resolve_parent(actual_data, json_pointer_path, not_found_exc=NotFoundException)
+        parent = self._resolve_parent(
+            actual_data, json_pointer_path, not_found_exc=NotFoundException
+        )
 
         if isinstance(parent, dict):
             self._update_dict_elements(parent, elements)
         elif isinstance(parent, list):
             self._update_list_elements(parent, elements)
         else:
-            raise BusinessException(
-                "Path points to non-dict/list node", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException("Path points to non-dict/list node", code=ErrorCode.BAD_REQUEST)
 
         await self._write_table_data(table, data)
         return resolve_pointer(actual_data, json_pointer_path)
@@ -419,16 +403,16 @@ class TableService:
         self, table_id: str, json_pointer_path: str, keys: list[str]
     ) -> Any:
         table, data, actual_data = self._get_table_and_data(table_id)
-        parent = self._resolve_parent(actual_data, json_pointer_path, not_found_exc=NotFoundException)
+        parent = self._resolve_parent(
+            actual_data, json_pointer_path, not_found_exc=NotFoundException
+        )
 
         if isinstance(parent, dict):
             self._delete_dict_keys(parent, keys)
         elif isinstance(parent, list):
             self._delete_list_indices(parent, keys)
         else:
-            raise BusinessException(
-                "Path points to non-dict/list node", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException("Path points to non-dict/list node", code=ErrorCode.BAD_REQUEST)
 
         await self._write_table_data(table, data)
         return resolve_pointer(actual_data, json_pointer_path)
@@ -443,9 +427,12 @@ class TableService:
             )
         version_path = self._table_version_path(table.project_id, table.id)
         content = json.dumps(full_blob, ensure_ascii=False, indent=2).encode("utf-8")
-        commands = self._get_write_commands()
+        commands = self._get_write_commands(table.project_id)
         await commands.write_bytes(
-            table.project_id, version_path, content,
+            table.project_id,
+            version_path,
+            content,
+            project_write_state=self._read_states.get(table.project_id),
             actor="system:table_edit",
             message=f"edit table data {table.id}",
         )
@@ -459,9 +446,7 @@ class TableService:
     ) -> Any | None:
         table = self.repo.get_by_id(table_id)
         if not table:
-            raise NotFoundException(
-                f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND)
 
         try:
             data = self._read_table_data(table)
@@ -476,22 +461,16 @@ class TableService:
             return result
 
         except jmespath.exceptions.ParseError as e:
-            raise BusinessException(
-                f"JMESPath syntax error: {e!s}", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException(f"JMESPath syntax error: {e!s}", code=ErrorCode.BAD_REQUEST)
         except Exception as e:
             if isinstance(e, NotFoundException):
                 raise
-            raise BusinessException(
-                f"Query failed: {e!s}", code=ErrorCode.BAD_REQUEST
-            )
+            raise BusinessException(f"Query failed: {e!s}", code=ErrorCode.BAD_REQUEST)
 
     def get_context_structure(self, table_id: str, json_pointer_path: str) -> dict:
         table = self.repo.get_by_id(table_id)
         if not table:
-            raise NotFoundException(
-                f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND
-            )
+            raise NotFoundException(f"Table not found: {table_id}", code=ErrorCode.NOT_FOUND)
 
         try:
             data = self._read_table_data(table)

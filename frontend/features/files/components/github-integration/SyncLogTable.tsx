@@ -9,11 +9,11 @@
 
 import { T } from '@/features/files/components/github-integration/tokens';
 import {
-  listGithubSyncLog,
-  type GithubSyncLogEntry,
-  type SyncDirection,
-  type SyncStatus,
-} from '@/lib/githubIntegrationApi';
+  listSynchronizeGithubLogs,
+  type SynchronizeGithubLog,
+  type SynchronizeGithubDirection,
+  type SynchronizeGithubStatus,
+} from '@/lib/synchronizeGithubApi';
 import { useFormatter, useTranslations } from 'next-intl';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -28,16 +28,19 @@ export function SyncLogTable({ projectId, refreshKey }: Readonly<Props>) {
   const t = useTranslations('integrations.github');
   const fmt = useFormatter();
 
-  const [filter, setFilter] = useState<'all' | SyncDirection>('all');
+  const [filter, setFilter] = useState<'all' | SynchronizeGithubDirection>('all');
   const [page, setPage] = useState(0);
-  const [entries, setEntries] = useState<GithubSyncLogEntry[]>([]);
+  const [entries, setEntries] = useState<SynchronizeGithubLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGithubSyncLog(projectId, {
+    setError(null);
+    listSynchronizeGithubLogs(projectId, {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     })
@@ -46,12 +49,9 @@ export function SyncLogTable({ projectId, refreshKey }: Readonly<Props>) {
         setEntries(res.entries);
         setTotal(res.total);
       })
-      .catch(() => {
+      .catch((failure: unknown) => {
         if (cancelled) return;
-        // Soft-fail: empty list. The bound-panel error surface already
-        // handles the load failure case if it matters.
-        setEntries([]);
-        setTotal(0);
+        setError(failure instanceof Error ? failure.message : String(failure));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -59,7 +59,7 @@ export function SyncLogTable({ projectId, refreshKey }: Readonly<Props>) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, page, refreshKey]);
+  }, [projectId, page, refreshKey, retry]);
 
   const visibleEntries = useMemo(() => {
     if (filter === 'all') return entries;
@@ -78,10 +78,10 @@ export function SyncLogTable({ projectId, refreshKey }: Readonly<Props>) {
           <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
             {t('filterAll')}
           </FilterChip>
-          <FilterChip active={filter === 'import'} onClick={() => setFilter('import')}>
+          <FilterChip active={filter === 'inbound'} onClick={() => setFilter('inbound')}>
             {t('filterImport')}
           </FilterChip>
-          <FilterChip active={filter === 'export'} onClick={() => setFilter('export')}>
+          <FilterChip active={filter === 'outbound'} onClick={() => setFilter('outbound')}>
             {t('filterExport')}
           </FilterChip>
         </div>
@@ -95,10 +95,13 @@ export function SyncLogTable({ projectId, refreshKey }: Readonly<Props>) {
           overflow: 'hidden',
         }}
       >
+        {error && <div role="alert" style={{ padding: 16, color: T.danger }}>
+          {error} <button type="button" aria-label="Retry GitHub history" onClick={() => setRetry(value => value + 1)}>↻</button>
+        </div>}
         {loading && entries.length === 0 && (
           <div style={{ padding: 16, color: T.text3, fontSize: 12 }}>…</div>
         )}
-        {!loading && visibleEntries.length === 0 && (
+        {!loading && !error && visibleEntries.length === 0 && (
           <div style={{ padding: 16, color: T.text3, fontSize: 12 }}>
             {t('syncLogEmpty')}
           </div>
@@ -165,7 +168,7 @@ function FilterChip({
   );
 }
 
-const STATUS_COLORS: Record<SyncStatus, string> = {
+const STATUS_COLORS: Record<SynchronizeGithubStatus, string> = {
   pending: 'var(--po-text-muted)',
   success: 'var(--po-success)',
   failed: 'var(--po-danger)',
@@ -177,11 +180,11 @@ function SyncLogRow({
   fmt,
   t,
 }: Readonly<{
-  entry: GithubSyncLogEntry;
+  entry: SynchronizeGithubLog;
   fmt: ReturnType<typeof useFormatter>;
   t: ReturnType<typeof useTranslations<'integrations.github'>>;
 }>) {
-  const dirLabel = entry.direction === 'import' ? t('directionImport') : t('directionExport');
+  const dirLabel = entry.direction === 'inbound' ? t('directionImport') : t('directionExport');
   const statusLabel = ({
     pending: t('statusPending'),
     success: t('statusSuccess'),

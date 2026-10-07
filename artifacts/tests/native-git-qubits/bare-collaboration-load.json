@@ -1,0 +1,46 @@
+{
+  "profile": "owned Linux; one API process; 2 Git slots; 1 MiB random blob; 16 cold fetches per level",
+  "latency_includes_busy_retry": true,
+  "samples": [
+    {
+      "clients": 1,
+      "completed": 16,
+      "fetch_p50_seconds": 0.26053816598141566,
+      "fetch_p95_seconds": 0.33768558397423476,
+      "workflow_seconds": 5.098235835001105,
+      "workflows_per_second": 3.138340500091152,
+      "busy_retries": 0,
+      "api_process_peak_rss_kib": 234124
+    },
+    {
+      "clients": 2,
+      "completed": 16,
+      "fetch_p50_seconds": 0.28212466699187644,
+      "fetch_p95_seconds": 0.407024582993472,
+      "workflow_seconds": 2.8055662929837126,
+      "workflows_per_second": 5.702948470693252,
+      "busy_retries": 0,
+      "api_process_peak_rss_kib": 241676
+    },
+    {
+      "clients": 4,
+      "completed": 16,
+      "fetch_p50_seconds": 0.2794102500192821,
+      "fetch_p95_seconds": 2.6034096679941285,
+      "workflow_seconds": 2.890645584993763,
+      "workflows_per_second": 5.535095718084901,
+      "busy_retries": 4,
+      "api_process_peak_rss_kib": 241676
+    },
+    {
+      "clients": 8,
+      "completed": 16,
+      "fetch_p50_seconds": 0.4109522090002429,
+      "fetch_p95_seconds": 4.124899627000559,
+      "workflow_seconds": 4.194794336013729,
+      "workflows_per_second": 3.814251359747148,
+      "busy_retries": 12,
+      "api_process_peak_rss_kib": 241932
+    }
+  ]
+}

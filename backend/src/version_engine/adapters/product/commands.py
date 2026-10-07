@@ -67,10 +67,10 @@ class VersionWriteCommandService:
         return [validate_path(p) for p in paths if p]
 
     @staticmethod
-    def serialize_content(path: str, content: Any, node_type: str) -> SerializedContent:
+    def serialize_content(path: str, content: Any, node_type: str, *, path_validator=validate_path) -> SerializedContent:
         """Convert request content to Git blob bytes and canonicalize extension."""
 
-        clean_path = validate_path(path)
+        clean_path = path_validator(path)
         if node_type == "json":
             if isinstance(content, str):
                 data = content.encode("utf-8")
@@ -105,6 +105,29 @@ class VersionWriteCommandService:
     def validate_bytes(content: bytes) -> bytes:
         validate_content_size(content)
         return content
+
+    async def native_operation(self, project_id: str, grant, *, operation: str,
+                               arguments: dict, request_key: str, base: dict, byte_paths: dict | None = None):
+        from src.version_engine.adapters.product.native_commands import (
+            apply_byte_paths,
+            compile_native_command,
+            response_paths,
+        )
+        from src.version_engine.write_engine.errors import NativeRevisionConflictError
+
+        arguments = apply_byte_paths(arguments, byte_paths)
+        supplied = arguments.get("base_commit_id")
+        if supplied is not None and supplied != (base.get("expected_oid") or ""):
+            raise NativeRevisionConflictError("Product base and native starting revision differ")
+        digest, splice, response = compile_native_command(self, operation, arguments)
+        result = await self._ops.apply_native_command(
+            project_id, grant, request_key=request_key, base=base, input_sha256=digest,
+            splice=splice, message=arguments.get("message") or operation,
+        )
+        if result["status"] != "committed":
+            raise NativeRevisionConflictError("native starting ref or HEAD changed")
+        return {**response_paths(response), "commit_id": result["product"]["commit_oid"] or "",
+                "repository_transaction": result}
 
     def _operation_kwargs(
         self,
@@ -426,6 +449,7 @@ class VersionWriteCommandService:
         policy: str = "",
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteCommandOutcome:
         modified: dict[str, bytes] = {}
         for path, content in files.items():
@@ -442,6 +466,7 @@ class VersionWriteCommandService:
                 actor=actor,
                 message=message or default_message,
                 scope=scope,
+                base_commit_id=base_commit_id,
                 defer_projection=defer_projection,
                 policy=policy,
                 source_channel=source_channel,
@@ -465,6 +490,7 @@ class VersionWriteCommandService:
         verify_blobs: bool = True,
         source_channel: str = "papi",
         project_write_state: ProjectWriteState | None = None,
+        base_commit_id: str | None = None,
     ) -> WriteCommandOutcome:
         clean = {validate_path(path): ref for path, ref in file_refs.items()}
         clean_deleted = self.normalize_paths(deleted or [])
@@ -478,6 +504,7 @@ class VersionWriteCommandService:
             verify_blobs=verify_blobs,
             source_channel=source_channel,
             project_write_state=project_write_state,
+            **({"base_commit_id": base_commit_id} if base_commit_id is not None else {}),
         )
         return WriteCommandOutcome(
             result=result,

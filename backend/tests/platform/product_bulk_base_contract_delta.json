@@ -1,0 +1,10 @@
+{
+  "baseline_product_commit": "6fe12550230e43867056403384eb5de672bafb1f",
+  "paths": {},
+  "schemas": {
+    "BulkWriteRequest": {
+      "before": "4af8c48b98cb79b2d6bb2c97ee21570e9a930541c87561b3646b05e7a27875cb",
+      "after": "5f73786258e9f77ef08e5233cc409008ded2c66f76f9df6235a7aa12bd691f2a"
+    }
+  }
+}

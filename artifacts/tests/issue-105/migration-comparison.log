@@ -1,0 +1,2 @@
+legacy-default: identical messages, positions, severity, suggestions and fixes on the captured input.
+legacy-full: identical messages, positions, severity, suggestions and fixes on the captured input.

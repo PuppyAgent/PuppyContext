@@ -27,6 +27,11 @@ export type {
 // ── Access-provider registry (pure domain data + helpers) ────────────────
 export * from "./accessProviders";
 
+// ── Synchronize bindings and runs ────────────────────────────────────────
+export * from "./endpoints/synchronize";
+export * from "./endpoints/synchronizeGithub";
+export * from "./endpoints/importDatabase";
+
 // ── MCP endpoints ─────────────────────────────────────────────────────────
 export { createMcpEndpointsApi } from "./endpoints/mcpEndpoints";
 export type {
@@ -52,20 +57,8 @@ export type {
 export { createScopesApi, matchScopeForPath, isWithinScope } from "./endpoints/scopes";
 export type { RepositoryScope, ScopeMode } from "./endpoints/scopes";
 
-// ── Connectors + repo identity ────────────────────────────────────────────
-export {
-  createConnectorsApi,
-  BUILTIN_PROVIDERS,
-  normalizeConnector,
-  isAccessSurfaceConnector,
-  normalizeAccessSurfaceConnectors,
-  sortConnectorsBuiltinFirst,
-} from "./endpoints/connectors";
-export type {
-  Connector,
-  ConnectorDirection,
-  ConnectorStatus,
-  ConnectorRun,
-  CreateConnectorBody,
-  RepoIdentity,
-} from "./endpoints/connectors";
+// ── Access resources and independent repository identity ───────────────────
+export * from "./endpoints/accessSurfaces";
+export * from "./endpoints/repositoryIdentity";
+export * from "./endpoints/activity";
+export * from "./endpoints/resourceDashboard";

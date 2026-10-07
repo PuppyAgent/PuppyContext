@@ -101,7 +101,10 @@ def managed_default_acls(sql: str) -> set[str]:
 
 def validate_fresh_rows(counts: dict[str, int]) -> None:
     nonempty = {name: count for name, count in counts.items() if count}
-    if nonempty != {INVENTORY_TABLE: 1}:
+    expected = {INVENTORY_TABLE: 1}
+    if "repository_entitlement_source" in counts:
+        expected["repository_entitlement_source"] = 1
+    if nonempty != expected:
         raise ValueError(f"Unreviewed fresh-install reference tables: {nonempty}")
 
 
@@ -233,7 +236,13 @@ SELECT to_jsonb(s) - 'updated_at' FROM public.project_storage_inventory_state s;
         )
         if state["inventory_complete"] is not False:
             raise ValueError("Fresh baseline cannot claim external inventory completion")
-        return {"table_counts": counts, "inventory_state": state}
+        result = {"table_counts": counts, "inventory_state": state}
+        if "repository_entitlement_source" in counts:
+            policy = json.loads(self.sql("SELECT to_jsonb(s) FROM public.repository_entitlement_source s;"))
+            if policy != {"singleton": True, "mode": "db", "revision": 1}:
+                raise ValueError("Fresh hosted policy must require the database entitlement projection")
+            result["repository_entitlement_source"] = policy
+        return result
 
     def capture(self) -> dict:
         return {

@@ -1,0 +1,32 @@
+
+> context-base-ui@0.0.3 test:unit
+> vitest run
+
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Browserslist: browsers data (caniuse-lite) is 11 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at LocationImpl._locationObjectNavigate (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:30:5)
+    at LocationImpl.assign (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:206:10)
+    at Location.assign (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/generated/Location.js:72:36)
+    at /Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/login/page.tsx:225:58 undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at LocationImpl._locationObjectNavigate (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:30:5)
+    at LocationImpl.assign (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:206:10)
+    at Location.assign (/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/node_modules/jsdom/lib/jsdom/living/generated/Location.js:72:36)
+    at /Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/login/page.tsx:225:58 undefined
+
+ Test Files  42 passed (42)
+      Tests  222 passed (222)
+   Start at  08:33:21
+   Duration  9.50s (transform 12.34s, setup 9.11s, import 21.90s, tests 11.09s, environment 31.11s)

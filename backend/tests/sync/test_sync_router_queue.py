@@ -109,9 +109,8 @@ async def test_queue_sync_run_creates_queued_run_and_enqueues_worker(monkeypatch
     )
 
     assert result == {
-        "connection_id": "conn-1",
-        "access_point_id": "conn-1",
-        "run_id": "run-1",
+        "synchronize_binding_id": "conn-1",
+        "synchronize_run_id": "run-1",
         "worker_job_id": "arq-job-1",
         "path": "/Gmail",
         "provider": "gmail",
@@ -166,9 +165,8 @@ async def test_queue_sync_run_reuses_existing_active_run(monkeypatch):
     )
 
     assert result == {
-        "connection_id": "conn-1",
-        "access_point_id": "conn-1",
-        "run_id": "run-active",
+        "synchronize_binding_id": "conn-1",
+        "synchronize_run_id": "run-active",
         "worker_job_id": "arq-active",
         "path": "/Gmail",
         "provider": "gmail",
@@ -199,7 +197,7 @@ async def test_queue_sync_run_reuses_active_run_even_when_connection_paused(monk
         sync_arq_client=arq_client,
     )
 
-    assert result["run_id"] == "run-paused"
+    assert result["synchronize_run_id"] == "run-paused"
     assert result["worker_job_id"] == "arq-paused"
     assert result["status"] == "queued"
     assert result["deduped"] is True
@@ -226,7 +224,7 @@ async def test_queue_sync_run_recovers_stale_active_run_then_queues(monkeypatch)
         sync_arq_client=arq_client,
     )
 
-    assert result["run_id"] == "run-1"
+    assert result["synchronize_run_id"] == "run-1"
     assert result["deduped"] is False
     assert run_repo.marked_stale == ["run-stale"]
     assert run_repo.created == [("conn-1", "manual")]
@@ -249,9 +247,8 @@ async def test_queue_sync_run_dedupes_unique_race_without_enqueue(monkeypatch):
     )
 
     assert result == {
-        "connection_id": "conn-1",
-        "access_point_id": "conn-1",
-        "run_id": "run-race-winner",
+        "synchronize_binding_id": "conn-1",
+        "synchronize_run_id": "run-race-winner",
         "worker_job_id": "arq-race-winner",
         "path": "/Gmail",
         "provider": "gmail",
@@ -335,6 +332,6 @@ async def test_trigger_pull_all_returns_existing_running_and_skips_unqueueable(m
     assert response.code == 0
     assert response.data is not None
     assert response.data.synced == 1
-    assert [item["connection_id"] for item in response.data.results] == ["conn-running"]
-    assert all(item["deduped"] is True for item in response.data.results)
+    assert [item.synchronize_binding_id for item in response.data.results] == ["conn-running"]
+    assert all(item.deduped is True for item in response.data.results)
     assert arq_client.enqueued == []

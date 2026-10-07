@@ -1,0 +1,15 @@
+{
+  "paths": {
+    "/api/v1/activity/items": "8d328bf56d1d068c6b19853ce816b1ac68127c6a5dc3e3aad19ffa510840c242",
+    "/api/v1/projects/{project_id}/dashboard/resources": "79a7db8e280fa1caf48b71917a9bbe25a0cc3b0268fcc1b83c513cb843b08aa9"
+  },
+  "schemas": {
+    "ApiResponse_ContextActivityList_": "95634832e0f631a9b4fde7cda834add210dfcf9a7539a2bee9a0c4579dc1a26a",
+    "ApiResponse_ResourceDashboard_": "617b84429686118356d6a73115ba2eac56198963af38dca8a836f05830cdb846",
+    "ContextActivityItem": "3a744cd8c3bfb68229fdf0d9cdb80998df97bb040bd50c593975047e9db69f99",
+    "ContextActivityList": "ec7ee3c73ee2db3308591686b50b87e7d2e662161fce7be75b8167b7c77bf128",
+    "DashboardAccessSurface": "7253303847dd47f6e177096f275c55113b496415b07f647f22b73d808071e45e",
+    "DashboardSynchronizeBinding": "ed62bc0f9fb4cd2e097b2093a10372f0f5b914e56cc9b05e0aee3cc9d3afb1d6",
+    "ResourceDashboard": "17ad8c61942b53c3e5a451b92b786d3440887031f59ac63cdf50d59cc238dc69"
+  }
+}

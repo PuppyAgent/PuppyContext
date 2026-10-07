@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from src.provider._base import FetchResult
-from src.provider.schemas import Sync
+from src.provider.schemas import MaterializationInput
 
 
 FileContent = bytes | bytearray | str | dict[str, Any] | list[Any]
@@ -61,7 +61,7 @@ class MaterializationSchema:
 
 @dataclass
 class MaterializedOutput:
-    """Relative files ready for SynchronizeEngine to mount under sync.path."""
+    """Relative files ready for the caller to publish at its authorized target."""
 
     files: dict[str, FileContent]
     deleted: list[str] = field(default_factory=list)
@@ -74,7 +74,7 @@ class SourceMaterializer(Protocol):
     provider: str
     schema: MaterializationSchema
 
-    def materialize(self, result: FetchResult, sync: Sync) -> MaterializedOutput:
+    def materialize(self, result: FetchResult, sync: MaterializationInput) -> MaterializedOutput:
         ...
 
 
@@ -167,10 +167,10 @@ def source_meta(
     schema: MaterializationSchema,
     result: FetchResult,
     content: dict[str, Any],
-    sync: Sync,
+    sync: MaterializationInput,
     source_name: str | None = None,
 ) -> dict[str, Any]:
-    source = (sync.config or {}).get("source")
+    source = sync.source
     return {
         "provider": provider,
         "schema": schema.id,
@@ -178,7 +178,7 @@ def source_meta(
         "managed_by": "puppyone",
         "source": source if isinstance(source, dict) else None,
         "source_name": source_name or content.get("account") or content.get("spreadsheet_title") or content.get("folder_name") or result.node_name,
-        "connection_id": sync.id,
+        **sync.provenance,
         "synced_at": content.get("synced_at") or utc_now_iso(),
         "content_hash": result.content_hash,
     }

@@ -1,0 +1,5 @@
+
+> context-base-ui@0.0.3 test:hydration-contract
+> node scripts/test-hydration-safe-environment-label.mjs
+
+Hydration-safe workspace rail test passed.

@@ -1,0 +1,33 @@
+{
+  "paths": {
+    "/api/v1/access/surfaces": "fead3d858099e1b312d94c93e54be00a8aecdaef083b20902fb0a444b9ad9860",
+    "/api/v1/access/surfaces/types": "a7f4beb3f50f18ef9bb3eaecdf9e875ebfa48797c35a2bfa158ed566f5f9de56",
+    "/api/v1/access/surfaces/{access_surface_id}": "a8714426dfaa1cb4be8b6c42a7a5c3af220f4422f0c625b98a47fea10c40d31a",
+    "/api/v1/access/surfaces/{access_surface_id}/regenerate-key": "de2606e47dd3895f99c11822ddd918708e7e641b60a45406b6a8ba122b8b22f6",
+    "/api/v1/access/surfaces/{access_surface_id}/rename": "c6593292a8798a0a1237d77d053e607fb5d45acbb5be48b0b50f24161c61ba70",
+    "/api/v1/projects/{project_id}/access/surfaces": "1e9a7f6c7d56c5006046bb7109d2dcfc5c32c2cfdcca50cf946ecedf2721f139",
+    "/api/v1/projects/{project_id}/access/surfaces/enable-target": "18129710be4dfb7e987e35ba824136cf311c6e2147065fa7feac39649274a9fb",
+    "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}": "63912d85a2695c4457c572919cefd803ab008d6b136c923f6287d248dd6abe4b",
+    "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}/activate-agent": "60ce0f027fbbaaf3c91f14dc5699d35e044cfc7548c81febb0c95c802f9c7598",
+    "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}/pause": "09403aed308ba5ecabbe1c701b4f63e95992894d746e4d6cd15471fdcc43b569",
+    "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}/resume": "0b17774783394c6886f0e5a41c253b0bf3b1866fcf0dcfd9e8d47c9703c96e37"
+  },
+  "schemas": {
+    "AccessCredentialIssued": "8542a40f7218bb8c74045e3a9db7069823dcfe67dac0a04fc56bbec44f388ccf",
+    "AccessSurface": "0f1492cf93ec766f60317d3bc209758e3f1ad874c36ef2ece7bb3e402b93927e",
+    "AccessSurfaceConfigure": "88a1f5a5447879a83e90acaa25978185b3eb721adf07ee2e72375f9d07578030",
+    "AccessSurfaceCreate": "20d5e79778f22001bb68090335131cd4a2925a01b7e330d56b0b7cb5162c502f",
+    "AccessSurfaceCreated": "1d4bfa4b468a063e11d521abd055d5c46eb40f1b4ba1720ead0d2987ed8fd99b",
+    "AccessSurfaceKind": "fc9c726a45b7e000dbbf69492ae1f8532ff3fd2ef6eedb24e179c1aa58b942c9",
+    "AccessSurfaceMetadataUpdate": "e647d19516d84ebf07bec176a5dd1f00ccc148869afb276f6da7d1def26ed8d6",
+    "AccessSurfaceRename": "e7d09c356c68661e73974c53c67b9a8efecfb4257aea335307e1ba2dc643344a",
+    "AccessSurfaceUpdate": "0910502d6f31c1f73ffe7dffd0dbd7c87bd21b18bdb431db4c185f555511fe9e",
+    "AccessTargetEnable": "a253c29c6e77f64b6ef5902fe805c9e7a32e9c322b0c8e83f8f07988b673d55b",
+    "AccessTrigger": "ae1d56ceb2946152639c1ed33b75618af4cb5286375a8d388954177b43058019",
+    "ApiResponse_AccessCredentialIssued_": "be2f7aba970e8813bfb93e0cce664cb37f0538a5475e845e76d4bd3247ea3241",
+    "ApiResponse_AccessSurfaceCreated_": "f177a104bac3f2286cd5dd0614a79e291bfce65956c2db595996aee51c38943b",
+    "ApiResponse_AccessSurface_": "ea8b7cb7bd9b0104a86f0095157a29b138d5fc04dd04ba60bf17643b66681a05",
+    "ApiResponse_list_AccessSurfaceKind__": "8b69ec69b1a73d1aba0ebb979f0328f325a893edb949dbdffb5fdcf824d686cb",
+    "ApiResponse_list_AccessSurface__": "1cba0678d86342791d52faf9e1355f05f3739ea56d7f19124fc012c8122b2252"
+  }
+}

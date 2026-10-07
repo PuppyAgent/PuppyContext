@@ -5,11 +5,10 @@ from __future__ import annotations
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from src.version_engine.read.history_models import HistoryGraphCacheStats, HistoryGraphSnapshot
-
 
 CacheKey = tuple[str, str]
 
@@ -138,8 +137,7 @@ class HistoryGraphCache:
         )
         self._total_weight += weight
         while (
-            len(self._entries) > self._max_snapshots
-            or self._total_weight > self._max_total_weight
+            len(self._entries) > self._max_snapshots or self._total_weight > self._max_total_weight
         ):
             _evicted_key, evicted = self._entries.popitem(last=False)
             self._total_weight -= evicted.snapshot.cache_weight

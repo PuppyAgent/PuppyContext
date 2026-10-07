@@ -42,7 +42,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    ".next-desktop-login/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

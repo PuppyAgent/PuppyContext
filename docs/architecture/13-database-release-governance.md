@@ -134,10 +134,30 @@ artifact's `verify.sql` against Supabase to prove the recorded completion state.
 This preserves a deployment gate without scheduling an S3 scan or deletion on
 every push.
 
+Public **validation** may provision disposable local Docker Supabase/S3 services
+with synthetic fixtures and no hosted credentials. This is separate from the
+hosted deployment control plane above. The native inventory migration uses
+`scripts/testing/run_native_inventory_migration.py` for that local acceptance;
+its operator artifact and rollout sequence are documented in
+[`20261007_native_repository_inventory/README.md`](../../supabase/data_migrations/20261007_native_repository_inventory/README.md).
+
 `supabase/seed.sql` is only bootstrap/demo/test data. It is not a production
 upgrade mechanism.
 
 ## Release orchestration
+
+Ordinary application releases are not whole-database historical audits. Their
+acceptance scope is schema compatibility, synthetic regression fixtures and a
+bounded set of real project flows. Unrelated historical corruption belongs to
+separate repair work and must not become an implicit CI/CD dependency.
+
+Native adoption can use an explicit project selection with its own immutable
+receipt. The [Qubits Agent rollout](../../supabase/data_migrations/20261008_qubits_agent_project/README.md)
+keeps selected full history and sibling data intact, while using the existing
+current-tree reconciliation once for a correct organization usage baseline.
+Global archival and destructive Contract retain their own full-inventory gates;
+they are not part of this bounded rollout. An unselected project is not thereby
+declared native-ready, and no legacy runtime fallback is introduced.
 
 The entire staging/production release and manual data dispatch share an outer
 `database-release-<environment>` concurrency group. Runs and pending releases

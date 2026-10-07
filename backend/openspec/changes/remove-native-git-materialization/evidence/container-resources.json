@@ -1,0 +1,99 @@
+{
+  "init_process": "docker-init",
+  "before": {
+    "pids.current": "5",
+    "pids.max": "1024",
+    "memory.peak": "64671744",
+    "memory.max": "4294967296",
+    "pids.events": {
+      "max": 0
+    },
+    "memory.events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  },
+  "after": {
+    "pids.current": "4",
+    "pids.max": "1024",
+    "memory.peak": "863600640",
+    "memory.max": "4294967296",
+    "pids.events": {
+      "max": 0
+    },
+    "memory.events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  },
+  "failures": [],
+  "observed_peak": {
+    "pids": 48,
+    "processes": [
+      {
+        "Name": "docker-init",
+        "Pid": "1",
+        "PPid": "0",
+        "State": "S (sleeping)",
+        "Threads": "1"
+      },
+      {
+        "Name": "python",
+        "Pid": "6",
+        "PPid": "1",
+        "State": "S (sleeping)",
+        "Threads": "9"
+      },
+      {
+        "Name": "python",
+        "Pid": "15",
+        "PPid": "6",
+        "State": "S (sleeping)",
+        "Threads": "1"
+      },
+      {
+        "Name": "python",
+        "Pid": "158",
+        "PPid": "15",
+        "State": "S (sleeping)",
+        "Threads": "32"
+      },
+      {
+        "Name": "git",
+        "Pid": "3029",
+        "PPid": "15",
+        "State": "S (sleeping)",
+        "Threads": "1"
+      },
+      {
+        "Name": "git",
+        "Pid": "3030",
+        "PPid": "3029",
+        "State": "S (sleeping)",
+        "Threads": "1"
+      },
+      {
+        "Name": "git-remote-http",
+        "Pid": "3031",
+        "PPid": "3030",
+        "State": "S (sleeping)",
+        "Threads": "1"
+      },
+      {
+        "Name": "git",
+        "Pid": "3032",
+        "PPid": "3031",
+        "State": "S (sleeping)",
+        "Threads": "2"
+      }
+    ]
+  }
+}

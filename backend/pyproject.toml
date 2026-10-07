@@ -10,6 +10,7 @@ dependencies = [
     "cachetools>=5.0.0",
     "cashews>=7.4.4",
     "cryptography>=46.0.3",
+    "dulwich==1.2.1",
     "fastapi>=0.121.1",
     "fastmcp>=2.13.0.2",
     "firecrawl-py>=4.0.0",
@@ -77,7 +78,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "D", "BLE001"]
-"src/ingest/file/jobs/worker.py" = ["E402"]
+"src/platform/upload/worker.py" = ["E402"]
 "src/ingest/router.py" = ["E402"]
 
 [tool.ruff.format]

@@ -18,12 +18,7 @@ import { ModalPortal } from './ui/ModalPortal';
 import { ActionButton } from './ui/ActionButton';
 import { BUTTON_HEIGHT } from './ui/buttonTokens';
 import { APP_Z_INDEX } from '@/lib/zIndex';
-import {
-  addPendingTasks,
-  updateTaskStatusById,
-  updateTaskProgress,
-  replaceTaskId,
-} from './BackgroundTaskNotifier';
+import { useTaskActions } from '@/contexts/TaskProvider';
 import {
   detectImportType,
   supportsCrawlOptions,
@@ -57,6 +52,7 @@ export function TableManageDialog({
 }: TableManageDialogProps) {
   const { session } = useAuth();
   const { currentOrg } = useOrganization();
+  const { addPendingTasks, replaceTaskId, updateTaskProgress, updateTaskStatusById } = useTaskActions(projectId, currentOrg?.id);
   void projects;
   const tableName = tableId?.split('/').filter(Boolean).pop() ?? '';
 
@@ -205,9 +201,8 @@ export function TableManageDialog({
 
         // Optimistic refresh while we kick off the upload. The
         // authoritative refresh happens AFTER the worker writes the
-        // file into the Version Engine (driven by the BackgroundTaskNotifier
-        // ``etl-task-completed`` event listener elsewhere in the
-        // app, plus an explicit refresh below for snappier UX).
+        // file into the Version Engine (task completion invalidates the
+        // corresponding project queries throughout the app).
         await refreshProjects(currentOrg?.id);
         onClose();
 
@@ -291,14 +286,9 @@ export function TableManageDialog({
               if (id) updateTaskStatusById(id, 'failed', { error: errMsg });
             });
             console.error('Direct-to-S3 upload init failed:', uploadError);
-          } finally {
-            // Refresh once the upload pipeline returns — most of the
-            // time the worker hasn't written the versioned file yet, so this is
-            // a cosmetic refresh; the BackgroundTaskNotifier will
-            // emit ``projects-refresh`` once the worker actually
-            // completes, which kicks the tree to update for real.
-            await refreshProjects(currentOrg?.id);
           }
+          // Each completed task invalidates the owning project's SWR queries,
+          // even though this dialog has already closed.
         })();
 
         return;

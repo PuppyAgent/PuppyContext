@@ -1,25 +1,21 @@
-import hashlib
 import json
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
-from src.version_engine.domain.errors import ObjectNotFoundError, VersionReadError
-from src.version_engine.storage.object_store import ObjectStore, StorageBackend
-from src.version_engine.write_engine.git_object_format import MODE_DIR, MODE_FILE, TreeEntry, encode_tree
-
 from fastapi import HTTPException
 
-from src.version_engine.entrypoints.http import access_point_fs as apfs
-from src.version_engine.entrypoints.http.access_point_fs import _filter_entries
-from src.version_engine.read.tree_reader import VersionTreeReader
-from src.version_engine.adapters.product.commands import VersionWriteCommandService
 from src.platform.authorization.models import RuntimeGrant, RuntimeMode, RuntimePrincipal
 from src.platform.repository_target.models import (
     ProjectRootTarget,
     ResolvedRepositoryView,
     ScopeTarget,
 )
+from src.version_engine.adapters.product.commands import VersionWriteCommandService
+from src.version_engine.entrypoints.http import access_point_fs as apfs
+from src.version_engine.entrypoints.http.access_point_fs import _filter_entries
 from src.version_engine.infrastructure.supabase.scope_repository import SupabaseScopeBackend
+from src.version_engine.storage.object_store import StorageBackend
 
 
 def _entry(path: str, type_: str = "file", size_bytes: int | None = None):
@@ -188,6 +184,11 @@ async def test_ap_fs_handlers_admit_expected_cli_command(
 
 
 class _FakeOps:
+    def for_grant(self, grant):
+        assert isinstance(grant, RuntimeGrant)
+        self.grant = grant
+        return self
+
     def __init__(self, *, files=None, stats=None, listing=None, list_by_path=None, tree=None):
         self.files = files or {}
         self.stats = stats or {}
@@ -248,7 +249,12 @@ class _FakeOps:
         return self.list_dir(project_id, full, include_size=include_size)
 
     def list_tree(
-        self, _project_id, _path, max_depth=-1, *, include_size=False,
+        self,
+        _project_id,
+        _path,
+        max_depth=-1,
+        *,
+        include_size=False,
         max_entries=None,
     ):
         if max_entries is None:
@@ -256,7 +262,13 @@ class _FakeOps:
         return self.tree_entries[:max_entries]
 
     def list_tree_in_scope(
-        self, project_id, scope_path, path, max_depth=-1, *, include_size=False,
+        self,
+        project_id,
+        scope_path,
+        path,
+        max_depth=-1,
+        *,
+        include_size=False,
         max_entries=None,
     ):
         full = f"{scope_path.strip('/')}/{path.strip('/')}".strip("/")
@@ -286,96 +298,159 @@ class _FakeOps:
         }
 
     async def write_file(
-        self, project_id, path, content, *, who, message, scope="",
-        base_commit_id=None, defer_projection=False, **_kwargs,
+        self,
+        project_id,
+        path,
+        content,
+        *,
+        who,
+        message,
+        scope="",
+        base_commit_id=None,
+        defer_projection=False,
+        **_kwargs,
     ):
-        self.writes.append({
-            "project_id": project_id,
-            "path": path,
-            "content": content,
-            "who": who,
-            "scope": scope,
-            "message": message,
-            "base_commit_id": base_commit_id,
-            "defer_projection": defer_projection,
-        })
+        self.writes.append(
+            {
+                "project_id": project_id,
+                "path": path,
+                "content": content,
+                "who": who,
+                "scope": scope,
+                "message": message,
+                "base_commit_id": base_commit_id,
+                "defer_projection": defer_projection,
+            }
+        )
         return SimpleNamespace(commit_id="write-commit")
 
     async def mkdir(
-        self, project_id, path, *, who, message, scope="",
-        base_commit_id=None, defer_projection=False, **_kwargs,
+        self,
+        project_id,
+        path,
+        *,
+        who,
+        message,
+        scope="",
+        base_commit_id=None,
+        defer_projection=False,
+        **_kwargs,
     ):
-        self.mkdirs.append({
-            "project_id": project_id,
-            "path": path,
-            "who": who,
-            "scope": scope,
-            "message": message,
-            "base_commit_id": base_commit_id,
-            "defer_projection": defer_projection,
-        })
+        self.mkdirs.append(
+            {
+                "project_id": project_id,
+                "path": path,
+                "who": who,
+                "scope": scope,
+                "message": message,
+                "base_commit_id": base_commit_id,
+                "defer_projection": defer_projection,
+            }
+        )
         return SimpleNamespace(commit_id="mkdir-commit")
 
     async def move(
-        self, project_id, old_path, new_path, *, who, message, scope="",
-        base_commit_id=None, defer_projection=False, **_kwargs,
+        self,
+        project_id,
+        old_path,
+        new_path,
+        *,
+        who,
+        message,
+        scope="",
+        base_commit_id=None,
+        defer_projection=False,
+        **_kwargs,
     ):
-        self.moves.append({
-            "project_id": project_id,
-            "old_path": old_path,
-            "new_path": new_path,
-            "who": who,
-            "scope": scope,
-            "message": message,
-            "base_commit_id": base_commit_id,
-            "defer_projection": defer_projection,
-        })
+        self.moves.append(
+            {
+                "project_id": project_id,
+                "old_path": old_path,
+                "new_path": new_path,
+                "who": who,
+                "scope": scope,
+                "message": message,
+                "base_commit_id": base_commit_id,
+                "defer_projection": defer_projection,
+            }
+        )
         return SimpleNamespace(commit_id="move-commit")
 
     async def copy(
-        self, project_id, old_path, new_path, *, who, message, scope="",
-        base_commit_id=None, defer_projection=False, **_kwargs,
+        self,
+        project_id,
+        old_path,
+        new_path,
+        *,
+        who,
+        message,
+        scope="",
+        base_commit_id=None,
+        defer_projection=False,
+        **_kwargs,
     ):
-        self.copies.append({
-            "project_id": project_id,
-            "old_path": old_path,
-            "new_path": new_path,
-            "who": who,
-            "scope": scope,
-            "message": message,
-            "base_commit_id": base_commit_id,
-            "defer_projection": defer_projection,
-        })
+        self.copies.append(
+            {
+                "project_id": project_id,
+                "old_path": old_path,
+                "new_path": new_path,
+                "who": who,
+                "scope": scope,
+                "message": message,
+                "base_commit_id": base_commit_id,
+                "defer_projection": defer_projection,
+            }
+        )
         return SimpleNamespace(commit_id="copy-commit")
 
     async def touch(
-        self, project_id, paths, *, who, message, scope="",
-        base_commit_id=None, defer_projection=False, **_kwargs,
+        self,
+        project_id,
+        paths,
+        *,
+        who,
+        message,
+        scope="",
+        base_commit_id=None,
+        defer_projection=False,
+        **_kwargs,
     ):
-        self.touches.append({
-            "project_id": project_id,
-            "paths": paths,
-            "who": who,
-            "scope": scope,
-            "message": message,
-            "base_commit_id": base_commit_id,
-            "defer_projection": defer_projection,
-        })
+        self.touches.append(
+            {
+                "project_id": project_id,
+                "paths": paths,
+                "who": who,
+                "scope": scope,
+                "message": message,
+                "base_commit_id": base_commit_id,
+                "defer_projection": defer_projection,
+            }
+        )
         return SimpleNamespace(commit_id="touch-commit")
 
     async def delete(
-        self, project_id, paths, *, who, message, scope="",
-        base_commit_id=None, defer_projection=False, **_kwargs,
+        self,
+        project_id,
+        paths,
+        *,
+        who,
+        message,
+        scope="",
+        base_commit_id=None,
+        defer_projection=False,
+        **_kwargs,
     ):
-        self.deletes.append({
-            "project_id": project_id,
-            "paths": paths,
-            "who": who,
-            "scope": scope,
-            "message": message,
-            "base_commit_id": base_commit_id,
-            "defer_projection": defer_projection,
-        })
+        self.deletes.append(
+            {
+                "project_id": project_id,
+                "paths": paths,
+                "who": who,
+                "scope": scope,
+                "message": message,
+                "base_commit_id": base_commit_id,
+                "defer_projection": defer_projection,
+            }
+        )
         return SimpleNamespace(commit_id="delete-commit")
 
 
@@ -402,298 +477,6 @@ def test_filter_entries_can_include_dot_entries():
         "docs/readme.md",
         ".internal/readme_1.md",
     ]
-
-
-def test_tree_reader_includes_size_only_when_requested(tmp_path):
-    store = ObjectStore(tmp_path / "objects")
-    blob_hash = store.put_blob(b"hello")
-    root_hash = store.put_tree(encode_tree([
-        TreeEntry(name="hello.txt", mode=MODE_FILE, sha1_hex=blob_hash),
-    ]))
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    default_entry = reader.list_dir("project-id")[0]
-    sized_entry = reader.list_dir("project-id", include_size=True)[0]
-    stat_entry = reader.stat("project-id", "hello.txt", include_size=True)
-
-    assert default_entry.size_bytes is None
-    assert sized_entry.size_bytes == 5
-    assert stat_entry.size_bytes == 5
-
-
-def test_tree_reader_prioritizes_root_readme_before_folders(tmp_path):
-    store = ObjectStore(tmp_path / "objects")
-    readme_hash = store.put_blob(b"start")
-    file_hash = store.put_blob(b"note")
-    docs_hash = store.put_tree(encode_tree([]))
-    root_hash = store.put_tree(encode_tree([
-        TreeEntry(name="docs", mode=MODE_DIR, sha1_hex=docs_hash),
-        TreeEntry(name="README.md", mode=MODE_FILE, sha1_hex=readme_hash),
-        TreeEntry(name="note.md", mode=MODE_FILE, sha1_hex=file_hash),
-    ]))
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    entries = reader.list_dir("project-id")
-    assert [entry.name for entry in entries] == ["README.md", "docs", "note.md"]
-
-
-def test_tree_reader_lists_parent_when_child_tree_object_is_missing(tmp_path):
-    store = ObjectStore(tmp_path / "objects")
-    missing_child_hash = "1" * 40
-    file_hash = store.put_blob(b"ok")
-    root_hash = store.put_tree(encode_tree([
-        TreeEntry(name="broken", mode=MODE_DIR, sha1_hex=missing_child_hash),
-        TreeEntry(name="ok.md", mode=MODE_FILE, sha1_hex=file_hash),
-    ]))
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    entries = reader.list_dir("project-id")
-
-    assert [entry.path for entry in entries] == ["broken", "ok.md"]
-    broken = entries[0]
-    assert broken.type == "folder"
-    assert broken.children_count is None
-    assert broken.integrity_status == "damaged"
-
-    with pytest.raises(ObjectNotFoundError):
-        reader.list_dir("project-id", "broken")
-
-
-def test_tree_reader_marks_file_entry_damaged_when_blob_object_is_missing(tmp_path):
-    store = ObjectStore(tmp_path / "objects")
-    missing_blob_hash = "2" * 40
-    root_hash = store.put_tree(encode_tree([
-        TreeEntry(name="missing.md", mode=MODE_FILE, sha1_hex=missing_blob_hash),
-    ]))
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    entry = reader.list_dir("project-id")[0]
-
-    assert entry.path == "missing.md"
-    assert entry.type == "markdown"
-    assert entry.integrity_status == "damaged"
-
-    stat_entry = reader.stat("project-id", "missing.md")
-    assert stat_entry is not None
-    assert stat_entry.integrity_status == "damaged"
-
-    with pytest.raises(ObjectNotFoundError):
-        reader.read_file("project-id", "missing.md")
-
-
-def test_tree_reader_checks_file_integrity_in_bulk_for_directory_listing(tmp_path):
-    backend = _BulkExistsBackend()
-    store = ObjectStore(tmp_path / "objects", backend=backend)
-    first_hash = store.put_blob(b"first")
-    second_hash = store.put_blob(b"second")
-    root_hash = store.put_tree(encode_tree([
-        TreeEntry(name="first.md", mode=MODE_FILE, sha1_hex=first_hash),
-        TreeEntry(name="second.md", mode=MODE_FILE, sha1_hex=second_hash),
-        TreeEntry(name="missing.md", mode=MODE_FILE, sha1_hex="3" * 40),
-    ]))
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    entries = reader.list_dir("project-id")
-
-    assert backend.exists_calls == []
-    assert backend.exists_many_calls == [[first_hash, "3" * 40, second_hash]]
-    status_by_path = {entry.path: entry.integrity_status for entry in entries}
-    assert status_by_path == {
-        "first.md": "ok",
-        "second.md": "ok",
-        "missing.md": "damaged",
-    }
-
-
-def test_tree_reader_ranges_decoded_git_blob_content(tmp_path):
-    backend = _RangeBackend()
-    store = ObjectStore(tmp_path / "objects", backend=backend)
-    blob_hash = store.put_blob(b"abcdef")
-    root_hash = store.put_tree(encode_tree([
-        TreeEntry(name="blob.bin", mode=MODE_FILE, sha1_hex=blob_hash),
-    ]))
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    result = reader.read_file_range("project-id", "blob.bin", start=2, limit=3)
-
-    assert result.content == b"cde"
-    assert result.total_size == 6
-    assert result.ranged is True
-    assert backend.ranges == []
-
-
-def test_tree_reader_rejects_non_git_tree_objects(tmp_path):
-    store = ObjectStore(tmp_path / "objects")
-    tree_raw = json.dumps({"old.txt": ["B", "0" * 40]}).encode("utf-8")
-    root_hash = hashlib.sha1(tree_raw).hexdigest()
-    store.put_loose(root_hash, tree_raw)
-
-    class _History:
-        def get_root_hash(self):
-            return root_hash
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = store
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    with pytest.raises(ObjectNotFoundError):
-        reader.list_dir("project-id", include_size=True)
-    with pytest.raises(FileNotFoundError):
-        reader.read_file("project-id", "old.txt")
-
-
-def test_tree_reader_list_dir_root_read_failure_is_not_empty(tmp_path):
-    class _History:
-        def get_root_hash(self):
-            raise RuntimeError("db timeout")
-
-    class _Repo:
-        pass
-
-    repo = _Repo()
-    repo.history = _History()
-    repo.store = ObjectStore(tmp_path / "objects")
-
-    class _Repos:
-        def get_repo(self, project_id):
-            return repo
-
-    reader = VersionTreeReader(_Repos())
-
-    with pytest.raises(VersionReadError):
-        reader.list_dir("project-id")
-
-
-def test_tree_reader_scope_methods_read_scope_head_without_root_projection(tmp_path):
-    store = ObjectStore(tmp_path / "objects")
-    blob_hash = store.put_blob(b"scope bytes")
-    scope_hash = store.put_tree(encode_tree([
-        TreeEntry(name="inside.txt", mode=MODE_FILE, sha1_hex=blob_hash),
-    ]))
-
-    class _Repo:
-        def __init__(self):
-            self.store = store
-
-        def get_scope_hash(self, scope_path):
-            assert scope_path == "Scope"
-            return scope_hash
-
-    class _Repos:
-        def get_server_repo(self, project_id):
-            return _Repo()
-
-    reader = VersionTreeReader(_Repos())
-
-    entries = reader.list_dir_in_scope("project-id", "Scope")
-    assert [entry.path for entry in entries] == ["Scope/inside.txt"]
-    assert reader.stat_in_scope("project-id", "Scope", "inside.txt").path == "Scope/inside.txt"
-    assert reader.read_file_in_scope("project-id", "Scope", "inside.txt") == b"scope bytes"
 
 
 @pytest.mark.asyncio
@@ -777,7 +560,7 @@ async def test_upload_writes_raw_bytes_through_product_operation_adapter(monkeyp
     ops = _FakeOps()
 
     class _Request:
-        headers = {}
+        headers: ClassVar[dict] = {}
 
         async def body(self):
             return b"\x00bytes"
@@ -970,10 +753,12 @@ async def test_find_uses_canonical_backend_conditions(monkeypatch):
 
     result = await apfs.find_index(
         path="docs",
-        conditions=json.dumps([
-            {"kind": "name", "value": "*.md", "negate": False},
-            {"kind": "path", "value": "docs/tmp/*", "negate": True},
-        ]),
+        conditions=json.dumps(
+            [
+                {"kind": "name", "value": "*.md", "negate": False},
+                {"kind": "path", "value": "docs/tmp/*", "negate": True},
+            ]
+        ),
         mindepth=1,
         max_depth=2,
         limit=10,
@@ -993,18 +778,20 @@ async def test_find_uses_canonical_backend_conditions(monkeypatch):
 
     assert result.data["source"] == "live_tree"
     assert result.data["path"] == "docs"
-    assert result.data["entries"] == [{
-        "name": "a.md",
-        "path": "docs/a.md",
-        "type": "markdown",
-        "content_hash": None,
-        "size_bytes": None,
-        "mime_type": None,
-        "children_count": None,
-        "integrity_status": None,
-        "created_at": None,
-        "modified_at": None,
-    }]
+    assert result.data["entries"] == [
+        {
+            "name": "a.md",
+            "path": "docs/a.md",
+            "type": "markdown",
+            "content_hash": None,
+            "size_bytes": None,
+            "mime_type": None,
+            "children_count": None,
+            "integrity_status": None,
+            "created_at": None,
+            "modified_at": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -1024,15 +811,17 @@ async def test_grep_uses_authoritative_indexed_backend(monkeypatch):
             "per_file_limit": body.per_file_limit,
             "candidate_limit": body.candidate_limit,
             "candidates_examined": 1,
-            "hits": [{
-                "path": "docs/a.md",
-                "line": 2,
-                "col": 7,
-                "match": "hello indexed",
-                "context_before": ["before"],
-                "context_after": ["after"],
-                "content_hash": "blob-hash",
-            }],
+            "hits": [
+                {
+                    "path": "docs/a.md",
+                    "line": 2,
+                    "col": 7,
+                    "match": "hello indexed",
+                    "context_before": ["before"],
+                    "context_after": ["after"],
+                    "content_hash": "blob-hash",
+                }
+            ],
             "truncated": False,
             "index_status": "indexed",
             "index_freshness": {
@@ -1064,12 +853,14 @@ async def test_grep_uses_authoritative_indexed_backend(monkeypatch):
     assert result.data["returned_count"] == 1
     assert result.data["matches"][0]["path"] == "docs/a.md"
     assert result.data["matches"][0]["line_text"] == "hello indexed"
-    assert result.data["files"] == [{
-        "path": "docs/a.md",
-        "version_path": "docs/a.md",
-        "match_count": 1,
-        "content_hash": "blob-hash",
-    }]
+    assert result.data["files"] == [
+        {
+            "path": "docs/a.md",
+            "version_path": "docs/a.md",
+            "match_count": 1,
+            "content_hash": "blob-hash",
+        }
+    ]
     assert result.data["scanned_files"] == 0
 
 
@@ -1300,15 +1091,17 @@ async def test_grep_stale_index_falls_back_to_live_scan(monkeypatch):
         "_run_grep_indexed_payload",
         lambda **_kwargs: {
             "index_status": "stale",
-            "hits": [{
-                "path": "stale.md",
-                "line": 1,
-                "col": 1,
-                "match": "stale",
-                "context_before": [],
-                "context_after": [],
-                "content_hash": "stale-hash",
-            }],
+            "hits": [
+                {
+                    "path": "stale.md",
+                    "line": 1,
+                    "col": 1,
+                    "match": "stale",
+                    "context_before": [],
+                    "context_after": [],
+                    "content_hash": "stale-hash",
+                }
+            ],
         },
     )
     result = await apfs.grep(
@@ -1581,10 +1374,12 @@ async def test_mkdir_existing_directory_without_parents_raises(monkeypatch):
 @pytest.mark.asyncio
 async def test_mv_existing_directory_target_moves_inside_it(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "dir": _entry("dir", "folder"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "dir": _entry("dir", "folder"),
+        }
+    )
 
     result = await apfs.move(
         apfs.MoveRequest(old_path="a.txt", new_path="dir"),
@@ -1601,10 +1396,12 @@ async def test_mv_existing_directory_target_moves_inside_it(monkeypatch):
 @pytest.mark.asyncio
 async def test_mv_no_clobber_skips_existing_destination(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "b.txt": _entry("b.txt", "file"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "b.txt": _entry("b.txt", "file"),
+        }
+    )
 
     result = await apfs.move(
         apfs.MoveRequest(old_path="a.txt", new_path="b.txt", no_clobber=True),
@@ -1634,16 +1431,18 @@ async def test_touch_missing_file_writes_empty_file_through_product_operation_ad
 
     assert result.data["created"] is True
     assert result.data["commit_id"] == "write-commit"
-    assert ops.writes == [{
-        "project_id": "project-id",
-        "path": "new.txt",
-        "content": b"",
-        "who": "access_point:test-ap",
-        "scope": "",
-        "message": "ap touch new.txt",
-        "base_commit_id": "base",
-        "defer_projection": True,
-    }]
+    assert ops.writes == [
+        {
+            "project_id": "project-id",
+            "path": "new.txt",
+            "content": b"",
+            "who": "access_point:test-ap",
+            "scope": "",
+            "message": "ap touch new.txt",
+            "base_commit_id": "base",
+            "defer_projection": True,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -1668,10 +1467,12 @@ async def test_touch_existing_file_records_mtime_commit(monkeypatch):
 @pytest.mark.asyncio
 async def test_cp_existing_directory_target_copies_inside_it(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "dir": _entry("dir", "folder"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "dir": _entry("dir", "folder"),
+        }
+    )
 
     result = await apfs.copy(
         apfs.CopyRequest(old_path="a.txt", new_path="dir"),
@@ -1708,10 +1509,12 @@ async def test_cp_explicit_target_directory_requires_directory(monkeypatch):
 @pytest.mark.asyncio
 async def test_cp_explicit_root_target_directory_uses_plain_child_path(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "": _entry("", "folder"),
-        "a.txt": _entry("a.txt", "file"),
-    })
+    ops = _FakeOps(
+        stats={
+            "": _entry("", "folder"),
+            "a.txt": _entry("a.txt", "file"),
+        }
+    )
 
     result = await apfs.copy(
         apfs.CopyRequest(old_path="a.txt", new_path=".", target_directory=True),
@@ -1746,10 +1549,12 @@ async def test_cp_directory_requires_recursive(monkeypatch):
 @pytest.mark.asyncio
 async def test_cp_no_clobber_skips_existing_destination(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "b.txt": _entry("b.txt", "file"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "b.txt": _entry("b.txt", "file"),
+        }
+    )
 
     result = await apfs.copy(
         apfs.CopyRequest(old_path="a.txt", new_path="b.txt", no_clobber=True),
@@ -1767,10 +1572,12 @@ async def test_cp_no_clobber_skips_existing_destination(monkeypatch):
 @pytest.mark.asyncio
 async def test_mv_no_target_directory_rejects_existing_directory(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "dir": _entry("dir", "folder"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "dir": _entry("dir", "folder"),
+        }
+    )
 
     with pytest.raises(HTTPException) as exc:
         await apfs.move(
@@ -1789,10 +1596,12 @@ async def test_mv_no_target_directory_rejects_existing_directory(monkeypatch):
 @pytest.mark.asyncio
 async def test_mv_no_target_directory_no_clobber_skips_existing_directory(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "dir": _entry("dir", "folder"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "dir": _entry("dir", "folder"),
+        }
+    )
 
     result = await apfs.move(
         apfs.MoveRequest(
@@ -1815,10 +1624,12 @@ async def test_mv_no_target_directory_no_clobber_skips_existing_directory(monkey
 @pytest.mark.asyncio
 async def test_mv_rejects_folder_move_into_own_descendant(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "old": _entry("old", "folder"),
-        "old/sub": _entry("old/sub", "folder"),
-    })
+    ops = _FakeOps(
+        stats={
+            "old": _entry("old", "folder"),
+            "old/sub": _entry("old/sub", "folder"),
+        }
+    )
 
     with pytest.raises(HTTPException) as exc:
         await apfs.move(
@@ -1909,10 +1720,12 @@ async def test_rmdir_parents_removes_empty_parent_chain(monkeypatch):
 @pytest.mark.asyncio
 async def test_rm_accepts_multiple_paths(monkeypatch):
     _patch_auth(monkeypatch)
-    ops = _FakeOps(stats={
-        "a.txt": _entry("a.txt", "file"),
-        "b.txt": _entry("b.txt", "file"),
-    })
+    ops = _FakeOps(
+        stats={
+            "a.txt": _entry("a.txt", "file"),
+            "b.txt": _entry("b.txt", "file"),
+        }
+    )
 
     result = await apfs.remove(
         apfs.RemoveRequest(paths=["a.txt", "b.txt"], recursive=False),

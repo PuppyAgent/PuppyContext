@@ -1,0 +1,207 @@
+
+> context-base-ui@0.0.3 lint
+> node scripts/readability/run-eslint.mjs
+
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/projects/[projectId]/home/components/ProviderAvatar.tsx
+  48:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/projects/[projectId]/home/page.tsx
+  149:9  warning  The 'commits' logical expression could make the dependencies of useMemo Hook (at line 170) change on every render. To fix this, wrap the initialization of 'commits' in its own useMemo() Hook  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/projects/[projectId]/toolkit/page.tsx
+  637:6  warning  React Hook useMemo has a missing dependency: 'DEPRECATED_TOOL_TYPES'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  648:6  warning  React Hook useMemo has a missing dependency: 'DEPRECATED_TOOL_TYPES'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowCatalog.tsx
+  312:9   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  320:7   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  715:13  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowNodeForms.tsx
+  168:19  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/projects/[projectId]/workflows/components/WorkflowPrimitives.tsx
+  69:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/(main)/team/page.tsx
+  429:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/invite/[token]/page.tsx
+   47:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  114:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  126:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  136:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  146:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  157:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/login/page.tsx
+   86:7   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  257:6   warning  React Hook useEffect has a missing dependency: 'handleOAuthSignIn'. Either include it or remove the dependency array                                                                                                                                                                     react-hooks/exhaustive-deps
+  443:13  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/reset-password/page.tsx
+  175:13  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/app/share/[token]/page.tsx
+   41:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  110:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  120:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  130:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  140:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  152:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/ConnectContentView.tsx
+  67:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  76:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  85:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  94:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/ProjectWorkspaceView.tsx
+  56:6  warning  React Hook useEffect has a missing dependency: 'isSaving'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/TaskStatusWidget.tsx
+  259:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  267:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  270:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  273:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  276:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  279:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  282:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/UserMenuPanel.tsx
+   103:7   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   111:7   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   119:7   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   127:7   warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1264:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/agent/views/AgentDetailView.tsx
+  207:6  warning  React Hook useEffect has a missing dependency: 'fetchExecutions'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/agent/views/ChatRuntimeView.tsx
+  225:5  warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked  react-hooks/exhaustive-deps
+  226:5  warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked  react-hooks/exhaustive-deps
+  435:6  warning  React Hook useCallback has a missing dependency: 'completeStep'. Either include it or remove the dependency array                         react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/agent/views/McpConnectionView.tsx
+  222:17  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  289:17  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/agent/views/SyncDetailView.tsx
+   49:10  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  289:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/agent/views/configs/SyncPreview.tsx
+   68:10  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  171:17  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/agent/views/configs/SyncTargetConfig.tsx
+  38:6  warning  React Hook useEffect has missing dependencies: 'draftResources' and 'removeDraftResource'. Either include them or remove the dependency array                                      react-hooks/exhaustive-deps
+  56:6  warning  React Hook useEffect has missing dependencies: 'addDraftResource', 'draftResources', 'primaryType', and 'removeDraftResource'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/chat/AgentChatChrome.tsx
+  10:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  11:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/editors/image/ImagePreview.tsx
+  79:7  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/editors/table/JsonEditorComponent.tsx
+  253:24  warning  The ref value 'containerRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'containerRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+  265:6   warning  React Hook useEffect has missing dependencies: 'json', 'onChange', and 'options'. Either include them or remove the dependency array                                                                                                                                     react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/project/ProjectSettingsDialog.tsx
+  999:31  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/sidebar/SidebarLayout.tsx
+  266:15  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  300:17  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  532:15  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/components/sidebar/WorkspaceProjectRail.tsx
+  136:13  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/contexts/AgentContext.tsx
+  430:6  warning  React Hook useCallback has a missing dependency: 'projectId'. Either include it or remove the dependency array            react-hooks/exhaustive-deps
+  611:6  warning  React Hook useCallback has a missing dependency: 'selectSync'. Either include it or remove the dependency array           react-hooks/exhaustive-deps
+  758:6  warning  React Hook useCallback has an unnecessary dependency: 'currentAgentId'. Either exclude it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/contexts/SupabaseAuthProvider.tsx
+  276:5  warning  React Hook useMemo has missing dependencies: 'finishSignIn', 'getAccessToken', 'resendConfirmation', 'resetPassword', 'signInWithEmail', 'signInWithOtp', 'signInWithProvider', 'signOut', 'signUpWithEmail', 'updatePassword', and 'verifyEmailOtp'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/FilesWorkspace.tsx
+  535:6  warning  React Hook useMemo has an unnecessary dependency: 'navigateTo'. Either exclude it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/McpConfigPanel.tsx
+  33:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/SandboxConfigPanel.tsx
+  38:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/SyncConfigPanel.tsx
+  74:10  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/access-points/AccessPointProviderIcon.tsx
+  80:12  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/access-points/connect-methods/CliCredentialIssuePanel.tsx
+  39:33  warning  The ref value 'generation.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'generation.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/explorer/ExplorerTreeRow.tsx
+  879:5  warning  React Hook useCallback has a missing dependency: 'toggleExpanded'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  888:5  warning  React Hook useCallback has a missing dependency: 'toggleExpanded'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/menus/CreateMenu.tsx
+  185:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  186:24  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  187:28  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  188:26  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/components/views/GridView.tsx
+   78:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  218:5  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/hooks/useDataCreateFlow.ts
+  462:5  warning  React Hook useCallback has missing dependencies: 'PROVIDER_DEFAULT_NAMES' and 'PROVIDER_NODE_TYPE'. Either include them or remove the dependency array                                                  react-hooks/exhaustive-deps
+  765:6  warning  React Hook useMemo has missing dependencies: 'addPendingCreatingNode', 'addPendingCreatingPath', 'ensureExpanded', and 'removePendingCreatingPath'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/features/files/hooks/useNodeActions.ts
+  326:6  warning  React Hook useCallback has a missing dependency: 'ensureExpanded'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/lib/fileIcons.tsx
+  355:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/lib/nodeTypeConfig.tsx
+   32:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   42:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   52:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   62:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   72:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   82:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   92:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  102:3  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/shared-ui/src/data/DataWorkspace.tsx
+  599:6  warning  React Hook useEffect has a missing dependency: 'selectedFile'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  673:6  warning  React Hook useEffect has a missing dependency: 'selectedFile'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/shared-ui/src/data/ExplorerTree.tsx
+  337:67  warning  React Hook useMemo has a missing dependency: 'node'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/shared-ui/src/editor/CsvTableEditor.tsx
+  39:6  warning  React Hook useLayoutEffect has a missing dependency: 'parsed.rows'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/shared-ui/src/editor/markdown/MarkdownCodeMirrorEditor.tsx
+  76:6  warning  React Hook useLayoutEffect has missing dependencies: 'aiEditFile', 'documentPath', 'htmlTrustMode', 'livePreview', 'markdownLinkGraph', 'readOnly', and 'value'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/shared-ui/src/editor/viewers/ResourceViewers.tsx
+  13:11  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/frontend/shared-ui/src/editor/viewers/TextEditorFrame.tsx
+  154:6  warning  React Hook useEffect has a missing dependency: 'saveContent'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/supersayajin/project/puppyone-cloud-frontend-readability/packages/editor-ui/src/PuppyoneEditorHost.tsx
+  491:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+✖ 103 problems (0 errors, 103 warnings)

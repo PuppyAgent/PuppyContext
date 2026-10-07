@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from src.ingest.schemas import (
+from src.platform.upload.schemas import (
     UploadCompleteBatchRequest,
     UploadInitRequest,
 )

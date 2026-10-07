@@ -293,9 +293,8 @@ async def test_scheduled_then_manual_refresh_reuses_same_active_run(monkeypatch)
     assert scheduled["run_id"] == "run-1"
     assert scheduled["worker_job_id"] == "arq-job-1"
     assert manual == {
-        "connection_id": "conn-1",
-        "access_point_id": "conn-1",
-        "run_id": "run-1",
+        "synchronize_binding_id": "conn-1",
+        "synchronize_run_id": "run-1",
         "worker_job_id": "arq-job-1",
         "path": "/Gmail",
         "provider": "gmail",

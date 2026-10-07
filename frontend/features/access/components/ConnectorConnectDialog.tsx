@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/components/ui/Dialog';
 import { CountBadge } from '@/components/ui/CountBadge';
 import { buildGitSyncPrompt, buildMcpSetupPrompt } from '@/lib/accessPointCliPrompt';
-import type { Connector, RepositoryView } from '@/lib/repoApi';
+import type { AccessSurface, RepositoryView } from '@/lib/repoApi';
 import { canonicalGitUrlForTarget } from '@/lib/gitRemote';
 import { isMcpProvider } from '@/lib/accessProviderRegistry';
 import { T } from '@/features/access/lib/tokens';
@@ -21,16 +21,16 @@ export function ConnectorConnectDialog({
   scope,
   onClose,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
   readonly onClose: () => void;
 }) {
   const name = getConnectorDisplayName(connector);
-  const tile = getProviderTileStyle(connector.provider, false);
-  const tileSize = getProviderTileSize(connector.provider);
-  const iconSize = getProviderIconSize(connector.provider);
-  const isGitRemote = isGitBuiltinProvider(connector.provider);
-  const isMcp = isMcpProvider(connector.provider);
+  const tile = getProviderTileStyle(connector.kind, false);
+  const tileSize = getProviderTileSize(connector.kind);
+  const iconSize = getProviderIconSize(connector.kind);
+  const isGitRemote = isGitBuiltinProvider(connector.kind);
+  const isMcp = isMcpProvider(connector.kind);
 
   return (
     <DialogRoot onClose={onClose}>
@@ -51,17 +51,17 @@ export function ConnectorConnectDialog({
               style={{
                 width: isMcp ? 44 : tileSize,
                 height: isMcp ? 44 : tileSize,
-                borderRadius: isMcp ? 9 : isGitBuiltinProvider(connector.provider) ? 7 : 6,
+                borderRadius: isMcp ? 9 : isGitBuiltinProvider(connector.kind) ? 7 : 6,
                 background: tile.background,
                 border: `1px solid ${tile.border}`,
                 color: tile.color,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                overflow: isGitBuiltinProvider(connector.provider) ? 'hidden' : undefined,
+                overflow: isGitBuiltinProvider(connector.kind) ? 'hidden' : undefined,
               }}
             >
-              <ProviderIcon provider={connector.provider} size={isMcp ? 21 : iconSize} />
+              <ProviderIcon provider={connector.kind} size={isMcp ? 21 : iconSize} />
             </div>
           }
         />
@@ -117,7 +117,7 @@ function McpConnectionPanel({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
 }) {
   const setup = useMemo(() => {
@@ -138,7 +138,7 @@ function McpConnectionPanel({
         apiBase: getApiBase(),
         apiKey,
         scopeName,
-        accessPointName: connector.name,
+        accessPointName: connector.name ?? undefined,
       }),
       apiKey,
     };
@@ -364,7 +364,7 @@ function GitManualCommandsPanel({
   connector,
   scope,
 }: {
-  readonly connector: Connector;
+  readonly connector: AccessSurface;
   readonly scope: RepositoryView | undefined;
 }) {
   const steps = useMemo(() => {

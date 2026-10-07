@@ -60,6 +60,14 @@ Generating a new CLI key revokes the previous shared CLI credential (including
 clients still using the bounded legacy key-in-Git-URL route). It does not rotate
 independent Git `r`/`rw` or session credentials.
 
+## Entrypoint control plane (unreleased)
+
+The source CLI separates `import` snapshots, `synchronize` bindings/runs and
+`access` Agent/MCP/Sandbox surfaces. Legacy external-source commands must preserve
+one-shot versus persistent intent; Access surface IDs are not binding IDs.
+See [unreleased commands, compatibility and test gates](../cli/ENTRYPOINTS-UNRELEASED.md).
+These source-tree changes do not claim an npm publication or final API cutover.
+
 ## Performance Rule
 
 Small Web/API/CLI edits must not materialize a full transport repo or download

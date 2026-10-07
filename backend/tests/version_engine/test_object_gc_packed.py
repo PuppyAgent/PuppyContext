@@ -10,6 +10,7 @@ to GC and batch-written orphans accumulated forever. These tests lock in:
   - ``sweep_dead_bundles`` drops a fully-dead bundle but keeps a
     partially-dead one.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,11 +18,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.version_engine.domain.errors import StorageWriteError
 from src.version_engine.storage.backends.s3 import (
-    S3StorageBackend,
     _CHUNKED_PACK_PREFIX,
+    S3StorageBackend,
 )
-
 
 # ── Fakes ───────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ class FakeS3:
 
 
 class FakeQuery:
-    def __init__(self, store: "FakeSupabaseTables", table: str) -> None:
+    def __init__(self, store: FakeSupabaseTables, table: str) -> None:
         self._store = store
         self._table = table
         self._op = "select"
@@ -103,7 +104,7 @@ class FakeQuery:
             return SimpleNamespace(data=matched)
         if self._range is not None:
             start, end = self._range
-            matched = matched[start:end + 1]
+            matched = matched[start : end + 1]
         return SimpleNamespace(data=matched)
 
 
@@ -113,6 +114,12 @@ class FakeSupabaseTables:
 
     def table(self, name: str) -> FakeQuery:
         return FakeQuery(self, name)
+
+    def rpc(self, name, args):
+        # These are legacy layout component tests, not native admission proof.
+        assert name == "authorize_version_object_deletion"
+        assert args == {"p_project_id": PROJECT, "p_gc_token": None}
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=True))
 
 
 class FakeSupabaseClient:
@@ -148,20 +155,24 @@ def _make_backend():
     s3 = FakeS3()
     supa = FakeSupabaseClient()
     backend = S3StorageBackend(
-        s3, PROJECT, supabase=supa, allow_deferred_namespace_reads=False,
+        s3,
+        PROJECT,
+        supabase=supa,
     )
     return backend, s3, supa
 
 
 def _add_location_row(supa, oid, pack_key, size=10, created_at="2026-01-01T00:00:00+00:00"):
-    supa.client.tables.setdefault("version_object_locations", []).append({
-        "project_id": PROJECT,
-        "object_id": oid,
-        "pack_key": pack_key,
-        "offset_bytes": 0,
-        "size_bytes": size,
-        "created_at": created_at,
-    })
+    supa.client.tables.setdefault("version_object_locations", []).append(
+        {
+            "project_id": PROJECT,
+            "object_id": oid,
+            "pack_key": pack_key,
+            "offset_bytes": 0,
+            "size_bytes": size,
+            "created_at": created_at,
+        }
+    )
 
 
 # ── Tests ───────────────────────────────────────────────────────────
@@ -172,7 +183,9 @@ def test_all_hashes_unions_loose_and_packed():
     # one loose object on S3
     s3.objects[_loose_key(OID_LOOSE)] = b"loose"
     # one chunked + two bundled, only in the location index
-    _add_location_row(supa, OID_CHUNKED, f"{_CHUNKED_PACK_PREFIX}{_chunk_manifest_key(OID_CHUNKED)}")
+    _add_location_row(
+        supa, OID_CHUNKED, f"{_CHUNKED_PACK_PREFIX}{_chunk_manifest_key(OID_CHUNKED)}"
+    )
     _add_location_row(supa, OID_BUNDLE_1, f"{_bundle_prefix()}/cc/bundle1.pob")
     _add_location_row(supa, OID_BUNDLE_2, f"{_bundle_prefix()}/cc/bundle1.pob")
 
@@ -185,8 +198,9 @@ def test_all_hashes_unions_loose_and_packed():
 
 def test_all_hashes_with_metadata_includes_packed_age():
     backend, _s3, supa = _make_backend()
-    _add_location_row(supa, OID_BUNDLE_1, f"{_bundle_prefix()}/cc/b.pob",
-                      created_at="2025-12-31T00:00:00+00:00")
+    _add_location_row(
+        supa, OID_BUNDLE_1, f"{_bundle_prefix()}/cc/b.pob", created_at="2025-12-31T00:00:00+00:00"
+    )
     meta = backend.all_hashes_with_metadata()
     assert OID_BUNDLE_1 in meta
     assert meta[OID_BUNDLE_1]["last_modified"] == "2025-12-31T00:00:00+00:00"
@@ -194,7 +208,11 @@ def test_all_hashes_with_metadata_includes_packed_age():
 
 def test_no_supabase_falls_back_to_loose_only():
     s3 = FakeS3()
-    backend = S3StorageBackend(s3, PROJECT, supabase=None, allow_deferred_namespace_reads=False)
+    backend = S3StorageBackend(
+        s3,
+        PROJECT,
+        supabase=None,
+    )
     s3.objects[_loose_key(OID_LOOSE)] = b"loose"
     assert backend.all_hashes() == [OID_LOOSE]
 
@@ -203,10 +221,11 @@ def test_count_sums_loose_and_packed_bytes():
     # GAP-15: count() used to return total_bytes=0. It now sums real sizes
     # across loose (S3 listing) and packed (location index) objects.
     backend, s3, supa = _make_backend()
-    s3.objects[_loose_key(OID_LOOSE)] = b"12345"           # 5 bytes loose
+    s3.objects[_loose_key(OID_LOOSE)] = b"12345"  # 5 bytes loose
     _add_location_row(supa, OID_BUNDLE_1, f"{_bundle_prefix()}/cc/b.pob", size=100)
-    _add_location_row(supa, OID_CHUNKED,
-                      f"{_CHUNKED_PACK_PREFIX}{_chunk_manifest_key(OID_CHUNKED)}", size=2000)
+    _add_location_row(
+        supa, OID_CHUNKED, f"{_CHUNKED_PACK_PREFIX}{_chunk_manifest_key(OID_CHUNKED)}", size=2000
+    )
 
     n, total = backend.count()
     assert n == 3
@@ -225,10 +244,14 @@ def test_delete_chunked_removes_manifest_and_parts():
     backend, s3, supa = _make_backend()
     manifest_key = _chunk_manifest_key(OID_CHUNKED)
     part_key = f"{_bundle_prefix()}/chunked/{OID_CHUNKED[:2]}/{OID_CHUNKED}/part-000001"
-    s3.objects[manifest_key] = json.dumps({
-        "version": 1, "object_id": OID_CHUNKED, "size_bytes": 5,
-        "chunks": [{"key": part_key, "offset_bytes": 0, "size_bytes": 5}],
-    }).encode()
+    s3.objects[manifest_key] = json.dumps(
+        {
+            "version": 1,
+            "object_id": OID_CHUNKED,
+            "size_bytes": 5,
+            "chunks": [{"key": part_key, "offset_bytes": 0, "size_bytes": 5}],
+        }
+    ).encode()
     s3.objects[part_key] = b"hello"
     _add_location_row(supa, OID_CHUNKED, f"{_CHUNKED_PACK_PREFIX}{manifest_key}", size=5)
 
@@ -237,6 +260,17 @@ def test_delete_chunked_removes_manifest_and_parts():
     assert part_key not in s3.objects
     # location row purged
     assert supa.client.tables["version_object_locations"] == []
+
+
+def test_foreign_bundle_location_cannot_authorize_deletion():
+    backend, s3, supa = _make_backend()
+    foreign = "version/other-project/object-bundles/ff/foreign.pob"
+    s3.objects[foreign] = b"another Project's bytes"
+    _add_location_row(supa, OID_BUNDLE_1, foreign)
+    with pytest.raises(StorageWriteError, match="outside its canonical Project namespace"):
+        backend.sweep_dead_bundles({OID_BUNDLE_1})
+    assert not s3.deleted and s3.objects[foreign] == b"another Project's bytes"
+    assert len(supa.client.tables["version_object_locations"]) == 1
 
 
 def test_delete_bundled_object_is_refused():
@@ -326,42 +360,6 @@ def test_delete_eligible_uses_bundle_sweep_then_per_object():
     # swept objects are NOT re-deleted per object
     assert backend.deleted_individually == ["loose1", "chunked1"]
     assert errors == []
-
-
-def test_version_refs_are_gc_roots(monkeypatch):
-    """GAP-3: commits reachable only from stored branch/tag refs must be GC
-    roots, or GC reclaims their objects after the retention window."""
-    from src.version_engine.derived.object_gc import _add_version_ref_roots
-    from src.version_engine.adapters.git.protocol import is_object_id, ZERO_ID
-    ref_commit = "f" * 40
-
-    class FakeStore:
-        def list_all_commit_ids(self, project_id):
-            assert project_id == "p1"
-            return [ref_commit, ZERO_ID, "nothex"]  # add() must filter the invalid ones
-
-    roots = set()
-    errors = []
-
-    def add(v):  # mirrors collect_object_gc_roots.add
-        if isinstance(v, str) and is_object_id(v) and v != ZERO_ID:
-            roots.add(v)
-
-    repo = SimpleNamespace(
-        history=SimpleNamespace(
-            list_version_ref_roots=lambda: FakeStore().list_all_commit_ids("p1")
-        )
-    )
-    _add_version_ref_roots(repo, add, errors)
-    assert roots == {ref_commit}
-    assert errors == []
-
-
-def test_version_ref_roots_no_project_id_noop(monkeypatch):
-    from src.version_engine.derived.object_gc import _add_version_ref_roots
-    roots, errors = set(), []
-    _add_version_ref_roots(SimpleNamespace(), roots.add, errors)
-    assert roots == set() and errors == []
 
 
 def test_delete_eligible_without_sweep_method_falls_back():

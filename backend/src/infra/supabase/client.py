@@ -6,16 +6,19 @@ Provides a singleton Supabase client to avoid duplicate connections.
 
 import os
 from typing import Optional
+
 import httpx
-from supabase import create_client, Client
+from supabase import Client, create_client
 from supabase.client import ClientOptions
+
+from src.infra.supabase.instrumentation import instrument_httpx_client
 
 
 class SupabaseClient:
     """Supabase client singleton class"""
 
     _instance: Optional["SupabaseClient"] = None
-    _client: Optional[Client] = None
+    _client: Client | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -56,7 +59,7 @@ class SupabaseClient:
                     postgrest_client_timeout=60,
                     storage_client_timeout=30,
                     schema="public",
-                    httpx_client=httpx.Client(trust_env=trust_env_proxy),
+                    httpx_client=instrument_httpx_client(httpx.Client(trust_env=trust_env_proxy)),
                 ),
             )
 

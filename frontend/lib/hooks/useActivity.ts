@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import useSWR from 'swr';
+import { useAuth } from '@/contexts/SupabaseAuthProvider';
 import {
   getProjectActivity,
   isActivityItemActive,
@@ -17,12 +19,14 @@ export function useProjectActivity(
   projectId?: string | null,
   options?: { kind?: ActivityKind; activeOnly?: boolean; limit?: number },
 ) {
+  const { userId, session, isAuthReady } = useAuth();
+  const ready = Boolean(projectId && userId && isAuthReady);
   const kind = options?.kind;
   const activeOnly = options?.activeOnly ?? false;
   const limit = options?.limit ?? 20;
 
   const { data, error, isLoading, mutate } = useSWR(
-    projectId ? ['activity', projectId, kind ?? 'all', activeOnly, limit] : null,
+    ready ? ['activity', userId, projectId, kind ?? 'all', activeOnly, limit] : null,
     () => getProjectActivity(projectId!, { kind, activeOnly, limit }),
     {
       revalidateOnFocus: true,
@@ -33,6 +37,8 @@ export function useProjectActivity(
       },
     },
   );
+
+  useEffect(() => { if (ready) void mutate(); }, [ready, session?.access_token, mutate]);
 
   const items: ActivityItem[] = data?.items ?? [];
   return {

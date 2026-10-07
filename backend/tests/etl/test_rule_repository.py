@@ -8,7 +8,7 @@ postprocess 配置以兼容方式嵌入在 `json_schema` 字段中：
 
 from __future__ import annotations
 
-from src.ingest.file.rules.schemas import build_rule_payload, parse_rule_payload
+from src.infra.file_processing.rules.schemas import build_rule_payload, parse_rule_payload
 
 
 def test_parse_legacy_schema_defaults_to_llm():

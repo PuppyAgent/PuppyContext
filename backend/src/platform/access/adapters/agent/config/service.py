@@ -263,6 +263,6 @@ class AgentConfigService:
     # Execution History
     # ============================================
 
-    def get_execution_history(self, agent_id: str, limit: int = 10) -> List[dict]:
+    def get_execution_history(self, agent_id: str, user_id: str, limit: int = 10) -> List[dict]:
         """Get execution history for an Agent."""
-        return self._repo.get_execution_history(agent_id, limit)
+        return self._repo.get_execution_history(agent_id, user_id, max(1, min(limit, 100)))

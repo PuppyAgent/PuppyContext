@@ -2,6 +2,7 @@
 Scheduler service for managing scheduled agent executions.
 """
 
+import contextlib
 from datetime import datetime
 from typing import Optional
 
@@ -19,16 +20,13 @@ from src.infra.scheduler.jobs import (
     execute_agent_task,
     execute_sync_pull,
     process_git_object_gc,
+    process_native_projection,
     process_object_integrity_scan,
     process_project_deletion_cleanup,
     process_project_initialization_reconciliation,
     process_sync_run_reaper,
-    process_version_outbox,
 )
 from src.infra.scheduler.jobs.import_job_reaper import process_import_job_reaper
-from src.infra.scheduler.jobs.shadow_snapshot_reaper import (
-    process_shadow_snapshot_reaper,
-)
 from src.infra.scheduler.jobs.upload_job_reaper import process_upload_job_reaper
 from src.utils.logger import log_error, log_info, log_warning
 
@@ -46,7 +44,7 @@ class SchedulerService:
     _instance: Optional["SchedulerService"] = None
 
     def __init__(self):
-        self.scheduler: Optional[AsyncIOScheduler] = None
+        self.scheduler: AsyncIOScheduler | None = None
         self._started = False
 
     @classmethod
@@ -99,14 +97,13 @@ class SchedulerService:
 
         if settings.VERSION_OUTBOX_ENABLED:
             self.scheduler.add_job(
-                process_version_outbox,
+                process_native_projection,
                 trigger=IntervalTrigger(
                     seconds=settings.VERSION_OUTBOX_INTERVAL_SECONDS,
                 ),
-                id="version-outbox",
-                name="Version Outbox Repair",
+                id="native-repository-projection",
+                name="Native Repository Projections",
                 replace_existing=True,
-                executor="threadpool",
             )
 
         if settings.VERSION_OBJECT_GC_ENABLED:
@@ -153,17 +150,6 @@ class SchedulerService:
                 name="Version Engine Object Integrity Scan",
                 replace_existing=True,
                 executor="threadpool",
-            )
-
-        if settings.SHADOW_SNAPSHOT_REAPER_ENABLED:
-            self.scheduler.add_job(
-                process_shadow_snapshot_reaper,
-                trigger=IntervalTrigger(
-                    seconds=settings.SHADOW_SNAPSHOT_REAPER_INTERVAL_SECONDS,
-                ),
-                id="shadow-snapshot-reaper",
-                name="Shadow Snapshot TTL Reaper",
-                replace_existing=True,
             )
 
         if settings.SYNC_RUN_REAPER_ENABLED:
@@ -218,9 +204,8 @@ class SchedulerService:
             from src.platform.access.surface_repository import AccessSurfaceRepository
 
             agents = [
-                row for row in AccessSurfaceRepository().list_all(
-                    kind="agent", status="active"
-                )
+                row
+                for row in AccessSurfaceRepository().list_all(kind="agent", status="active")
                 if (row.get("config") or {}).get("type") == "schedule"
                 and ((row.get("config") or {}).get("trigger") or {}).get("type")
                 in {"cron", "scheduled"}
@@ -233,7 +218,7 @@ class SchedulerService:
                 await self.add_agent_job(
                     agent_id=agent["id"],
                     trigger_config=trigger.get("config") or trigger,
-                    agent_name=config.get("name", "Unknown")
+                    agent_name=config.get("name", "Unknown"),
                 )
 
             log_info(f"✅ Loaded {len(agents)} agent jobs")
@@ -242,11 +227,8 @@ class SchedulerService:
             log_error(f"❌ Failed to load scheduled agents: {e}")
 
     async def add_agent_job(
-        self,
-        agent_id: str,
-        trigger_config: dict,
-        agent_name: str = ""
-    ) -> Optional[Job]:
+        self, agent_id: str, trigger_config: dict, agent_name: str = ""
+    ) -> Job | None:
         """
         Add a new agent job to the scheduler.
 
@@ -295,7 +277,7 @@ class SchedulerService:
         connection_id: str,
         provider: str = "",
         trigger_config: dict | None = None,
-    ) -> Optional[Job]:
+    ) -> Job | None:
         """Unified trigger registration for scheduled Connect rows.
 
         Connect routers should call this single method instead of directly
@@ -314,10 +296,8 @@ class SchedulerService:
 
         job_id = f"sync:{connection_id}"
 
-        try:
+        with contextlib.suppress(Exception):
             self.scheduler.remove_job(job_id)
-        except Exception:
-            pass
 
         if not trigger_config:
             return None
@@ -353,7 +333,7 @@ class SchedulerService:
 
             client = SupabaseClient().client
             result = (
-                client.table("connections")
+                client.table("synchronize_bindings")
                 .select("id, provider, trigger_type, trigger_config, status")
                 .eq("status", "active")
                 .execute()
@@ -370,10 +350,7 @@ class SchedulerService:
                 }
                 for row in (result.data or [])
             ]
-            scheduled = [
-                s for s in syncs
-                if (s.get("trigger") or {}).get("type") == "scheduled"
-            ]
+            scheduled = [s for s in syncs if (s.get("trigger") or {}).get("type") == "scheduled"]
 
             log_info(f"Found {len(scheduled)} scheduled syncs to load")
 
@@ -415,8 +392,7 @@ class SchedulerService:
         if "schedule" in config:
             try:
                 return CronTrigger.from_crontab(
-                    config["schedule"],
-                    timezone=config.get("timezone", scheduler_settings.timezone)
+                    config["schedule"], timezone=config.get("timezone", scheduler_settings.timezone)
                 )
             except Exception as e:
                 log_error(f"Invalid cron expression '{config['schedule']}': {e}")
@@ -457,10 +433,7 @@ class SchedulerService:
                     dt = datetime.fromisoformat(date_str)
                     day_of_week = dt.weekday()  # 0=Monday, 6=Sunday
                     return CronTrigger(
-                        day_of_week=day_of_week,
-                        hour=hour,
-                        minute=minute,
-                        timezone=timezone
+                        day_of_week=day_of_week, hour=hour, minute=minute, timezone=timezone
                     )
                 except Exception as e:
                     log_error(f"Invalid date for weekly trigger '{date_str}': {e}")
@@ -472,7 +445,6 @@ class SchedulerService:
         else:
             log_warning(f"Unknown repeat_type: {repeat_type}")
             return None
-
 
 
 # Global instance getter

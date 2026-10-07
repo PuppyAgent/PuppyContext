@@ -1,7 +1,7 @@
 import type { SyncStatusSync } from '@/features/files/DataLayoutContext';
 import type { EndpointNameMap, ProviderIconLookup } from '@/features/files/components/access-points';
 import { getEndpointEntries } from '@/features/files/components/access-points/utils';
-import type { SyncEndpointInfo } from '@/features/files/components/explorer';
+import type { EntrypointBadge } from '@/features/files/components/explorer';
 import { useConnectorSpecs } from '@/lib/hooks/useData';
 import { resolveProviderIconUrl } from '@/lib/providerIcons';
 import { useMemo } from 'react';
@@ -17,10 +17,10 @@ export function useAccessPointEntries({
   tableNameById,
   syncStatusData,
 }: {
-  nodeEndpointMap: Map<string, SyncEndpointInfo[]>;
+  nodeEndpointMap: Map<string, EntrypointBadge[]>;
   savedAgents: readonly AgentNameSource[];
   tableNameById: Record<string, string>;
-  syncStatusData: { syncs: SyncStatusSync[] } | undefined;
+  syncStatusData: { bindings: SyncStatusSync[] } | undefined;
 }) {
   const { specs: connectorSpecs } = useConnectorSpecs();
 
@@ -29,15 +29,15 @@ export function useAccessPointEntries({
     for (const agent of savedAgents) agents[agent.id] = agent.name;
 
     const nodes: Record<string, string> = { ...tableNameById };
-    if (syncStatusData?.syncs) {
-      for (const sync of syncStatusData.syncs) {
+    if (syncStatusData?.bindings) {
+      for (const sync of syncStatusData.bindings) {
         if (sync.path && !nodes[sync.path] && sync.name) nodes[sync.path] = sync.name;
       }
     }
 
     const syncs: Record<string, string> = {};
-    if (syncStatusData?.syncs) {
-      for (const sync of syncStatusData.syncs) {
+    if (syncStatusData?.bindings) {
+      for (const sync of syncStatusData.bindings) {
         const providerLabels: Record<string, string> = {
           gmail: 'Gmail',
           google_calendar: 'Calendar',

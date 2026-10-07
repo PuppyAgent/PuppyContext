@@ -14,7 +14,6 @@ from src.version_engine.bootstrap.container import (
     build_version_engine_container,
 )
 from src.version_engine.infrastructure.supabase.repo_manager import VersionRepoManager
-from src.version_engine.infrastructure.supabase.version_ref_repository import VersionRefStore
 from src.version_engine.read.admin import VersionAdminService
 from src.version_engine.read.history_graph import HistoryGraphService
 from src.version_engine.write_engine.engine import VersionWriteEngine
@@ -38,12 +37,6 @@ def get_repo_manager(
     container: VersionEngineContainer = Depends(get_version_engine_container),
 ) -> VersionRepoManager:
     return container.repo_manager
-
-
-def get_version_ref_store(
-    container: VersionEngineContainer = Depends(get_version_engine_container),
-) -> VersionRefStore:
-    return container.version_ref_store
 
 
 def get_version_admin_service(
@@ -73,15 +66,14 @@ def get_version_write_command_service(
 def get_version_write_engine(
     container: VersionEngineContainer = Depends(get_version_engine_container),
 ) -> VersionWriteEngine:
-    """L5 publish authority. Routers that need to re-enter the engine
-    (conflict resolution, admin replays) pull it from here rather than
-    instantiating ``VersionWriteEngine(repo_manager)`` ad-hoc."""
+    """Native initialization facade; content writes use Product commands."""
 
     return container.write_engine()
 
 
 def build_worker_version_engine_container(
-    *, probe: bool = False,
+    *,
+    probe: bool = False,
 ) -> VersionEngineContainer:
     """Explicit bootstrap for scheduler jobs, ARQ workers, and CLI scripts.
 

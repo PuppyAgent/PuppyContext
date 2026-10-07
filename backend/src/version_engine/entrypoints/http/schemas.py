@@ -6,23 +6,64 @@ All data types used by the PuppyOne platform layer:
 2. Commit history, diff, and rollback schemas
 
 Identity model:
-    Commits are identified by a 40-hex SHA-1 commit_id — the SHA-1
-    over the git ``commit`` object body produced by ``encode_commit``
-    (tree + parent + author/committer lines + message). On disk the
-    commit body is stored as a zlib-compressed loose object whose
-    SHA-1 is exactly this commit_id, so PuppyOne and any standard git
-    tool agree byte-for-byte.
-    The old integer `version` columns / fields are gone.
-    Clients that need to represent "no prior state" send an
-    empty string "" as the base_commit_id.
+    Commits retain the declared repository object format: legacy SHA-1
+    (40 hex) or native SHA-1/SHA-256 (40/64 hex). Native read responses
+    capture their target ref, expected OID and HEAD selector together with
+    the content. Display paths are not byte identities; native clients use
+    path_bytes_b64 for lossless paths. Legacy write requests continue to use
+    an empty base_commit_id for no prior state. Native read revisions use
+    expected_oid=null for an unborn selected branch. Explicit native write
+    envelopes bind that captured revision and a durable caller request UUID;
+    they never enroll a repository or replace an omitted legacy base.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from src.common_schemas import ApiResponse
+
+
+class NativeRepositoryRefResponse(BaseModel):
+    name_b64: str
+    name: str | None
+    state: dict[str, Any]
+    object_kind: Literal["commit", "tree", "tag", "blob"] | None
+    peeled_oid: str | None
+
+
+class NativeRepositoryMetadataResponse(BaseModel):
+    project_id: str
+    repository_profile: Literal["native"]
+    object_format: Literal["sha1", "sha256"]
+    generation: int
+    ref_sequence: int
+    refs: list[NativeRepositoryRefResponse]
+
+
+class NativeRepositoryMetadataEnvelope(ApiResponse[NativeRepositoryMetadataResponse]):
+    """Named wire identity shared by the separate Human and Runtime routes."""
+
+
+class NativeOperationStatusResponse(BaseModel):
+    project_id: str
+    request_key: UUID
+    status: Literal["pending", "committed", "rejected"]
+    # Product digest includes the frozen input version, original base and message.
+    # Neither digest is a grant or proof that a different input was acknowledged.
+    input_sha256: str | None
+    ref_request_sha256: str | None
+    result: dict[str, Any] | None
+    product: dict[str, Any] | None
+
+
+class NativeOperationStatusEnvelope(ApiResponse[NativeOperationStatusResponse]):
+    """One named wire schema, independent of router import/generic-cache order."""
+
 
 # Path syntactic validation lives in the L4 adapter
 # (``ProductOperationAdapter.*`` → ``validate_path``). Per the
@@ -36,6 +77,23 @@ from pydantic import BaseModel, Field
 # Tree API request schemas
 # ============================================================
 
+
+class NativeProductWrite(BaseModel):
+    """Retry identity and genuine read revision; not an authorization grant."""
+
+    model_config = {"extra": "forbid"}
+    input_version: Literal[1] = 1
+    request_key: str = Field(min_length=36, max_length=36)
+    repository_revision: dict[str, Any]
+    byte_paths: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Lossless path slots: path/old_path/new_path, paths/N, files/N/path. "
+            "The corresponding text field must be empty. Values are canonical base64."
+        ),
+    )
+
+
 class WriteFileRequest(BaseModel):
     """Write file request.
 
@@ -46,22 +104,27 @@ class WriteFileRequest(BaseModel):
     intentionally accept last-writer-wins semantics through the version
     Write Engine.
     """
+
     path: str
     content: Any
     message: str = ""
     base_commit_id: str | None = None
     node_type: str = "json"  # json | markdown | file
+    native: NativeProductWrite | None = None
 
 
 class MkdirRequest(BaseModel):
     """Create directory request"""
+
     path: str
     base_commit_id: str | None = None
     parents: bool = False
+    native: NativeProductWrite | None = None
 
 
 class MoveRequest(BaseModel):
     """Move/rename request"""
+
     old_path: str
     new_path: str
     message: str = ""
@@ -69,10 +132,12 @@ class MoveRequest(BaseModel):
     no_clobber: bool = False
     target_directory: bool = False
     no_target_directory: bool = False
+    native: NativeProductWrite | None = None
 
 
 class CopyRequest(BaseModel):
     """Copy request"""
+
     old_path: str
     new_path: str
     message: str = ""
@@ -85,6 +150,7 @@ class CopyRequest(BaseModel):
 
 class TouchRequest(BaseModel):
     """Touch/create empty files request"""
+
     path: str = ""
     paths: list[str] | None = None
     base_commit_id: str | None = None
@@ -97,15 +163,18 @@ class RemoveRequest(BaseModel):
     If both are set, ``paths`` wins. Deletes remove paths from the
     current tree; recovery is handled through version history/rollback.
     """
+
     path: str = ""
     paths: list[str] | None = None
     force: bool = False
     recursive: bool = False
     base_commit_id: str | None = None
+    native: NativeProductWrite | None = None
 
 
 class RmdirRequest(BaseModel):
     """Remove empty directories request."""
+
     path: str = ""
     paths: list[str] | None = None
     parents: bool = False
@@ -114,23 +183,29 @@ class RmdirRequest(BaseModel):
 
 class BulkWriteItem(BaseModel):
     """A single file in a bulk write operation"""
+
     path: str
     content: Any
     node_type: str = "json"
 
 
 class BulkWriteRequest(BaseModel):
-    """Bulk write request"""
+    """Bulk write request; an explicit base guards the entire batch."""
+
     files: list[BulkWriteItem]
     message: str = ""
+    base_commit_id: str | None = None
+    native: NativeProductWrite | None = None
 
 
 # ============================================================
 # Tree API response schemas
 # ============================================================
 
+
 class VersionEntryResponse(BaseModel):
-    """A single entry in the version tree."""
+    """A single tree entry. Native byte-path fields, not display text, identify names."""
+
     name: str
     path: str
     type: str  # "folder" | "json" | "markdown" | "file"
@@ -139,17 +214,29 @@ class VersionEntryResponse(BaseModel):
     mime_type: str | None = None
     children_count: int | None = None
     integrity_status: Literal["ok", "damaged", "unknown"] = "ok"
+    git_mode: str | None = None
+    name_bytes_b64: str | None = None
+    path_bytes_b64: str | None = None
 
 
-class ListDirResponse(BaseModel):
+class RepositoryReadResponse(BaseModel):
+    """Captured native ref/base; absent for the preserved legacy profile."""
+
+    repository_revision: dict[str, Any] | None = None
+    path_bytes_b64: str | None = None
+
+
+class ListDirResponse(RepositoryReadResponse):
     """Response for listing directory contents"""
+
     path: str
     entries: list[VersionEntryResponse]
     head_commit_id: str = ""
 
 
-class ReadFileResponse(BaseModel):
+class ReadFileResponse(RepositoryReadResponse):
     """Response for reading file contents"""
+
     path: str
     type: str
     content: Any = None
@@ -158,8 +245,9 @@ class ReadFileResponse(BaseModel):
     head_commit_id: str = ""
 
 
-class StatResponse(BaseModel):
+class StatResponse(RepositoryReadResponse):
     """File/directory information"""
+
     path: str
     type: str
     name: str
@@ -168,13 +256,16 @@ class StatResponse(BaseModel):
     mime_type: str | None = None
     children_count: int | None = None
     integrity_status: Literal["ok", "damaged", "unknown"] = "ok"
+    git_mode: str | None = None
+    name_bytes_b64: str | None = None
     exists: bool = True
     head_commit_id: str = ""
     scope_head_commit_id: str = ""
 
 
-class TreeResponse(BaseModel):
+class TreeResponse(RepositoryReadResponse):
     """Full directory tree response"""
+
     path: str
     entries: list[VersionEntryResponse]
     head_commit_id: str = ""
@@ -184,12 +275,14 @@ class TreeResponse(BaseModel):
 # Commit history schemas
 # ============================================================
 
+
 class VersionCommitChange(BaseModel):
     """A single file change in a commit.
 
     ``action`` is the operation stored in history rows.
     ``op`` is the stable Git-style UI/API operation label.
     """
+
     path: str
     action: Literal["add", "update", "delete"] = "update"
     op: Literal["added", "modified", "deleted"] = "modified"
@@ -197,8 +290,9 @@ class VersionCommitChange(BaseModel):
 
 class FileVersionInfo(BaseModel):
     """History list item for a single commit."""
+
     commit_id: str
-    parent_ids: list[Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]] = Field(
+    parent_ids: list[Annotated[str, Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]] = Field(
         default_factory=list,
     )
     who: str = ""
@@ -223,11 +317,12 @@ class VersionHistoryRef(BaseModel):
 
     ref_name: str
     ref_type: Literal["branch", "tag"]
-    commit_id: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    commit_id: Annotated[str, Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
 
 
 class VersionHistoryResponse(BaseModel):
     """Commit history response (kept name for API compat)."""
+
     project_id: str
     path: str | None = None
     head_commit_id: str = ""
@@ -240,13 +335,14 @@ class VersionHistoryResponse(BaseModel):
     has_more: bool = False
     graph_health: Literal["complete", "degraded"] = "complete"
     unreadable_commit_ids: list[
-        Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+        Annotated[str, Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
     ] = Field(default_factory=list)
     total: int
 
 
 class RollbackResponse(BaseModel):
     """Rollback creates a new forward-commit reverting content."""
+
     project_id: str
     new_commit_id: str = ""
     rolled_back_to: str = ""
@@ -254,6 +350,7 @@ class RollbackResponse(BaseModel):
 
 class DiffItem(BaseModel):
     """A single change in a diff"""
+
     path: str
     old_value: Any | None = None
     new_value: Any | None = None
@@ -262,6 +359,7 @@ class DiffItem(BaseModel):
 
 class DiffResponse(BaseModel):
     """Diff result between two commits"""
+
     project_id: str = ""
     from_commit_id: str = ""
     to_commit_id: str = ""
@@ -271,11 +369,13 @@ class DiffResponse(BaseModel):
 class RollbackRequest(BaseModel):
     """Rollback request — restore the scope to the state at
     target_commit_id by creating a new forward commit."""
+
     target_commit_id: str
 
 
 class VersionCommitConflict(BaseModel):
     """Conflict record in a commit"""
+
     path: str
     strategy: str
     detail: str | None = None
@@ -284,6 +384,7 @@ class VersionCommitConflict(BaseModel):
 
 class VersionCommitInfo(BaseModel):
     """Project-level commit record."""
+
     commit_id: str
     root_hash: str = ""
     scope_hash: str = ""
@@ -297,6 +398,7 @@ class VersionCommitInfo(BaseModel):
 
 class VersionProjectHistoryResponse(BaseModel):
     """Project-level version commit history."""
+
     project_id: str
     head_commit_id: str = ""
     root_hash: str = ""

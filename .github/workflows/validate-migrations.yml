@@ -132,7 +132,7 @@ jobs:
             tests/security/test_audit_tier2_authz.py \
             tests/security/test_canonical_git_remote_contract.py \
             tests/mcp/test_mcp_runtime_principal.py \
-            tests/version_engine/test_scope_sync_audit.py \
+            tests/version_engine/test_root_first_scope_authority.py \
             tests/version_engine/test_content_history_graph_api.py \
             -q
 

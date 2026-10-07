@@ -1,0 +1,28 @@
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+
+ RUN  v4.1.11 /Users/supersayajin/project/puppyone-cloud-readability-101/frontend
+
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at LocationImpl._locationObjectNavigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:30:5)
+    at LocationImpl.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:206:10)
+    at Location.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/generated/Location.js:72:36)
+    at /Users/supersayajin/project/puppyone-cloud-readability-101/frontend/app/login/page.tsx:225:58 undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at LocationImpl._locationObjectNavigate (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:30:5)
+    at LocationImpl.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/window/Location-impl.js:206:10)
+    at Location.assign (/Users/supersayajin/project/puppyone-cloud-qubits/frontend/node_modules/jsdom/lib/jsdom/living/generated/Location.js:72:36)
+    at /Users/supersayajin/project/puppyone-cloud-readability-101/frontend/app/login/page.tsx:225:58 undefined
+Browserslist: browsers data (caniuse-lite) is 11 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+ Test Files  44 passed (44)
+      Tests  270 passed (270)
+   Start at  08:31:47
+   Duration  11.08s (transform 1.15s, setup 2.73s, import 2.90s, tests 4.10s, environment 8.45s)

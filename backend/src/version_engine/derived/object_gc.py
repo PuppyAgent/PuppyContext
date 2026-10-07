@@ -9,17 +9,23 @@ database-authoritative roots and only sweeps objects outside a retention window.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from src.version_engine.write_engine.git_object_format import (
-    decode_commit,
-    decode_object,
-    decode_tree,
-)
+from src.version_engine.adapters.git.protocol import ZERO_ID
+from src.version_engine.write_engine.git_object_format import decode_object, hash_object
+from src.version_engine.write_engine.git_object_graph import object_edges
 
-from src.version_engine.adapters.git.protocol import ZERO_ID, is_object_id
+
+def is_object_id(value: str) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) in (40, 64)
+        and set(value) <= set("0123456789abcdef")
+        and set(value) != {"0"}
+    )
 
 
 DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60
@@ -53,7 +59,68 @@ class GitObjectGcResult:
     sweep_skipped_for_safety: bool = False
 
 
-def run_git_object_gc(
+def run_git_object_gc(repo, **options) -> GitObjectGcResult:
+    """Select coordination from the authoritative DB, never a cache/feature flag."""
+    from dataclasses import replace
+
+    control_factory = getattr(getattr(repo, "history", None), "native_ref_authority", None)
+    if callable(control_factory):
+        try:
+            control = control_factory()
+            snapshot = control.snapshot(repo._project_id)
+            if snapshot is not None:
+                if snapshot.get("migration_source_retained"):
+                    return GitObjectGcResult(
+                        repo._project_id,
+                        options.get("dry_run", True),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        errors=["migration source retention: collection awaits reviewed cleanup"],
+                        sweep_skipped_for_safety=True,
+                    )
+                if snapshot["authority"] != "native":
+                    diagnostic = _run_git_object_gc(repo, **(options | {"dry_run": True}))
+                    return replace(
+                        diagnostic,
+                        dry_run=options.get("dry_run", True),
+                        eligible_count=0,
+                        eligible_bytes=0,
+                        sweep_skipped_for_safety=True,
+                        errors=[
+                            *diagnostic.errors,
+                            "shadow repository: collection fenced during migration",
+                        ],
+                    )
+                from src.version_engine.derived.repository_gc import RepositoryCollector
+
+                return RepositoryCollector(control).run(repo, **options)
+        except Exception as exc:
+            return GitObjectGcResult(
+                getattr(repo, "_project_id", ""),
+                options.get("dry_run", True),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                errors=[f"repository GC coordination failed: {exc}"],
+                sweep_skipped_for_safety=True,
+            )
+    return _run_git_object_gc(repo, **options)
+
+
+def _run_git_object_gc(
     repo,
     *,
     dry_run: bool = True,
@@ -61,6 +128,7 @@ def run_git_object_gc(
     max_delete: int | None = None,
     quarantine_seconds: int = 0,
     now: datetime | None = None,
+    additional_roots: tuple[str, ...] = (),
 ) -> GitObjectGcResult:
     """Collect unreachable objects for one repo and optionally delete them.
 
@@ -79,30 +147,34 @@ def run_git_object_gc(
     walk_errors: list[str] = []
     inventory_errors: list[str] = []
     roots = collect_object_gc_roots(repo, errors=root_errors)
+    for object_id in additional_roots:
+        if not is_object_id(object_id):
+            root_errors.append("invalid additional GC root")
+        else:
+            roots.add(object_id)
     reachable = mark_reachable_objects(repo, roots, errors=walk_errors)
 
     all_objects = _all_object_ids(repo, errors=inventory_errors)
     metadata = _object_metadata(repo, errors=inventory_errors)
     now = _aware_now(now)
 
-    unreachable = sorted(
-        object_id for object_id in all_objects
-        if object_id not in reachable
-    )
+    unreachable = sorted(object_id for object_id in all_objects if object_id not in reachable)
 
     eligible: list[str] = []
     protected_roots: set[str] = set()
     kept_young = 0
     kept_unknown_age = 0
     for object_id in unreachable:
-        if _object_is_old_enough(
-            object_id,
-            metadata,
-            retention_seconds=retention_seconds,
-            now=now,
+        # Native capacity inventory can retain a reservation after a failed PUT
+        # or post-DELETE SQL outage. Only a fresh canonical absence proof adds
+        # this marker; live/unsettled roots are still protected by the walk.
+        if (
+            (metadata.get(object_id) or {}).get("capacity_missing") is True
+            or retention_seconds <= 0
+            or _object_is_old_enough(
+                object_id, metadata, retention_seconds=retention_seconds, now=now
+            )
         ):
-            eligible.append(object_id)
-        elif retention_seconds <= 0:
             eligible.append(object_id)
         elif object_id not in metadata:
             kept_unknown_age += 1
@@ -114,13 +186,10 @@ def run_git_object_gc(
     protected = mark_reachable_objects(repo, protected_roots, errors=walk_errors)
     protected_descendants = set(eligible).intersection(protected)
     if protected_descendants:
-        eligible = [
-            object_id for object_id in eligible
-            if object_id not in protected_descendants
-        ]
+        eligible = [object_id for object_id in eligible if object_id not in protected_descendants]
 
     if max_delete is not None:
-        eligible = eligible[:max(0, int(max_delete))]
+        eligible = eligible[: max(0, int(max_delete))]
 
     proof_incomplete = bool(root_errors or walk_errors or inventory_errors)
     errors = root_errors + walk_errors + inventory_errors
@@ -137,12 +206,10 @@ def run_git_object_gc(
 
     candidate_count = len(eligible)
     unreachable_bytes = sum(
-        int((metadata.get(object_id) or {}).get("size") or 0)
-        for object_id in unreachable
+        int((metadata.get(object_id) or {}).get("size") or 0) for object_id in unreachable
     )
     eligible_bytes = sum(
-        int((metadata.get(object_id) or {}).get("size") or 0)
-        for object_id in eligible
+        int((metadata.get(object_id) or {}).get("size") or 0) for object_id in eligible
     )
     if not dry_run and not proof_incomplete and quarantine_seconds > 0:
         sync_candidates = getattr(
@@ -153,17 +220,17 @@ def run_git_object_gc(
         if not callable(sync_candidates):
             proof_incomplete = True
             eligible = []
-            errors.append(
-                "sweep skipped for safety: durable GC quarantine registry unavailable"
-            )
+            errors.append("sweep skipped for safety: durable GC quarantine registry unavailable")
         else:
             try:
-                eligible = list(sync_candidates(
-                    eligible,
-                    now=now,
-                    quarantine_seconds=quarantine_seconds,
-                ))
-            except Exception as exc:  # noqa: BLE001 - deletion must fail closed.
+                eligible = list(
+                    sync_candidates(
+                        eligible,
+                        now=now,
+                        quarantine_seconds=quarantine_seconds,
+                    )
+                )
+            except Exception as exc:
                 proof_incomplete = True
                 eligible = []
                 errors.append(f"sweep skipped for safety: GC quarantine sync failed: {exc}")
@@ -179,7 +246,7 @@ def run_git_object_gc(
         if deleted and callable(remove_candidates):
             try:
                 remove_candidates(deleted)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(f"remove GC candidates after delete: {exc}")
 
     return GitObjectGcResult(
@@ -198,8 +265,7 @@ def run_git_object_gc(
         unreachable_bytes=unreachable_bytes,
         eligible_bytes=eligible_bytes,
         deleted_bytes=sum(
-            int((metadata.get(object_id) or {}).get("size") or 0)
-            for object_id in deleted
+            int((metadata.get(object_id) or {}).get("size") or 0) for object_id in deleted
         ),
         errors=errors,
         deleted_sample=deleted[:_SAMPLE_LIMIT],
@@ -222,77 +288,13 @@ def collect_object_gc_roots(repo, *, errors: list[str] | None = None) -> set[str
             return
         roots.add(value)
 
-    for getter_name in (
-        "get_head_commit_id",
-        "get_root_hash",
-    ):
-        try:
-            getter = getattr(repo, getter_name, None)
-            if callable(getter):
-                add(getter())
-        except Exception as exc:  # noqa: BLE001
-            out_errors.append(f"{getter_name}: {exc}")
-
     try:
-        for scope_path, scope_hash in (repo.get_all_scope_hashes() or {}).items():
-            add(scope_hash)
-            try:
-                add(repo.get_scope_head_commit_id(scope_path))
-            except Exception as exc:  # noqa: BLE001
-                out_errors.append(f"scope head {scope_path!r}: {exc}")
-    except Exception as exc:  # noqa: BLE001
-        out_errors.append(f"get_all_scope_hashes: {exc}")
-
-    _add_history_roots(repo, add, out_errors)
-    _add_version_index_roots(repo, add, out_errors)
-    _add_outbox_roots(repo, add, out_errors)
-    _add_pending_conflict_roots(repo, add, out_errors)
-    _add_version_ref_roots(repo, add, out_errors)
-    _add_shadow_snapshot_roots(repo, add, out_errors)
+        inventory = repo.history.list_object_gc_roots()
+        for value in inventory:
+            add(value)
+    except Exception as exc:
+        out_errors.append(f"native GC root inventory unavailable: {exc}")
     return roots
-
-
-def _add_version_ref_roots(repo, add, errors: list[str]) -> None:
-    """Protect commits reachable only from stored branch/tag refs (GAP-3).
-
-    A version_refs row is a durable, fetchable pointer to a promoted
-    commit that never advances the scope head, so it is invisible to the
-    head/scope/history root sources above. Without this, GC reclaims a
-    branch/tag's objects after the retention window and serving that ref
-    breaks.
-    """
-    history = getattr(repo, "history", None)
-    getter = getattr(history, "list_version_ref_roots", None)
-    if callable(getter):
-        try:
-            for commit_id in getter():
-                add(commit_id)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"version_ref roots: {exc}")
-
-
-def _add_shadow_snapshot_roots(repo, add, errors: list[str]) -> None:
-    """Protect objects referenced by un-promoted shadow snapshots (ISSUE-012).
-
-    Shadow snapshots upload their referenced blobs into the canonical object
-    store *before* promotion and may sit un-promoted indefinitely. A pending
-    snapshot's ``tree_hash`` is not reachable from any ref, so without adding it
-    to the root set GC would reclaim the snapshot's objects once they age past
-    the retention window and break ``/promote``. Marking the tree then protects
-    the blobs it references transitively.
-
-    DB-only by design: the ``tree_hash`` lives on the ``local_shadow_snapshots``
-    row, so this stays synchronous. Reading the S3 manifest's ``blob_hashes``
-    from the sync GC root pass is intentionally avoided.
-    """
-    history = getattr(repo, "history", None)
-    getter = getattr(history, "list_shadow_snapshot_roots", None)
-    if callable(getter):
-        try:
-            for tree_hash in getter():
-                add(tree_hash)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"shadow_snapshot roots: {exc}")
 
 
 def mark_reachable_objects(
@@ -301,217 +303,66 @@ def mark_reachable_objects(
     *,
     errors: list[str] | None = None,
 ) -> set[str]:
-    """Walk canonical Git commit/tree/blob graphs."""
+    """Walk and verify canonical Git graphs, including nested annotated tags.
 
+    Proven legacy raw roots remain opaque leaves. A damaged Git object must
+    never be mistaken for such a leaf: any unproven closure stops sweeping.
+    """
     out_errors = errors if errors is not None else []
     reachable: set[str] = set()
+    kinds: dict[str, str] = {}
     stack = [
-        object_id for object_id in roots
-        if is_object_id(object_id) and object_id != ZERO_ID
+        (object_id, None) for object_id in roots if is_object_id(object_id) and object_id != ZERO_ID
     ]
 
     while stack:
-        object_id = stack.pop()
+        object_id, expected_type = stack.pop()
         if object_id in reachable:
+            if expected_type is not None and kinds.get(object_id) != expected_type:
+                out_errors.append(f"walk {object_id}: unexpected object type")
             continue
         reachable.add(object_id)
-
-        # Split FETCH from DECODE so the fail-safe gate fires only on the case
-        # that actually threatens closure completeness.
-        #
-        #   • Fetch failure (object genuinely missing, or a transient
-        #     object-store read error): we CANNOT see whether this was a tree
-        #     with children, so its subtree may be silently dropped from the
-        #     reachable set. This is the "Damaged folder" trigger — record it
-        #     as a walk error so the caller refuses to delete.
-        #   • Fetched-but-not-a-git-object (e.g. a legacy raw blob stored at a
-        #     tree position): we DID read it and it provably has no git-tree
-        #     children to follow, so nothing was dropped. Treat it as an opaque
-        #     leaf and continue WITHOUT gating, so GC isn't permanently wedged
-        #     by such objects.
         try:
             loose = repo.store.get_loose(object_id)
-        except Exception as exc:  # noqa: BLE001 - fail-safe: unreadable ⇒ gate.
+        except Exception as exc:
             out_errors.append(f"read {object_id}: {exc}")
             continue
 
         try:
             obj_type, body = decode_object(loose)
-        except Exception:  # noqa: BLE001 - present but not git ⇒ opaque leaf.
+        except Exception as exc:
+            if expected_type is not None or hashlib.sha1(loose).hexdigest() != object_id:
+                out_errors.append(f"decode {object_id}: {exc}")
+            # A legacy raw object's id is the hash of its unframed bytes.
             continue
 
+        kinds[object_id] = obj_type
         try:
-            stack.extend(_child_object_ids(obj_type, body))
-        except Exception as exc:  # noqa: BLE001
+            object_format = "sha256" if len(object_id) == 64 else "sha1"
+            if hash_object(obj_type, body, object_format=object_format) != object_id:
+                raise ValueError("object hash mismatch")
+            if expected_type is not None and obj_type != expected_type:
+                raise ValueError("unexpected object type")
+            stack.extend(object_edges(obj_type, body, object_format=object_format))
+        except Exception as exc:
             out_errors.append(f"walk {object_id}: {exc}")
 
     return reachable
 
 
 def _child_object_ids(obj_type: str, body: bytes) -> list[str]:
-    """Return the Git object ids a commit/tree directly references."""
-    children: list[str] = []
-    if obj_type == "commit":
-        commit = decode_commit(body)
-        tree = commit.get("tree", "")
-        if is_object_id(tree):
-            children.append(tree)
-        for parent in commit.get("parents") or []:
-            if is_object_id(parent):
-                children.append(parent)
-    elif obj_type == "tree":
-        for entry in decode_tree(body):
-            if is_object_id(entry.sha1_hex):
-                children.append(entry.sha1_hex)
-    return children
-
-
-def _add_history_roots(repo, add, errors: list[str]) -> None:
-    listed = False
-    history = getattr(repo, "history", None)
-    list_roots = getattr(history, "list_object_gc_roots", None)
-    if callable(list_roots):
-        try:
-            for value in list_roots():
-                add(value)
-            listed = True
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"list_object_gc_roots: {exc}")
-
-    entries = getattr(history, "_entries", None)
-    if entries is not None:
-        listed = True
-        for entry in list(entries):
-            _add_entry_roots(entry, add)
-
-    if listed:
-        return
-
-    get_since = getattr(repo, "get_history_since", None)
-    if callable(get_since):
-        try:
-            for entry in get_since("", limit=0):
-                _add_entry_roots(entry, add)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"get_history_since: {exc}")
-
-
-def _add_entry_roots(entry: dict, add) -> None:
-    for key in (
-        "commit_id",
-        "root",
-        "root_hash",
-        "scope_hash",
-        "head_commit_id",
-    ):
-        add(entry.get(key))
-
-
-def _add_version_index_roots(repo, add, errors: list[str]) -> None:
-    history = getattr(repo, "history", None)
-    rows = getattr(history, "_version_index", None)
-    if rows is not None:
-        for row in list(rows):
-            _add_version_index_row(row, add)
-        return
-
-    list_rows = getattr(history, "list_version_index_roots", None)
-    if callable(list_rows):
-        try:
-            for row in list_rows():
-                if isinstance(row, dict):
-                    _add_version_index_row(row, add)
-                else:
-                    add(row)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"list_version_index_roots: {exc}")
-
-
-def _add_version_index_row(row: dict, add) -> None:
-    for key in (
-        "source_commit_id",
-        "source_scope_hash",
-        "project_root_hash",
-        "project_view_commit_id",
-    ):
-        add(row.get(key))
-
-
-def _add_outbox_roots(repo, add, errors: list[str]) -> None:
-    history = getattr(repo, "history", None)
-    list_rows = getattr(history, "list_pending_outbox_roots", None)
-    if not callable(list_rows):
-        return
-    try:
-        for row in list_rows():
-            if isinstance(row, dict):
-                add(row.get("commit_id"))
-                payload = row.get("payload") or {}
-                if isinstance(payload, dict):
-                    _add_nested_roots(payload, add)
-            else:
-                add(row)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"list_pending_outbox_roots: {exc}")
-
-
-_PENDING_CONFLICT_EVENT_TYPES = frozenset({
-    "conflict_pending",
-    "pending_conflict_created",
-})
-
-
-def _add_pending_conflict_roots(repo, add, errors: list[str]) -> None:
-    audit = getattr(repo, "audit", None)
-    events = getattr(audit, "events", None)
-    if events is not None:
-        for event in list(events):
-            event_type = str(event.get("type", ""))
-            # Match canonical event-type tokens, not substrings, so renames
-            # like ``conflict_pending_v2`` or ``…_pending_conflict_…`` don't
-            # silently flip protection on/off. Add new tokens to the set
-            # above when a new pending-conflict event type lands.
-            if not any(t in event_type for t in _PENDING_CONFLICT_EVENT_TYPES):
-                continue
-            detail = event.get("detail") or {}
-            if isinstance(detail, dict):
-                _add_nested_roots(detail, add)
-        return
-
-    history = getattr(repo, "history", None)
-    list_rows = getattr(history, "list_pending_conflict_roots", None)
-    if callable(list_rows):
-        try:
-            for row in list_rows():
-                if isinstance(row, dict):
-                    _add_nested_roots(row, add)
-                else:
-                    add(row)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"list_pending_conflict_roots: {exc}")
-
-
-def _add_nested_roots(value: Any, add) -> None:
-    if isinstance(value, str):
-        # Conflict/outbox payloads contain ordinary strings as well as hashes;
-        # only hash-shaped values are declared roots by this recursive scan.
-        if is_object_id(value):
-            add(value)
-    elif isinstance(value, dict):
-        for child in value.values():
-            _add_nested_roots(child, add)
-    elif isinstance(value, list):
-        for child in value:
-            _add_nested_roots(child, add)
+    """Compatibility helper; all graph semantics live in the typed edge parser."""
+    return [edge.oid for edge in object_edges(obj_type, body)]
 
 
 def _all_object_ids(repo, *, errors: list[str]) -> set[str]:
     try:
         return {
-            object_id for object_id in repo.store.all_hashes()
+            object_id
+            for object_id in repo.store.all_hashes()
             if is_object_id(object_id) and object_id != ZERO_ID
         }
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         errors.append(f"all_hashes: {exc}")
         return set()
 
@@ -522,12 +373,8 @@ def _object_metadata(repo, *, errors: list[str]) -> dict[str, dict]:
     if not callable(getter):
         return {}
     try:
-        return {
-            object_id: meta
-            for object_id, meta in getter().items()
-            if is_object_id(object_id)
-        }
-    except Exception as exc:  # noqa: BLE001
+        return {object_id: meta for object_id, meta in getter().items() if is_object_id(object_id)}
+    except Exception as exc:
         errors.append(f"all_hashes_with_metadata: {exc}")
         return {}
 
@@ -555,7 +402,7 @@ def _object_is_old_enough(
     if not isinstance(last_modified, datetime):
         return False
     if last_modified.tzinfo is None:
-        last_modified = last_modified.replace(tzinfo=timezone.utc)
+        last_modified = last_modified.replace(tzinfo=UTC)
     return (now - last_modified).total_seconds() >= retention_seconds
 
 
@@ -578,7 +425,7 @@ def _delete_eligible_objects(repo, eligible: list[str], *, errors: list[str]) ->
             _count, swept = sweep(set(eligible))
             swept_ids = set(swept)
             deleted.extend(swept)
-        except Exception as exc:  # noqa: BLE001 - GC must continue.
+        except Exception as exc:
             errors.append(f"sweep_dead_bundles: {exc}")
 
     for object_id in eligible:
@@ -587,7 +434,7 @@ def _delete_eligible_objects(repo, eligible: list[str], *, errors: list[str]) ->
         try:
             if _delete_object(repo, object_id):
                 deleted.append(object_id)
-        except Exception as exc:  # noqa: BLE001 - GC must continue.
+        except Exception as exc:
             errors.append(f"delete {object_id}: {exc}")
     return deleted
 
@@ -601,7 +448,7 @@ def _delete_object(repo, object_id: str) -> bool:
 
 
 def _aware_now(now: datetime | None) -> datetime:
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
+        current = current.replace(tzinfo=UTC)
     return current

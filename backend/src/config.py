@@ -413,6 +413,13 @@ class Settings(BaseSettings):
     # - "auto": Auto-select (use E2B if E2B_API_KEY is available, otherwise use Docker)
     SANDBOX_TYPE: Literal["e2b", "docker", "auto"] = "auto"
     E2B_API_KEY: str = ""
+    CLOUD_AGENT_IMAGE: str = "puppyone-cloud-agent:data-access-v1"
+    CLOUD_AGENT_E2B_TEMPLATE: str = ""
+    CLOUD_AGENT_DEFAULT_MODEL: str = ""
+    CLOUD_AGENT_MAX_TOKENS: int = Field(default=4096, ge=1, le=32768)
+    CLOUD_AGENT_CONTEXT_WINDOW: int = Field(default=131072, ge=16384, le=2000000)
+    CLOUD_AGENT_MAX_MODEL_CALLS: int = Field(default=32, ge=1, le=100)
+    CLOUD_AGENT_CONCURRENCY: int = Field(default=4, ge=1, le=32)
     # Docker sandbox dedicated temp directory; only needed when containerized backend controls host Docker
     SANDBOX_TMPDIR: str | None = None
     # Sandbox file download concurrency

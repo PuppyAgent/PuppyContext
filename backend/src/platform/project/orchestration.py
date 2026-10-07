@@ -65,6 +65,7 @@ async def create_project_with_tree(
     result_metadata: dict[str, Any] | None = None,
     initialize: ProjectInitializer | None = None,
     write_lease_factory: ProjectWriteLeaseFactory = ProjectWriteLease,
+    native_repository: dict[str, str] | None = None,
 ) -> IdempotentProjectResult:
     """Publish exactly one ready Project through the durable control plane.
 
@@ -77,6 +78,7 @@ async def create_project_with_tree(
     if publication_mode == "deferred" and initialize is None:
         raise ValueError("deferred Project publication requires an initializer")
 
+    native_options = {"native_repository": native_repository} if native_repository is not None else {}
     result = await asyncio.to_thread(
         control_plane.create_project,
         operation_key=operation_key,
@@ -89,6 +91,7 @@ async def create_project_with_tree(
         project_limit=project_limit,
         request_fingerprint=request_fingerprint,
         result_metadata=result_metadata,
+        **native_options,
     )
     if result.ready:
         return result

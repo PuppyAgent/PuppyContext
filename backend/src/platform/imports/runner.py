@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import json
 import posixpath
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from src.provider._base import AuthRequirement, FetchResult
-from src.platform.imports.providers import get_import_provider_registry
+from src.platform.imports.providers import get_import_provider_registry, require_import_provider
 from src.platform.imports.repository import ImportJob
 from src.platform.project.write_lease import (
     ProjectWriteLease,
     ProjectWriteLeaseFactory,
     build_leased_worker_write_commands,
 )
+from src.provider._base import AuthRequirement, FetchResult
 
 PhaseCallback = Callable[[str, int, str], Awaitable[None]]
 
@@ -100,15 +101,22 @@ class OneTimeImportRunner:
         on_phase: PhaseCallback | None = None,
     ) -> ImportRunResult:
         registry = get_import_provider_registry()
-        adapter = registry.get(job.provider)
-        if not adapter and job.provider == "notion":
-            adapter = registry.get("url")
-        if not adapter:
-            raise ValueError(f"Unknown import provider: {job.provider}")
+        adapter = require_import_provider(registry, job.provider)
 
         spec = adapter.spec()
         config = dict(job.config or {})
         config["source_url"] = job.source_url
+        if spec.provider != "github":
+            # Import owns its durable URL; shared fetch adapters consume neutral
+            # source/options inputs, not ImportJob's legacy flat configuration.
+            # Keep GitHub's snapshot/archive options on its existing contract.
+            source = dict(config.get("source") or {})
+            source["resource_url"] = job.source_url
+            options = dict(config.get("options") or {})
+            if config.get("crawl_options"):
+                options.setdefault("crawl_options", config["crawl_options"])
+            config["source"] = source
+            config["options"] = options
         if job.name and not config.get("name"):
             config["name"] = job.name
         if job.target_path and not config.get("target_path"):
@@ -131,7 +139,10 @@ class OneTimeImportRunner:
         actor = f"import:{job.provider}:{job.id}"
 
         commands = build_leased_worker_write_commands(
-            write_lease_factory=self._write_lease_factory
+            write_lease_factory=self._write_lease_factory,
+            project_id=job.project_id,
+            user_id=job.created_by,
+            operation_key=f"import:{job.id}",
         )
 
         if result.files is not None:

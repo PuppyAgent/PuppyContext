@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Optional
 
 from .schema import ProjectTemplate
 
@@ -37,9 +36,7 @@ _REQUIRED_FIELDS = ("id", "name", "description", "icon")
 def _read_manifest(template_dir: Path) -> dict:
     manifest_path = template_dir / "manifest.toml"
     if not manifest_path.is_file():
-        raise ValueError(
-            f"Template {template_dir.name!r}: missing manifest.toml"
-        )
+        raise ValueError(f"Template {template_dir.name!r}: missing manifest.toml")
     with manifest_path.open("rb") as f:
         return tomllib.load(f)
 
@@ -47,9 +44,7 @@ def _read_manifest(template_dir: Path) -> dict:
 def _read_content(template_dir: Path) -> dict[str, bytes]:
     content_dir = template_dir / "content"
     if not content_dir.is_dir():
-        raise ValueError(
-            f"Template {template_dir.name!r}: missing content/ directory"
-        )
+        raise ValueError(f"Template {template_dir.name!r}: missing content/ directory")
 
     files: dict[str, bytes] = {}
     for path in sorted(content_dir.rglob("*")):
@@ -59,9 +54,7 @@ def _read_content(template_dir: Path) -> dict[str, bytes]:
         files[rel] = path.read_bytes()
 
     if not files:
-        raise ValueError(
-            f"Template {template_dir.name!r}: content/ is empty"
-        )
+        raise ValueError(f"Template {template_dir.name!r}: content/ is empty")
     return files
 
 
@@ -70,9 +63,7 @@ def _build_template(template_dir: Path) -> ProjectTemplate:
 
     missing = [k for k in _REQUIRED_FIELDS if k not in manifest]
     if missing:
-        raise ValueError(
-            f"Template {template_dir.name!r}: manifest missing fields {missing}"
-        )
+        raise ValueError(f"Template {template_dir.name!r}: manifest missing fields {missing}")
 
     files = _read_content(template_dir)
 
@@ -120,7 +111,7 @@ TEMPLATES: dict[str, ProjectTemplate] = _discover_builtin()
 # ── Public API ─────────────────────────────────────────────────────
 
 
-def get_template(template_id: str) -> Optional[ProjectTemplate]:
+def get_template(template_id: str) -> ProjectTemplate | None:
     return TEMPLATES.get(template_id)
 
 
@@ -140,7 +131,7 @@ def _build_preview(files: dict[str, bytes], limit: int = 6) -> list[dict]:
     seen: list[tuple[str, str]] = []
     seen_set: set[str] = set()
 
-    for path in files.keys():
+    for path in files:
         head = path.split("/", 1)[0]
         is_folder = "/" in path
         display = head + ("/" if is_folder else "")
@@ -173,14 +164,12 @@ def list_templates() -> list[dict]:
     ]
 
 
-def _pick_preview_doc(files: dict[str, bytes], limit: int = 20000) -> Optional[dict]:
+def _pick_preview_doc(files: dict[str, bytes], limit: int = 20000) -> dict | None:
     """Choose a representative document to render on the detail page: a
     top-level README.md, else the first markdown file, else the first file.
     Returns {path, content} with content decoded as text (truncated)."""
     md_files = [p for p in files if p.lower().endswith(".md")]
-    readme = next(
-        (p for p in md_files if p.lower().rsplit("/", 1)[-1] == "readme.md"), None
-    )
+    readme = next((p for p in md_files if p.lower().rsplit("/", 1)[-1] == "readme.md"), None)
     target = readme or (md_files[0] if md_files else None)
     if target is None:
         target = next(iter(files), None)
@@ -192,7 +181,7 @@ def _pick_preview_doc(files: dict[str, bytes], limit: int = 20000) -> Optional[d
     }
 
 
-def get_template_detail(template_id: str) -> Optional[dict]:
+def get_template_detail(template_id: str) -> dict | None:
     """Full template metadata + a rich preview (file tree + a rendered doc) for
     the marketplace detail page. No raw file bytes are exposed."""
     t = get_template(template_id)
@@ -228,7 +217,11 @@ async def seed_template_content(
     if tmpl is None:
         return {"error": f"Unknown template: {template_id}"}
 
-    commands = build_leased_worker_write_commands()
+    commands = build_leased_worker_write_commands(
+        project_id=project_id,
+        user_id=created_by,
+        operation_key=f"template:{project_id}:{template_id}",
+    )
     await commands.bulk_write(
         project_id,
         tmpl.files,

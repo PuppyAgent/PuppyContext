@@ -22,7 +22,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from src.provider.schemas import SyncResult
+from src.platform.workspace.sync_models import SyncResult
 from src.platform.workspace.paths import (
     absolute_path,
     agent_child,

@@ -4,19 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { openOAuthPopup } from '@/lib/oauthApi';
 import {
-  createWorkflow,
-  deleteWorkflowConnection,
-  getWorkflowProviderSpecs,
-  getWorkflowStatus,
-  listWorkflowConnections,
-  listWorkflowFailedRuns,
-  pauseWorkflowConnection,
-  refreshWorkflowConnection,
-  resumeWorkflowConnection,
-  updateWorkflowTrigger,
-  type WorkflowConnection,
-  type WorkflowSourceResource,
-} from '@/lib/workflowApi';
+  createSynchronizeBinding as createWorkflow,
+  deleteSynchronizeBinding as deleteWorkflowConnection,
+  listSynchronizeProviders as getWorkflowProviderSpecs,
+  getSynchronizeStatus as getWorkflowStatus,
+  listSynchronizeBindings as listWorkflowConnections,
+  listFailedSynchronizeRuns as listWorkflowFailedRuns,
+  pauseSynchronizeBinding as pauseWorkflowConnection,
+  refreshSynchronizeBinding as refreshWorkflowConnection,
+  resumeSynchronizeBinding as resumeWorkflowConnection,
+  updateSynchronizeTrigger as updateWorkflowTrigger,
+  type SynchronizeBinding as WorkflowConnection,
+  type SynchronizeSourceResource as WorkflowSourceResource,
+} from '@/lib/synchronizeApi';
 import {
   buildCreateWorkflowRequest,
   buildRecentRuns,
@@ -73,19 +73,19 @@ export function useWorkflowController(projectId: string) {
     data: connections = [],
     isLoading: connectionsLoading,
     mutate: mutateConnections,
-  } = useSWR(['workflow-connections', projectId], () => listWorkflowConnections(projectId), {
+  } = useSWR(['synchronize-bindings', projectId], () => listWorkflowConnections(projectId), {
     revalidateOnFocus: true,
   });
   const {
     data: workflowStatus,
     mutate: mutateStatus,
-  } = useSWR(['workflow-status', projectId], () => getWorkflowStatus(projectId), {
+  } = useSWR(['synchronize-status', projectId], () => getWorkflowStatus(projectId), {
     revalidateOnFocus: true,
   });
   const {
     data: failedRuns = [],
     mutate: mutateFailedRuns,
-  } = useSWR(['workflow-failed-runs', projectId], () => listWorkflowFailedRuns(projectId, 8), {
+  } = useSWR(['synchronize-failed-runs', projectId], () => listWorkflowFailedRuns(projectId, 8), {
     revalidateOnFocus: true,
   });
 
@@ -95,8 +95,8 @@ export function useWorkflowController(projectId: string) {
     [visibleProviders],
   );
   const statusById = useMemo(
-    () => new Map((workflowStatus?.syncs ?? []).map((item) => [item.id, item])),
-    [workflowStatus?.syncs],
+    () => new Map((workflowStatus?.bindings ?? []).map((item) => [item.id, item])),
+    [workflowStatus?.bindings],
   );
   const selectedProvider = useMemo(
     () => visibleProviders.find((provider) => provider.provider === selectedProviderId),
@@ -224,7 +224,7 @@ export function useWorkflowController(projectId: string) {
       }));
       setFeedback({ type: 'success', text: 'Sync created.' });
       setMode('detail');
-      setSelectedConnectionId(result.sync.id);
+      setSelectedConnectionId(result.binding.id);
       await refreshAll();
     } catch (error) {
       setFeedback({

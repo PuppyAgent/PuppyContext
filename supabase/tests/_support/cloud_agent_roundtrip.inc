@@ -16,11 +16,12 @@ BEGIN
     INSERT INTO public.projects(id,name,org_id,created_by,lifecycle_status) VALUES(project,'Agent test',org,uid,'ready');
     INSERT INTO public.project_members(project_id,org_id,user_id,role) VALUES(project,org,uid,'admin');
     agent:=public.agent_run_builtin(project,NULL,uid,'{"name":"Agent test"}');
-    SELECT jsonb_build_object('surface_updated_at',updated_at,'model','fixture') INTO policy
+    SELECT jsonb_build_object('surface_updated_at',updated_at,'model','fixture',
+        'revision',public.authorization_revision_token(project)) INTO policy
         FROM public.access_surfaces WHERE id=agent;
     SET LOCAL ROLE service_role;
-    submitted:=public.agent_run_submit(uid,project,agent,NULL,request,repeat('a',64),'List files',policy,600);
-    repeated:=public.agent_run_submit(uid,project,agent,NULL,request,repeat('a',64),'List files',policy,600);
+    submitted:=public.agent_run_submit_context(uid,project,agent,NULL,request,repeat('a',64),'List files',policy,600);
+    repeated:=public.agent_run_submit_context(uid,project,agent,NULL,request,repeat('a',64),'List files',policy,600);
     IF submitted->>'id' IS DISTINCT FROM repeated->>'id' OR (SELECT count(*) FROM public.agent_runs)<>1 THEN
         RAISE EXCEPTION 'Duplicate submission created another run';
     END IF;

@@ -1,0 +1,75 @@
+name: Cloud Agent data and runtime contracts
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/**'
+      - 'backend/tests/agent/**'
+      - 'backend/agent-worker/**'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
+      - 'supabase/migrations/**'
+      - 'scripts/testing/native_postgres.py'
+      - 'docker/Dockerfile.minio'
+      - '.github/workflows/agent-runtime-contracts.yml'
+  push:
+    branches: [qubits, main]
+    paths:
+      - 'backend/src/**'
+      - 'backend/tests/agent/**'
+      - 'backend/agent-worker/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/agent-runtime-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-database-budget:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL 17 and locked dependencies
+        timeout-minutes: 10
+        run: |
+          # Ubuntu 24.04 ships PostgreSQL 16; use the official PGDG repository for 17.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --show-error --silent --retry 3 --connect-timeout 10 --max-time 60 --retry-max-time 240 \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o Acquire::Retries=3 install -y postgresql-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          python -m pip install 'uv==0.5.11'
+          cd backend
+          uv sync --locked
+      - name: Build offline Pi tools and owned object storage
+        run: |
+          docker build -t puppyone-cloud-agent:data-access-v1 backend/agent-worker
+          docker build --target build -t puppyone-entrypoint-minio-build:local -f docker/Dockerfile.minio .
+          docker pull postgrest/postgrest:v14.13
+      - name: Verify actual HTTP budgets, authority, replies and Git recovery
+        working-directory: backend
+        env:
+          APP_ENV: test
+          SANDBOX_TYPE: docker
+          NO_PROXY: 127.0.0.1,localhost
+        run: |
+          mkdir -p .agent-test-results
+          uv run pytest tests/agent/runtime --ignore=tests/agent/runtime/test_desktop_integration.py \
+            -q --junitxml=.agent-test-results/junit.xml --basetemp=.agent-test-results/cases
+          node --test agent-worker/git-workspace.test.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: agent-runtime-budget-and-recovery
+          path: backend/.agent-test-results/
+          include-hidden-files: true
+          retention-days: 14

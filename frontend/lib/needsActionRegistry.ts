@@ -18,13 +18,14 @@
  *   - ``pending-review`` — agent-claimed conflict awaiting human OK
  *   - ``conflict``       — manual three-way conflict awaiting human resolve
  *
- * Both pull from the same ``mut_conflicts`` backend table, split by
+ * Both pull from the same ``version_conflicts`` backend table, split by
  * ``resolver_kind`` + ``policy``. See ``items/pendingReviewKind.ts``
  * and ``items/conflictKind.ts`` for the concrete entries.
  */
 
 import type { ReactNode } from 'react';
 import type { PendingConflictSummary } from '@/lib/conflictApi';
+import type { SynchronizeFailedRun } from '@/lib/synchronizeApi';
 
 // ── Discriminated union of every concrete item the page knows about ──
 // A new plugin extends this union by declaration-merging a new
@@ -49,34 +50,18 @@ export interface ConflictItem {
   source: PendingConflictSummary;
 }
 
-/** One failed sync run, scoped to a project. ``source`` mirrors the
- *  ``FailedSyncRunItem`` shape from the backend so the row + detail
- *  renderers can read provider / error / access-point name without a
- *  second fetch. */
+/** One failed Synchronize run, scoped to a project; never an Access identity. */
 export interface FailedSyncItem {
   kind: 'failed-sync';
   id: string;
   scope_path: string;
   created_at?: string;
-  source: {
-    id: string;
-    access_point_id: string;
-    access_point_name?: string | null;
-    access_point_path?: string | null;
-    provider: string;
-    direction: string;
-    started_at?: string | null;
-    finished_at?: string | null;
-    duration_ms?: number | null;
-    error?: string | null;
-    result_summary?: string | null;
-    trigger_type?: string | null;
-  };
+  source: SynchronizeFailedRun;
 }
 
 /** A commit whose ``audit_detail`` / ``changes`` show a mass deletion
  *  (PUP-5 §4 "risky delete / mass edit", Gap G2). Sourced from version
- *  history, not ``mut_conflicts`` — it's an after-the-fact heads-up with
+ *  history, not ``version_conflicts`` — it's an after-the-fact heads-up with
  *  an undo affordance, not a blocking resolution. */
 export interface RiskyDeleteItem {
   kind: 'risky-delete';

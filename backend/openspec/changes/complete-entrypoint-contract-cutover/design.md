@@ -1,0 +1,17 @@
+## Context
+Generic Synchronize and Access contracts already exist in local qubits. Final acceptance also requires GitHub-specific bindings, one-time Database Import sources, aggregation and actual retirement/deployment evidence. Existing GitHub routes declare Project actions in the manifest but do not execute the PDP; OAuth row IDs are also not owner-checked at binding/discovery.
+
+## Decisions
+- Use thin HTTP projections over existing operations, not new repositories or lifecycle writers. Canonical clients never retry legacy URLs or reinterpret resource IDs.
+- GitHub paths use `/projects/{project_id}/synchronize/github/{binding,repos,branches,pull,push,logs}` and `/synchronize/github/webhook`. Bindings use auto_pull/last_pulled_*/last_pushed_*; logs reference synchronize_github_binding_id with inbound/outbound direction. Preserve synchronous manual operations, raw-body HMAC, existing deduplication and webhook acknowledgement behavior.
+- Database paths use `/imports/database/sources` and source-ID table/preview/save suffixes. Creation returns `{source, database_info}`. Save is an existing synchronous one-time operation, not a new ImportJob or ongoing binding. Source configuration never enters response DTOs. Storage/classification remains owned by 049.
+- Project policy must execute, not merely appear in a manifest. OAuth ownership is checked when attaching/discovering an account; a Project's already-bound source follows Project permissions rather than pretending every caller owns the original OAuth account.
+- Query/body validation rejects unknown, repeated and blank selectors before dispatch. Do not recursively rename user metadata, historical audit content or provider data.
+- Canonical aggregation uses `/projects/{project_id}/dashboard/resources` with discriminated `resources` (`resource_kind`, `resource_id`, `project_id`) and `/activity/items` with `synchronize_run`. Existing dashboard/activity routes remain bounded compatibility. Access targets come from persisted surface/Scope ownership; Synchronize paths come from the binding. Usage is read separately by domain, not merged on bare IDs. Failed canonical reads are errors, not healthy empty inventories.
+- Canonical Synchronize bindings require a string destination path (empty string is explicit root), never null/missing root inference. Both clients reject duplicate inventory/run IDs and foreign update/refresh/run-detail echoes before applying UI state.
+- `synchronize.manage` replaces the action/capability wire spelling without changing role grants. The Activity legacy-view projection remains until 049's sole view migration; no historical message text is rewritten.
+- Web async completion effects are bounded by user/session/Project/resource and component lifetime; stale replies cannot open another source picker or replace another table preview. Backend mutations already accepted are not silently rolled back by this UI guard.
+- Retirement is a distinct evidence gate. Source implementation and isolated tests cannot establish cessation of real old producers, clients or webhook configuration.
+
+## Migration and recovery
+Complete canonical API/client code, test compatible schema/service behavior, integrate approved schema/runtime/CLI deliveries, then rehearse coordinated backend-first cutover. Remove old contracts only with consumer/queue/configuration evidence. Recovery must use a version compatible with final schema and preserve post-cutover data. No remote push or production operation without explicit scope approval.

@@ -77,7 +77,7 @@ def process_object_gc_projects(
                     "not satisfied; forcing dry-run"
                 )
                 project_dry_run = True
-            repo = repos.get_server_repo(project_id)
+            repo = repos.get_gc_repo(project_id)
             result = run_git_object_gc(
                 repo,
                 dry_run=project_dry_run,

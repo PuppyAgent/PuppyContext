@@ -19,6 +19,23 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 # ContextBase Backend — AI Assistant Guide
 
+## Current Version Engine contract (2026-10-07)
+
+The current implementation is documented in `docs/architecture/01-version-engine.md`
+(from backend, use `../docs/architecture/01-version-engine.md`). PostgreSQL native
+refs and S3 immutable Git objects are the only runtime version authority.
+`ProductOperationAdapter.for_grant(...)` / `.for_user(...)` opens pinned native
+reads and publishes through `NativeOperationWriter` and `RefTransactionService`.
+There is no project-root publisher, server-repository facade, startup root repair,
+old storage namespace fallback, or scoped transport materialization.
+
+Old Scope credentials fail closed; new Scope views are a separate future feature.
+Data preservation is an operator migration/archive concern, not runtime protocol
+compatibility. Historical SQL and immutable migration artifacts retain their
+original source identifiers for reproducible upgrades. The final SQL Contract
+runs only after both migration artifacts have verified receipts and old writers
+have stopped. Do not mutate a hosted environment during local acceptance.
+
 ## 项目概述
 
 ContextBase 后端是一个基于 **FastAPI** 的 Python 服务，为 LLM Agent 提供结构化上下文管理、MCP 协议集成和智能数据处理管道。
@@ -33,15 +50,15 @@ ContextBase 后端是一个基于 **FastAPI** 的 Python 服务，为 LLM Agent 
 
 ## 架构（Git-Native Version Engine）
 
-**Git objects/trees/commits are the version facts. Supabase is the control
-plane for project refs, scope refs, transactions, audit, conflicts, and outbox
-repair.**
+**Git objects/trees/commits are the version facts. PostgreSQL is the control
+plane for repository refs, checked transactions, audit, admission, billing and
+derived projection jobs.**
 
 - 没有 `content_nodes` 表；内容由 Version Engine Git tree/object storage 提供
 - Web/API/`puppyone fs` 写入全部通过 `ProductOperationAdapter`
 - Stock Git 客户端通过 `/git/...` smart-HTTP 进入 Git transport adapter
-- 所有写入最终收敛到 `GitNativeTransactionEngine`
-- Scope、权限、excludes、pause、冲突策略和 audit 都在 server 端执行
+- 所有写入最终收敛到 `RefTransactionService`
+- 权限、生命周期、容量、计费和 CAS 在服务端发布事务中复验；新的 Scope 视图另行实现
 - 旧线协议和外部版本包不再是运行时依赖
 
 ### 授权架构（Organization → Project → Runtime）
@@ -73,12 +90,13 @@ backend/
 │   ├── version_engine/        # Git-native 版本引擎 (核心读写通道)
 │   │   ├── adapters/
 │   │   │   ├── git/           # Git smart-HTTP clone/fetch/push
-│   │   │   └── operations/    # ProductOperationAdapter
-│   │   ├── application/       # 事务引擎、merge/conflict、Git object/tree/commit
-│   │   ├── domain/            # write/conflict intents
-│   │   ├── routers/           # content/history/conflict/AP-FS/WebSocket
-│   │   ├── server/            # repo manager, auth, Supabase/S3 backends
-│   │   └── services/          # tree reader/splice, hooks, outbox, GC, trace
+│   │   │   └── product/       # grant-bound ProductOperationAdapter
+│   │   ├── write_engine/      # 原生 operation、ref transaction、Git 格式
+│   │   ├── read/              # 固定 ref 快照的 tree/history reader
+│   │   ├── entrypoints/       # Git / Product HTTP 入口
+│   │   ├── infrastructure/    # PostgreSQL authority / admission
+│   │   ├── storage/           # canonical S3 对象、容量与 GC fencing
+│   │   └── derived/           # 原生索引队列与 GC
 │   │
 │   ├── content/
 │   │   └── table/             # 结构化数据表 (JSON Pointer)
@@ -153,44 +171,34 @@ access_tools                   version_engine/scoped_fs
 ```python
 class ProductOperationAdapter:
     def __init__(self, repo_manager: VersionRepoManager): ...
+    def for_grant(self, grant, *, operation_key=None): ...
+    def for_user(self, project_id, user_id, *, operation_key=None): ...
 
-    async def write_file(project_id, path, content, who, *, scope="", message="", ...) -> WriteResult
-    async def delete(project_id, paths, who, *, scope="", message="", ...) -> WriteResult
-    async def mkdir(project_id, path, who, *, scope="", message="", ...) -> WriteResult
-    async def move(project_id, source, destination, who, *, scope="", message="", ...) -> WriteResult
-    async def bulk_write(project_id, files, who, *, scope="", message="", ...) -> WriteResult
-    def read_file(project_id, path, *, scope="") -> bytes
+    async def write_file(project_id, path, content, who="", **kwargs) -> WriteResult
+    async def delete(project_id, paths, who="", **kwargs) -> WriteResult
+    async def mkdir(project_id, path, who="", **kwargs) -> WriteResult
+    async def move(project_id, source, destination, who="", **kwargs) -> WriteResult
+    async def bulk_write(project_id, files, who="", **kwargs) -> WriteResult
+    def read_file(project_id, path, **kwargs) -> bytes
 ```
 
-### VersionTreeReader（读取入口）
+调用读写前必须绑定 grant；后台任务还应绑定持久化的 operation key。
+当前适配器处理完整项目仓库，不能用旧 `scope` 参数模拟子目录权限。
+
+### NativeTreeReader（读取入口）
 
 ```python
-class VersionTreeReader:
-    def __init__(self, repo_manager: VersionRepoManager): ...
-
-    def list_dir(project_id, path, scope="") -> list[VersionEntry]
-    def read_file(project_id, path) -> bytes
-    def stat(project_id, path) -> VersionEntry | None
-    def list_tree(project_id, path, max_depth) -> list[VersionEntry]
-    def exists(project_id, path) -> bool
-    def get_root_hash(project_id) -> str
+ops = container.product_operations().for_grant(grant)
+with ops.open_read(project_id, grant) as reader:
+    revision = reader.get_read_revision(project_id)
+    entries = reader.list_dir(project_id, "")
 ```
 
-### 事务入口
-
-```python
-from src.version_engine.dependencies import (
-    get_product_operation_adapter,
-    get_tree_reader,
-    get_repo_manager,
-    create_product_operation_adapter,
-    create_tree_reader,
-)
-```
-
-`GitNativeTransactionEngine` 是唯一发布边界：验证 scope/auth/excludes/base
-state，执行 merge/conflict policy，并在一个 SQL 事务内发布 ref/history/
-audit/transaction/outbox。
+读取在一个获准的原生 ref 快照和 GC pin 内完成。修改读取到的数据时，把
+同一个 revision 交给写入端做 CAS；后台生产者同时提供稳定的 operation key。
+FastAPI / worker 的构造入口位于 `src/version_engine/bootstrap/`。
+最终发布由 `NativeOperationWriter` / `RefTransactionService` 调用 checked SQL，
+在同一事务中更新 refs、reflog、审计和派生索引事件。
 
 ## API 路由
 
@@ -207,11 +215,26 @@ audit/transaction/outbox。
 | `/api/v1/agents` | platform/access/adapters/agent | Agent SSE 聊天 |
 | `/api/v1/agent-config` | platform/access/adapters/agent/config | Agent CRUD |
 | `/api/v1/mcp` | platform/access/adapters/agent/mcp | MCP v3 工具绑定 |
-| `/api/v1/integrations` | platform/synchronize | 数据源同步 |
-| `/api/v1/access` | platform/access | 统一 Access 管理 |
+| `/api/v1/synchronize` | platform/synchronize/public_router | SynchronizeBinding / SynchronizeRun canonical API |
+| `/api/v1/integrations` | 已退役资源 URL | 最终源码不挂载；客户端不得 fallback，不能将源码退役冒充目标环境发布 |
+| `/api/v1/access/surfaces` | platform/access/public_router | AccessSurface canonical API；kind / Repository Contract v2 |
+| `/api/v1/access` | 已退役资源 URL | 最终源码只挂载 `/access/surfaces`；Repository Contract v2 仍必需 |
 | `/api/v1/ingest` | ingest | 文件/URL 导入 |
+| `/api/v1/imports/database/sources` | platform/imports/database/public_router | ImportDatabaseSource；单次保存、不创建持续绑定 |
+| `/api/v1/projects/{project_id}/synchronize/github` | platform/synchronize/github/public_router | GitHub 专属 binding/pull/push/logs；独立于 generic binding ID |
+| `/api/v1/synchronize/github/webhook` | platform/synchronize/github/public_router | 原始 body HMAC 与去重；canonical binding 引用 |
+| `/api/v1/projects/{project_id}/dashboard/resources` | platform/project/resource_dashboard | resource_kind/resource_id 聚合；分域 usage，不按裸 ID 合并 |
+| `/api/v1/activity/items` | platform/activity/public_router | 只读 typed activity；synchronize_run，原历史文字不改写 |
 | `/api/v1/oauth` | oauth | OAuth 授权 |
 | `/internal` | internal | 内部 API |
+
+## 最终入口存储与发布边界
+
+- `synchronize_bindings` / `synchronize_runs.synchronize_binding_id` 是持续绑定/执行事实；GitHub 使用独立的 `synchronize_github_bindings` / `synchronize_github_logs`。
+- Database Import 只读写 `import_database_sources`，不按 provider 从绑定表猜测或过滤来源。迁移需逐行明确分类、密文/历史保留与租户校验。
+- 存量升级分开 Release A（Expand/冻结/portable data runner）与 Release B（受控 Contract/最终应用）。历史 migration/artifact/checksum 不改，缺分类/receipt/退出证明的升级须拒绝。
+- 已复核的历史绑定只读且不可执行；后台状态更新不能覆盖用户并发暂停。恢复同样必须通过最终 ACL/RLS verifier 后才重启消费者。
+- 本地真实环境、源码/安装产物和目标环境发布证据分开记录；没有远程授权不得查询、DDL、push 或部署。
 
 ## 常用命令
 
@@ -230,7 +253,7 @@ uv run pytest           # 运行测试
 
 ### Railway 控制台必须设置的项
 
-每个共享本仓库的 service（`api` / `file_worker` / `mcp_server`）都必须把
+每个共享本仓库的 service（`api` / `upload_worker` / `import_worker` / `synchronize_worker` / `mcp_server`）都必须把
 `Settings -> Service -> Source -> Root Directory` 设成 `backend`（写 `/backend` 也等价）。
 
 否则：
@@ -294,16 +317,16 @@ Nixpacks 也会触发 Python 检测并尝试默认安装流程，把上面的 bu
 | `SERVICE_ROLE` | 进程 |
 |----------------|------|
 | 未设置 / `api` | `uvicorn src.main:app` (FastAPI) |
-| `file_worker` | `arq src.ingest.file.jobs.worker.WorkerSettings` |
+| `upload_worker` | `arq src.platform.upload.worker.WorkerSettings` |
 | `import_worker` | `arq src.platform.imports.worker.WorkerSettings` |
-| `sync_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
+| `synchronize_worker` | `arq src.platform.synchronize.worker.WorkerSettings` |
 | `mcp_server` | `uvicorn mcp_service.server:app` |
 
-每个 Railway service 在 Variables 里设 `SERVICE_ROLE` 即可，不需要复制代码。
+不需要复制代码。角色/dispatch 切换前必须停止旧 producer 并排空旧队列，包括延迟、重试和在途任务；不能只改 Variables 后滚动升级。Upload 的 `ETL_*` queue/runtime 配置由 `platform/upload/config.py` 拥有，保留已部署的变量和 `etl` 队列；Import/Synchronize 分别拥有自己的 queue/timeout。`infra/queue_config.py` 只共享 Redis 连接，`infra/file_processing` 不持有入口任务状态。
 
 ## 开发约定
 
-- **分层架构**: Router → Service → ProductOperationAdapter/VersionTreeReader
+- **分层架构**: Router → Service → ProductOperationAdapter/NativeTreeReader
 - **依赖注入**: FastAPI Depends
 - **全异步**: 所有 I/O 使用 async/await
 - **路径标识**: 文件以 path（如 "docs/readme.md"）标识，不使用 UUID

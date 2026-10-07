@@ -44,6 +44,7 @@ mypy.ini
 # next.js
 **/.next/
 **/.next-check/
+**/.next-desktop-login/
 **/.next.broken-*/
 /out/
 
@@ -152,3 +153,9 @@ todo/
 
 # Python bytecode (alternate cache dir)
 .pycache/
+
+# Isolated repository-hosting acceptance artifacts
+backend/.hosting-test-results/
+backend/.native-migration-test-results/
+
+/backend/.native-retirement-hosting-results/

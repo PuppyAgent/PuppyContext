@@ -29,7 +29,7 @@ import {
   sortNodes,
   type NodeInfo,
 } from '../contentTreeApi';
-import { getConnectorSpecs, type ConnectorSpec } from '../syncApi';
+import { listSynchronizeProviders as getConnectorSpecs, type SynchronizeProviderSpec as ConnectorSpec } from '../synchronizeApi';
 
 // Shared immutable-by-convention fallback: effect dependencies must not
 // change identity merely because a disabled/pending query has no payload.

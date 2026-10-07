@@ -51,10 +51,10 @@ import {
 import { AI_AGENT_ENABLED } from '@/lib/featureFlags';
 import { canonicalGitUrlForTarget } from '@/lib/gitRemote';
 import {
-  activateAgentConnector,
-  pauseConnector,
-  resumeConnector,
-  type Connector,
+  activateAccessSurfaceAgent,
+  pauseAccessSurface,
+  resumeAccessSurface,
+  type AccessSurface,
   type RepositoryView,
 } from '@/lib/repoApi';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
@@ -64,15 +64,15 @@ interface ConnectMethodsBlockProps {
   /** Target-bound CLI connector. Drives the Puppyone CLI card's
    *  on/off toggle. CLI setup explicitly rotates/reveals its own one-time
    *  credential; ordinary Scope reads never rehydrate plaintext. */
-  readonly cliConnector: Connector | undefined;
+  readonly cliConnector: AccessSurface | undefined;
   /** Target-bound Git Remote connector. Drives the Git Remote card's
    *  on/off toggle and its independent Git credential issuance flow. */
-  readonly gitRemoteConnector: Connector | undefined;
+  readonly gitRemoteConnector: AccessSurface | undefined;
   /** Target-bound agent connector — also drives the in-card toggle,
    *  separately from the activation flow (`config.activated` is set
    *  during activation, `status` is set by pause/resume; both must
    *  be in the right state for the chat runtime to launch). */
-  readonly agentConnector: Connector | undefined;
+  readonly agentConnector: AccessSurface | undefined;
   readonly projectId: string;
   /** Backend base, e.g. `https://api.puppyone.com`. */
   readonly apiBase: string;
@@ -102,9 +102,9 @@ export function ConnectMethodsBlock({
   // parent's data refreshes. Same pattern as the existing
   // `localAgentConnector` for activation — extended to cli + git_remote
   // now that those are togglable too.
-  const [localCli, setLocalCli] = useState<Connector | undefined>(cliConnector);
-  const [localGitRemote, setLocalGitRemote] = useState<Connector | undefined>(gitRemoteConnector);
-  const [localAgent, setLocalAgent] = useState<Connector | undefined>(agentConnector);
+  const [localCli, setLocalCli] = useState<AccessSurface | undefined>(cliConnector);
+  const [localGitRemote, setLocalGitRemote] = useState<AccessSurface | undefined>(gitRemoteConnector);
+  const [localAgent, setLocalAgent] = useState<AccessSurface | undefined>(agentConnector);
 
   useEffect(() => setLocalCli(cliConnector), [cliConnector]);
   useEffect(() => setLocalGitRemote(gitRemoteConnector), [gitRemoteConnector]);
@@ -168,8 +168,8 @@ export function ConnectMethodsBlock({
    */
   const toggleConnector = useCallback(
     (
-      connector: Connector,
-      setLocal: (c: Connector | undefined) => void,
+      connector: AccessSurface,
+      setLocal: (c: AccessSurface | undefined) => void,
       setPending: (b: boolean) => void,
     ) => {
       const next: 'active' | 'paused' =
@@ -180,8 +180,8 @@ export function ConnectMethodsBlock({
 
       const request =
         next === 'paused'
-          ? pauseConnector(projectId, connector.id)
-          : resumeConnector(projectId, connector.id);
+          ? pauseAccessSurface(projectId, connector.id)
+          : resumeAccessSurface(projectId, connector.id);
 
       request
         .then(() => {
@@ -223,7 +223,7 @@ export function ConnectMethodsBlock({
     setActivatingAgent(true);
     setAgentActivationError(null);
     try {
-      const updated = await activateAgentConnector(projectId, localAgent.id);
+      const updated = await activateAccessSurfaceAgent(projectId, localAgent.id);
       setLocalAgent(updated);
       await onScopeMutated();
       onOpenAgentChat(updated.id, scope.path);

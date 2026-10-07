@@ -95,7 +95,7 @@ async def create_workspace(
 
     provider = get_workspace_provider()
     sync_worker = SyncWorker(
-        ops=ops,
+        ops=ops.for_grant(grant),
         base_dir=provider._base_dir,
     )
 

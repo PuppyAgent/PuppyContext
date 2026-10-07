@@ -23,11 +23,11 @@ import {
 } from '@/components/ui/Dialog';
 import { Field } from '@/components/ui/Field';
 import {
-  listWorkflowProviderResources,
-  type WorkflowConnection,
-  type WorkflowProviderSpec,
-  type WorkflowSourceResource,
-} from '@/lib/workflowApi';
+  listSynchronizeProviderResources as listWorkflowProviderResources,
+  type SynchronizeBinding as WorkflowConnection,
+  type SynchronizeProviderSpec as WorkflowProviderSpec,
+  type SynchronizeSourceResource as WorkflowSourceResource,
+} from '@/lib/synchronizeApi';
 import {
   ConfigFieldInput,
   IconButton,

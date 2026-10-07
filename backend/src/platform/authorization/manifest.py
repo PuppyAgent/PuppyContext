@@ -45,7 +45,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
     # Project control plane.
     ("GET", "/api/v1/projects/{project_id}"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/authorization"): _human(ProjectAction.PROJECT_READ),
-    ("GET", "/api/v1/projects/{project_id}/dashboard"): _human(ProjectAction.PROJECT_READ),
+    ("GET", "/api/v1/projects/{project_id}/dashboard/resources"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/readiness"): _human(ProjectAction.PROJECT_READ),
     ("GET", "/api/v1/projects/{project_id}/git-view/health"): _human(ProjectAction.PROJECT_READ),
     ("POST", "/api/v1/projects/{project_id}/git-view/rebuild-cache"): _human(ProjectAction.PROJECT_MANAGE),
@@ -67,7 +67,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
     # target. The credential is a data-plane principal, not a local checkout.
     ("POST", "/api/v1/projects/{project_id}/git-credentials"): _human(ProjectAction.CONTENT_READ),
 
-    # Content, History and conflict surfaces.
+    # Content and History surfaces.
     # Managed Office sessions are resource-owner operations, not project grants.
     # Engine callbacks/source reads use scoped capability verification.
     ("GET", "/api/v1/office/sessions/{session_id}"): _owner("office.session_owner"),
@@ -89,11 +89,12 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
             "commit-content": ProjectAction.HISTORY_READ,
             "commits": ProjectAction.HISTORY_READ,
             "head": ProjectAction.HISTORY_READ,
-            "conflicts/pending": ProjectAction.HISTORY_READ,
             "diff": ProjectAction.HISTORY_READ,
         }.items()
     },
-    ("GET", "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}"): _human(ProjectAction.HISTORY_READ),
+    ("GET", "/api/v1/content/{project_id}/refs"): _human(ProjectAction.CONTENT_READ),
+    ("PUT", "/api/v1/content/{project_id}/head"): _human(ProjectAction.PROJECT_MANAGE),
+    ("GET", "/api/v1/content/{project_id}/operations/{request_key}"): _human(ProjectAction.CONTENT_READ),
     ("POST", "/api/v1/content/{project_id}/download/sign"): _human(ProjectAction.CONTENT_READ),
     ("POST", "/api/v1/content/{project_id}/inline/sign"): _human(ProjectAction.CONTENT_READ),
     **{
@@ -101,7 +102,6 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
         for suffix in ("bulk-write", "mkdir", "mv", "rm", "write")
     },
     ("POST", "/api/v1/content/{project_id}/rollback"): _human(ProjectAction.HISTORY_RESTORE),
-    ("POST", "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}/resolve"): _human(ProjectAction.HISTORY_RESTORE),
 
     # Runtime-surface administration.
     ("GET", "/api/v1/projects/{project_id}/scopes"): _human(ProjectAction.ACCESS_READ),
@@ -111,31 +111,12 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
     ("POST", "/api/v1/projects/{project_id}/scopes/auto-suggest"): _human(ProjectAction.CONTENT_READ),
     ("GET", "/api/v1/projects/{project_id}/access-point"): _human(ProjectAction.ACCESS_READ),
     ("PATCH", "/api/v1/projects/{project_id}/access-point"): _human(ProjectAction.PROJECT_MANAGE),
-    ("GET", "/api/v1/projects/{project_id}/connectors"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/projects/{project_id}/connectors"): _human(ProjectAction.ACCESS_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/enable-target"): _human(ProjectAction.ACCESS_MANAGE),
-    ("PATCH", "/api/v1/projects/{project_id}/connectors/{connector_id}"): _human(ProjectAction.ACCESS_MANAGE),
-    ("DELETE", "/api/v1/projects/{project_id}/connectors/{connector_id}"): _human(ProjectAction.ACCESS_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/activate-agent"): _human(ProjectAction.AGENT_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/pause"): _human(ProjectAction.ACCESS_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/resume"): _human(ProjectAction.ACCESS_MANAGE),
-    ("POST", "/api/v1/projects/{project_id}/connectors/{connector_id}/run"): _human(ProjectAction.AUTOMATION_RUN),
     ("GET", "/api/v1/tools/by-project/{project_id}"): _human(ProjectAction.CONTENT_READ),
-
-    # GitHub is a Project integration; reads may be viewed, mutations are Admin.
-    **{
-        ("GET", f"/api/v1/projects/{{project_id}}/github/{suffix}"): _human(ProjectAction.ACCESS_READ)
-        for suffix in ("branches", "repos", "status", "sync-log")
-    },
-    ("DELETE", "/api/v1/projects/{project_id}/github"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("PATCH", "/api/v1/projects/{project_id}/github"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    **{
-        ("POST", f"/api/v1/projects/{{project_id}}/github/{suffix}"): _human(ProjectAction.SYNCHRONIZE_MANAGE)
-        for suffix in ("connect", "export", "import")
-    },
 
     # Git smart HTTP is the Machine data plane. These routes must never accept
     # Project roles as a substitute for their scoped RuntimeGrant.
+    ("GET", "/git/{project_id}.git/refs"): _runtime("git.read"),
+    ("GET", "/git/{project_id}.git/operations/{request_key}"): _runtime("git.read"),
     ("GET", "/git/{project_id}.git/health"): _runtime("git.health"),
     ("GET", "/git/{project_id}.git/info/refs"): _runtime("git.read"),
     ("POST", "/git/{project_id}.git/git-upload-pack"): _runtime("git.read"),
@@ -181,7 +162,14 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("GET", "/api/v1/tools/{tool_id}/search-index"): _human(ProjectAction.AGENT_READ),
 
     # Agent control plane and chat sessions.
-    ("POST", "/api/v1/agents"): _human(ProjectAction.AGENT_RUN),
+    ("POST", "/api/v1/agents/runs"): _human(ProjectAction.AGENT_RUN),
+    ("GET", "/api/v1/agents/requests/{project_id}/{request_id}"): _human(ProjectAction.AGENT_RUN),
+    ("GET", "/api/v1/agents/runs/{run_id}"): _human(ProjectAction.AGENT_READ),
+    ("GET", "/api/v1/agents/sessions/{session_id}/runs"): _human(ProjectAction.AGENT_READ),
+    ("GET", "/api/v1/agents/sessions"): _human(ProjectAction.AGENT_READ),
+    ("GET", "/api/v1/agents/runs/{run_id}/events"): _human(ProjectAction.AGENT_READ),
+    ("POST", "/api/v1/agents/runs/{run_id}/stop"): _human(ProjectAction.AGENT_RUN),
+    ("POST", "/api/v1/agents/runs/{run_id}/approvals/{call_id}"): _human(ProjectAction.AGENT_RUN),
     ("GET", "/api/v1/agent-config/"): _human(ProjectAction.AGENT_READ),
     ("GET", "/api/v1/agent-config/default"): _human(ProjectAction.AGENT_READ),
     ("GET", "/api/v1/agent-config/{agent_id}"): _human(ProjectAction.AGENT_READ),
@@ -228,13 +216,7 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("GET", "/api/v1/nodes/project-audit-logs"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/nodes/{path:path}/audit-logs"): _human(ProjectAction.HISTORY_READ),
 
-    # Local snapshots and remote Agent workspaces.
-    ("POST", "/api/v1/local-snapshots"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/local-snapshots"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/local-snapshots/{snapshot_id}"): _human(ProjectAction.CONTENT_READ),
-    ("DELETE", "/api/v1/local-snapshots/{snapshot_id}"): _human(ProjectAction.CONTENT_WRITE),
-    ("POST", "/api/v1/local-snapshots/{snapshot_id}/blobs"): _human(ProjectAction.CONTENT_WRITE),
-    ("POST", "/api/v1/local-snapshots/{snapshot_id}/promote"): _human(ProjectAction.CONTENT_WRITE),
+    # Remote Agent workspaces.
     ("POST", "/api/v1/workspace/create"): _human(ProjectAction.AGENT_RUN),
     ("POST", "/api/v1/workspace/{agent_id}/complete"): _human(ProjectAction.CONTENT_WRITE),
     ("GET", "/api/v1/workspace/{agent_id}/status"): _human(ProjectAction.AGENT_READ),
@@ -242,37 +224,30 @@ PROJECT_ROUTE_AUTHORIZATION.update({
 
 PROJECT_ROUTE_AUTHORIZATION.update({
     # Integration control and execution.
-    ("GET", "/api/v1/integrations/status"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/integrations/connections"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("GET", "/api/v1/integrations/connections"): _human(ProjectAction.ACCESS_READ),
-    ("DELETE", "/api/v1/integrations/connections/{connection_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("PATCH", "/api/v1/integrations/connections/{connection_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("PATCH", "/api/v1/integrations/connections/{connection_id}/trigger"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("POST", "/api/v1/integrations/connections/{connection_id}/pause"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("POST", "/api/v1/integrations/connections/{connection_id}/refresh"): _human(ProjectAction.AUTOMATION_RUN),
-    ("POST", "/api/v1/integrations/connections/{connection_id}/resume"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("GET", "/api/v1/integrations/failed-runs"): _human(ProjectAction.ACCESS_READ),
-    ("GET", "/api/v1/integrations/connections/{connection_id}/runs"): _human(ProjectAction.ACCESS_READ),
-    ("GET", "/api/v1/integrations/runs/{run_id}"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/integrations/bootstrap"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
-    ("POST", "/api/v1/integrations/pull"): _human(ProjectAction.AUTOMATION_RUN),
-    ("POST", "/api/v1/integrations/push/{path:path}"): _human(ProjectAction.AUTOMATION_RUN),
-    ("POST", "/api/v1/integrations/github/webhook"): _runtime("integration.webhook"),
+    # Canonical Synchronize contract. Same policy as the transitional transport.
+    ("GET", "/api/v1/synchronize/status"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/synchronize/bindings"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/synchronize/bindings"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/synchronize/bindings/{synchronize_binding_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("DELETE", "/api/v1/synchronize/bindings/{synchronize_binding_id}"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("PATCH", "/api/v1/synchronize/bindings/{synchronize_binding_id}/trigger"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/bindings/{synchronize_binding_id}/pause"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/bindings/{synchronize_binding_id}/resume"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/bindings/{synchronize_binding_id}/refresh"): _human(ProjectAction.AUTOMATION_RUN),
+    ("GET", "/api/v1/synchronize/bindings/{synchronize_binding_id}/runs"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/synchronize/runs/{run_id}"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/synchronize/failed-runs"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/synchronize/bootstrap"): _human(ProjectAction.SYNCHRONIZE_MANAGE),
+    ("POST", "/api/v1/synchronize/pull"): _human(ProjectAction.AUTOMATION_RUN),
+    ("POST", "/api/v1/synchronize/push/{path:path}"): _human(ProjectAction.AUTOMATION_RUN),
 
     # Scope policy, Sandbox sessions, analytics and activity.
     ("POST", "/api/v1/scope-sandboxes/connect"): _human(ProjectAction.SANDBOX_MANAGE),
     ("GET", "/api/v1/scope-sandboxes/status"): _human(ProjectAction.ACCESS_READ),
     ("POST", "/api/v1/scope-sandboxes/revoke"): _human(ProjectAction.SANDBOX_MANAGE),
-    ("GET", "/api/v1/scope-sync/policy"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/scope-sync/events"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/scope-sync/activity"): _human(ProjectAction.HISTORY_READ),
-    ("GET", "/api/v1/scope-sync/stats"): _human(ProjectAction.HISTORY_READ),
-    ("GET", "/api/v1/scope-sync/settings"): _human(ProjectAction.CONTENT_READ),
-    ("PUT", "/api/v1/scope-sync/settings"): _human(ProjectAction.SCOPE_MANAGE),
-    ("GET", "/api/v1/scope-sync/ap/events"): _runtime("scope_sync.read"),
     ("GET", "/api/v1/analytics/access-timeseries"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/analytics/access-summary"): _human(ProjectAction.HISTORY_READ),
-    ("GET", "/api/v1/activity"): _human(ProjectAction.HISTORY_READ),
+    ("GET", "/api/v1/activity/items"): _human(ProjectAction.HISTORY_READ),
 })
 
 PROJECT_ROUTE_AUTHORIZATION.update({
@@ -298,13 +273,6 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("GET", "/api/v1/imports/{job_id}"): _human(ProjectAction.CONTENT_READ),
     ("DELETE", "/api/v1/imports/{job_id}"): _human(ProjectAction.INGEST_WRITE),
 
-    # Database connectors.
-    ("POST", "/api/v1/db-connector/access"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
-    ("GET", "/api/v1/db-connector/access"): _human(ProjectAction.ACCESS_READ),
-    ("DELETE", "/api/v1/db-connector/access/{connection_id}"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
-    ("GET", "/api/v1/db-connector/access/{connection_id}/tables"): _human(ProjectAction.ACCESS_READ),
-    ("GET", "/api/v1/db-connector/access/{connection_id}/tables/{table_name}/preview"): _human(ProjectAction.ACCESS_READ),
-    ("POST", "/api/v1/db-connector/access/{connection_id}/save"): _human(ProjectAction.CONTENT_WRITE),
 })
 
 PROJECT_ROUTE_AUTHORIZATION.update({
@@ -324,13 +292,23 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("DELETE", "/api/v1/sandbox-endpoints/{endpoint_id}"): _human(ProjectAction.SANDBOX_MANAGE),
     ("POST", "/api/v1/sandbox-endpoints/{endpoint_id}/regenerate-key"): _human(ProjectAction.CREDENTIAL_MANAGE),
     ("POST", "/api/v1/sandbox-endpoints/{endpoint_id}/exec"): _runtime("sandbox.exec"),
-    ("GET", "/api/v1/access/"): _human(ProjectAction.ACCESS_READ),
-    ("GET", "/api/v1/access/{connection_id}"): _human(ProjectAction.ACCESS_READ),
-    ("PATCH", "/api/v1/access/{connection_id}"): _human(ProjectAction.ACCESS_MANAGE),
-    ("DELETE", "/api/v1/access/{connection_id}"): _human(ProjectAction.ACCESS_MANAGE),
-    ("PATCH", "/api/v1/access/{connection_id}/rename"): _human(ProjectAction.ACCESS_MANAGE),
-    ("POST", "/api/v1/access/{connection_id}/regenerate-key"): _human(ProjectAction.CREDENTIAL_MANAGE),
-    ("POST", "/api/v1/access/"): _human(ProjectAction.ACCESS_MANAGE),
+    # Canonical Access resource boundary; global create also checks its kind-specific action.
+    ("GET", "/api/v1/access/surfaces"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/access/surfaces"): _human(ProjectAction.ACCESS_MANAGE),
+    ("GET", "/api/v1/access/surfaces/{access_surface_id}"): _human(ProjectAction.ACCESS_READ),
+    ("PATCH", "/api/v1/access/surfaces/{access_surface_id}"): _human(ProjectAction.ACCESS_MANAGE),
+    ("DELETE", "/api/v1/access/surfaces/{access_surface_id}"): _human(ProjectAction.ACCESS_MANAGE),
+    ("PATCH", "/api/v1/access/surfaces/{access_surface_id}/rename"): _human(ProjectAction.ACCESS_MANAGE),
+    ("POST", "/api/v1/access/surfaces/{access_surface_id}/regenerate-key"): _human(ProjectAction.CREDENTIAL_MANAGE),
+    ("GET", "/api/v1/projects/{project_id}/access/surfaces"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/projects/{project_id}/access/surfaces"): _human(ProjectAction.ACCESS_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/access/surfaces/enable-target"): _human(ProjectAction.ACCESS_MANAGE),
+    ("PATCH", "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}"): _human(ProjectAction.ACCESS_MANAGE),
+    ("DELETE", "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}"): _human(ProjectAction.ACCESS_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}/activate-agent"): _human(ProjectAction.AGENT_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}/pause"): _human(ProjectAction.ACCESS_MANAGE),
+    ("POST", "/api/v1/projects/{project_id}/access/surfaces/{access_surface_id}/resume"): _human(ProjectAction.ACCESS_MANAGE),
+
 })
 
 for _method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
@@ -340,6 +318,23 @@ for _method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
     PROJECT_ROUTE_AUTHORIZATION[(_method, "/api/v1/mcp/proxy/{path:path}")] = _runtime(
         "mcp.invoke"
     )
+
+PROJECT_ROUTE_AUTHORIZATION.update({
+    **{("GET", f"/api/v1/projects/{{project_id}}/synchronize/github/{suffix}"):
+       _human(ProjectAction.ACCESS_READ) for suffix in ("binding", "repos", "branches", "logs")},
+    **{(method, "/api/v1/projects/{project_id}/synchronize/github/binding"):
+       _human(ProjectAction.SYNCHRONIZE_MANAGE) for method in ("POST", "PATCH", "DELETE")},
+    **{("POST", f"/api/v1/projects/{{project_id}}/synchronize/github/{suffix}"):
+       _human(ProjectAction.SYNCHRONIZE_MANAGE) for suffix in ("pull", "push")},
+    ("POST", "/api/v1/synchronize/github/webhook"): _runtime("synchronize.github.webhook"),
+    ("POST", "/api/v1/imports/database/sources"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
+    ("GET", "/api/v1/imports/database/sources"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/imports/database/sources/{import_database_source_id}"): _human(ProjectAction.ACCESS_READ),
+    ("DELETE", "/api/v1/imports/database/sources/{import_database_source_id}"): _human(ProjectAction.IMPORT_SOURCE_MANAGE),
+    ("GET", "/api/v1/imports/database/sources/{import_database_source_id}/tables"): _human(ProjectAction.ACCESS_READ),
+    ("GET", "/api/v1/imports/database/sources/{import_database_source_id}/tables/{table_name}/preview"): _human(ProjectAction.ACCESS_READ),
+    ("POST", "/api/v1/imports/database/sources/{import_database_source_id}/save"): _human(ProjectAction.CONTENT_WRITE),
+})
 
 # Compatibility name for call sites that only consume Human action mappings.
 PROJECT_ROUTE_ACTIONS = {

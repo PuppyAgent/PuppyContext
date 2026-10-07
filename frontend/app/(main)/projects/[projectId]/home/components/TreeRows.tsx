@@ -1,7 +1,7 @@
 import React from 'react';
 import type { useWorkspaceRouter as useRouter } from '@/features/workspace/navigation';
 import { T } from '../lib/tokens';
-import type { TreeNode, DashboardConnection } from '../lib/types';
+import type { TreeNode, DashboardEntrypoint } from '../lib/types';
 import { FileIcon } from './FileIcon';
 
 // Recursive file tree.  Two visual layers, kept in strict separation so
@@ -57,7 +57,7 @@ export function TreeRows({
   depth: number;
   projectId: string;
   router: ReturnType<typeof useRouter>;
-  accessByPath: Map<string, DashboardConnection[]>;
+  accessByPath: Map<string, DashboardEntrypoint[]>;
   highlightedPaths: Set<string> | null;
   // Depth of the hovered AP's scope-root row.  -1 means "whole tree
   // scope" (root access surface) — band starts flush at row x=0.

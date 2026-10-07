@@ -24,22 +24,20 @@ import { useSessionValue } from '@/features/workspace/session';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import {
-  deleteConnector,
-  isAccessSurfaceConnector,
-  listConnectors,
+  deleteAccessSurface,
+  isAccessSurface,
+  listAccessSurfaces,
   listScopes,
-  pauseConnector,
+  pauseAccessSurface,
   projectRootRepositoryView,
   repositoryScopeView,
   repositoryTargetKey,
   repositoryViewKey,
-  resumeConnector,
-  updateConnector,
-  type Connector,
-  type ConnectorStatus,
+  resumeAccessSurface,
+  updateAccessSurface,
+  type AccessSurface,
   type RepositoryView,
 } from '@/lib/repoApi';
-import { listMcpEndpoints, type McpEndpoint } from '@/lib/mcpEndpointsApi';
 import {
   getAccessProviderSortRank,
   isAgentProvider,
@@ -68,10 +66,10 @@ export interface UseAccessDataResult {
   noScopes: boolean;
   allScopes: RepositoryView[];
   sortedScopes: RepositoryView[];
-  connectorsByTarget: Map<string, Connector[]>;
+  connectorsByTarget: Map<string, AccessSurface[]>;
   selectedScope: RepositoryView | undefined;
-  selectedConnectors: Connector[];
-  representativeConnector: Connector | undefined;
+  selectedConnectors: AccessSurface[];
+  representativeConnector: AccessSurface | undefined;
   pendingConnectorIds: ReadonlySet<string>;
   setSelectedTargetKey: (key: string) => void;
   handlePauseResume: (connectorId: string) => Promise<void>;
@@ -97,33 +95,19 @@ export function useAccessData(projectId: string): UseAccessDataResult {
   );
   const { data: connectors, error: connectorsError, mutate: mutateConnectors } = useSWR(
     projectId ? ['repo-connectors', projectId] : null,
-    () => listConnectors(projectId),
-    { refreshInterval: 30000, revalidateOnFocus: false, dedupingInterval: 60000 },
-  );
-  const { data: mcpEndpoints, mutate: mutateMcpEndpoints } = useSWR(
-    projectId ? ['mcp-endpoints', projectId] : null,
-    () => listMcpEndpoints(projectId),
+    () => listAccessSurfaces(projectId),
     { refreshInterval: 30000, revalidateOnFocus: false, dedupingInterval: 60000 },
   );
 
   const [selectedTargetKey, setSelectedTargetKey] = useSessionValue('accessTarget');
   const [pendingConnectorIds, setPendingConnectorIds] = useState<ReadonlySet<string>>(() => new Set());
 
-  const accessConnectors = useMemo(() => {
-    const rows = (connectors ?? []).filter(isAccessSurfaceConnector);
-    const byId = new Map(rows.map((connector) => [connector.id, connector]));
-    const scopeByPath = new Map(
-      (scopes ?? []).map((scope) => [normalizeScopePath(scope.path), repositoryScopeView(scope)]),
-    );
-    for (const endpoint of mcpEndpoints ?? []) {
-      if (byId.has(endpoint.id)) continue;
-      const path = normalizeScopePath(endpoint.path ?? endpoint.accesses?.[0]?.path ?? '');
-      const scope = scopeByPath.get(path);
-      if (!scope) continue;
-      byId.set(endpoint.id, mcpEndpointToConnector(endpoint, scope));
-    }
-    return Array.from(byId.values());
-  }, [connectors, mcpEndpoints, scopes]);
+  // Management rows and targets come only from persisted Access resources.
+  // Adapter inventories must not fabricate target ownership by matching paths.
+  const accessConnectors = useMemo(
+    () => (connectors ?? []).filter(isAccessSurface),
+    [connectors],
+  );
 
   // Bucket connectors by explicit repository target; inside each bucket sort built-ins
   // (cli, agent) first, then by created_at.
@@ -137,17 +121,17 @@ export function useAccessData(projectId: string): UseAccessDataResult {
   // delete) keeps the same shape — there are simply no agent rows
   // to surface while the feature is hidden.
   const connectorsByTarget = useMemo(() => {
-    const m = new Map<string, Connector[]>();
+    const m = new Map<string, AccessSurface[]>();
     accessConnectors.forEach((c) => {
-      if (!AI_AGENT_ENABLED && isAgentProvider(c.provider)) return;
+      if (!AI_AGENT_ENABLED && isAgentProvider(c.kind)) return;
       const key = repositoryTargetKey(c.target);
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(c);
     });
     for (const list of m.values()) {
       list.sort((a, b) => {
-        const order = (c: Connector) => getAccessProviderSortRank(c.provider);
-        return order(a) - order(b) || a.created_at.localeCompare(b.created_at);
+        const order = (c: AccessSurface) => getAccessProviderSortRank(c.kind);
+        return order(a) - order(b) || (a.created_at ?? '').localeCompare(b.created_at ?? '');
       });
     }
     return m;
@@ -226,23 +210,23 @@ export function useAccessData(projectId: string): UseAccessDataResult {
         if (!target) return;
         const isActive = target.status === 'active' || target.status === 'syncing';
         if (isActive) {
-          await pauseConnector(projectId, connectorId);
+          await pauseAccessSurface(projectId, connectorId);
         } else {
-          await resumeConnector(projectId, connectorId);
+          await resumeAccessSurface(projectId, connectorId);
         }
-        await Promise.all([mutateConnectors(), mutateMcpEndpoints()]);
+        await mutateConnectors();
       } catch (err) {
-        console.error('Failed to toggle connector status:', err);
+        console.error('Failed to toggle Access surface status:', err);
       }
     });
-  }, [accessConnectors, projectId, mutateConnectors, mutateMcpEndpoints, withPending]);
+  }, [accessConnectors, projectId, mutateConnectors, withPending]);
 
   const handleUpdate = useCallback(
     async (connectorId: string, patch: ConnectorEditPatch) => {
       await withPending(connectorId, async () => {
         try {
-          await updateConnector(projectId, connectorId, patch);
-          await Promise.all([mutateConnectors(), mutateMcpEndpoints()]);
+          await updateAccessSurface(projectId, connectorId, patch);
+          await mutateConnectors();
         } catch (err) {
           console.error('Failed to update connector:', err);
           // Re-throw so the caller (inline edit input) can surface a
@@ -251,22 +235,22 @@ export function useAccessData(projectId: string): UseAccessDataResult {
         }
       });
     },
-    [projectId, mutateConnectors, mutateMcpEndpoints, withPending],
+    [projectId, mutateConnectors, withPending],
   );
 
   const handleDelete = useCallback(
     async (connectorId: string) => {
       await withPending(connectorId, async () => {
         try {
-          await deleteConnector(projectId, connectorId);
-          await Promise.all([mutateConnectors(), mutateMcpEndpoints()]);
+          await deleteAccessSurface(projectId, connectorId);
+          await mutateConnectors();
         } catch (err) {
           console.error('Failed to delete connector:', err);
           throw err;
         }
       });
     },
-    [projectId, mutateConnectors, mutateMcpEndpoints, withPending],
+    [projectId, mutateConnectors, withPending],
   );
 
   const loadError = asError(scopesError) ?? asError(connectorsError);
@@ -278,8 +262,8 @@ export function useAccessData(projectId: string): UseAccessDataResult {
   // `repo-scopes`, but a delete cascades to connectors so we always
   // refresh both. Single function keeps the call-site contract small.
   const refresh = useCallback(async () => {
-    await Promise.all([mutateScopes(), mutateConnectors(), mutateMcpEndpoints()]);
-  }, [mutateScopes, mutateConnectors, mutateMcpEndpoints]);
+    await Promise.all([mutateScopes(), mutateConnectors()]);
+  }, [mutateScopes, mutateConnectors]);
 
   // After the active scope is deleted from the inline settings block,
   // null the selection — the auto-select-first effect picks up an
@@ -313,43 +297,4 @@ function asError(value: unknown): Error | undefined {
   if (value instanceof Error) return value;
   if (value == null) return undefined;
   return new Error('Could not load access data.');
-}
-
-function normalizeScopePath(path: string | null | undefined): string {
-  return (path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
-}
-
-function normalizeConnectorStatus(status: string): ConnectorStatus {
-  if (status === 'active' || status === 'paused' || status === 'syncing' || status === 'error') {
-    return status;
-  }
-  return 'active';
-}
-
-function mcpEndpointToConnector(endpoint: McpEndpoint, scope: RepositoryView): Connector {
-  return {
-    id: endpoint.id,
-    target: scope.target,
-    provider: 'mcp',
-    name: endpoint.name || 'MCP Server',
-    direction: 'bidirectional',
-    config: {
-      ...endpoint.config,
-      api_key: endpoint.api_key,
-      api_key_hint: endpoint.api_key_hint,
-      api_key_revealed: endpoint.api_key_revealed,
-      tools_config: endpoint.tools_config,
-      accesses: endpoint.accesses,
-      source: 'mcp_endpoint',
-    },
-    oauth_connection_id: null,
-    trigger: { type: 'manual' },
-    status: normalizeConnectorStatus(endpoint.status),
-    last_run_at: null,
-    last_run_id: null,
-    error_message: null,
-    created_by: null,
-    created_at: endpoint.created_at,
-    updated_at: endpoint.updated_at,
-  };
 }

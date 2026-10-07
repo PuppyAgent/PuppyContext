@@ -1,0 +1,11 @@
+# Design
+
+Business operations own bounded database contracts. Queries compose canonical authorization facts without interpreting roles; AuthorizationService evaluates the supplied snapshot. Actor, Project and Agent identities remain explicit. Context contains project and organization revision tokens. Database triggers advance revisions for membership, visibility/lifecycle, Agent configuration, tool bindings and tool definitions. Mutations lock revision rows and compare tokens in their transaction. Conservative invalidation is fail-closed; unrelated changes in the same Project/organization can require resubmission.
+
+A renewal reads the execution fence, stop/deadline and two small revision rows and renews its lease in one transaction. It never reconstructs AgentConfigService or runs full admission. Protected tool/model boundaries also renew; publication retains canonical actor and ref CAS checks plus the revision guard. Immutable Git object reads remain under pinned native snapshots.
+
+Text is buffered with bounded time/size and written in order; checkpoints/tool barriers/terminal flush before acknowledgement. Read views combine run, tools and cursor events under one database snapshot. Backend-only SQL is unavailable to anonymous/authenticated roles. Existing public DTOs and saved Agent records remain unchanged.
+
+Transport instrumentation counts real attempts including errors, records elapsed time and maximum concurrent requests, and propagates run/stage context across asyncio.to_thread. Tests distinguish fixed control operations, duration-driven renewal/batches, native storage and model/provider latency. Architecture tests prevent bypass of typed ports. Schema migration is additive, historical migration bytes remain unchanged; hosted deployment is separately evidenced.
+
+Desktop keeps an idle SSE connection through keepalives (10-second bounded batch, 15-second outer request timeout). History uses a project/Agent-scoped view over existing chat_sessions rather than the old per-session configuration loop. Cross-repository acceptance measures aggregate traffic including dispatcher and history, not only worker operations. The actual hosted deployment/native inventory transition remains outside local verification.

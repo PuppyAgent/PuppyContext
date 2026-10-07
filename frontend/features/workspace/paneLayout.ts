@@ -43,90 +43,196 @@ export const DEFAULT_WORKSPACE_INPUT: WorkspaceLayoutInput = {
 const size = (value: number) => Number.isFinite(value) ? Math.max(0, value) : 0;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(size(value), min), Math.max(min, max));
 
-export function resolveWorkspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
-  const width = size(input.availableWidth);
-  const mainMin = size(input.mainMinWidth);
-  const p = input.projects;
-  const f = input.files;
-  const a = input.auxiliary;
-  const i = input.inspector;
-  const auxiliaryOpen = a.present && a.open;
-  const inspectorOpen = i.present && i.open;
-  const projectPreferred = p.collapsed ? p.collapsedWidth : clamp(p.preferredWidth, p.minWidth, p.maxWidth);
-  const filesPreferred = clamp(f.preferredWidth, f.minWidth, f.maxWidth);
-  const auxiliaryPreferred = clamp(a.preferredWidth, a.minWidth, a.maxWidth);
-  const inspectorPreferred = clamp(i.preferredWidth, i.minWidth, i.maxWidth);
-  const segments = auxiliaryOpen && input.segments && input.segments.first > 0 && input.segments.second > 0
-    ? input.segments : null;
-  const horizontal = segments?.orientation === 'horizontal';
-  const vertical = segments?.orientation === 'vertical';
-  let projectsDocked = p.present && !segments;
-  let filesDocked = f.present;
-  let auxiliaryDocked = auxiliaryOpen;
-  let inspectorDocked = inspectorOpen;
-  const budget = horizontal ? segments.first : width;
-  const reservedAuxiliary = () => auxiliaryDocked && !segments ? a.minWidth : 0;
-  const reservedInspector = () => inspectorDocked ? i.minWidth : 0;
-  const minimum = () => mainMin + (projectsDocked ? projectPreferred : 0)
-    + (filesDocked ? f.minWidth : 0) + reservedAuxiliary() + reservedInspector();
+type PaneWidths = Record<'projects' | 'files' | 'auxiliary' | 'inspector', number>;
+type DockedPanes = Record<keyof PaneWidths, boolean>;
+type LayoutGeometry = {
+  width: number;
+  mainMin: number;
+  budget: number;
+  segments: WorkspaceSegments | null;
+};
+
+function activeSegments(input: WorkspaceLayoutInput): WorkspaceSegments | null {
+  if (!input.auxiliary.present || !input.auxiliary.open) return null;
+  const segments = input.segments;
+  if (segments && segments.first > 0 && segments.second > 0) return segments;
+  return null;
+}
+
+function preferredPaneWidths(input: WorkspaceLayoutInput): PaneWidths {
+  const { projects, files, auxiliary, inspector } = input;
+  return {
+    projects: projects.collapsed ? projects.collapsedWidth : clamp(projects.preferredWidth, projects.minWidth, projects.maxWidth),
+    files: clamp(files.preferredWidth, files.minWidth, files.maxWidth),
+    auxiliary: clamp(auxiliary.preferredWidth, auxiliary.minWidth, auxiliary.maxWidth),
+    inspector: clamp(inspector.preferredWidth, inspector.minWidth, inspector.maxWidth),
+  };
+}
+
+function reservedPaneWidths(
+  input: WorkspaceLayoutInput,
+  preferred: PaneWidths,
+  docked: DockedPanes,
+  segments: WorkspaceSegments | null,
+): PaneWidths {
+  return {
+    projects: docked.projects ? preferred.projects : 0,
+    files: docked.files ? input.files.minWidth : 0,
+    auxiliary: docked.auxiliary && !segments ? input.auxiliary.minWidth : 0,
+    inspector: docked.inspector ? input.inspector.minWidth : 0,
+  };
+}
+
+function resolveDockedPanes(
+  input: WorkspaceLayoutInput,
+  preferred: PaneWidths,
+  geometry: LayoutGeometry,
+): DockedPanes {
+  const { budget, mainMin, segments } = geometry;
+  const docked = {
+    projects: input.projects.present && !segments,
+    files: input.files.present,
+    auxiliary: input.auxiliary.present && input.auxiliary.open,
+    inspector: input.inspector.present && input.inspector.open,
+  };
+  const minimum = () => {
+    const reserved = reservedPaneWidths(input, preferred, docked, segments);
+    return mainMin + reserved.projects + reserved.files + reserved.auxiliary + reserved.inspector;
+  };
 
   // Presentations change only when all docked minima cannot fit. Projects
   // yield before Files; the document/Agent pair is retained as long as usable.
-  if (minimum() > budget) projectsDocked = false;
-  if (minimum() > budget) filesDocked = false;
-  if (minimum() > budget) inspectorDocked = false;
-  if (minimum() > budget && !segments) auxiliaryDocked = false;
+  if (minimum() > budget) docked.projects = false;
+  if (minimum() > budget) docked.files = false;
+  if (minimum() > budget) docked.inspector = false;
+  if (minimum() > budget && !segments) docked.auxiliary = false;
+  return docked;
+}
 
-  const projectWidth = projectsDocked ? projectPreferred : 0;
-  let filesWidth = filesDocked ? filesPreferred : 0;
-  let auxiliaryWidth = auxiliaryDocked && !segments ? auxiliaryPreferred : 0;
-  let inspectorWidth = inspectorDocked ? inspectorPreferred : 0;
-  let deficit = Math.max(0, mainMin - (budget - projectWidth - filesWidth - auxiliaryWidth - inspectorWidth));
-  if (auxiliaryDocked && !segments) {
-    const reclaimed = Math.min(deficit, auxiliaryWidth - a.minWidth);
-    auxiliaryWidth -= reclaimed;
+function allocatePaneWidths(
+  input: WorkspaceLayoutInput,
+  preferred: PaneWidths,
+  docked: DockedPanes,
+  geometry: LayoutGeometry,
+): PaneWidths {
+  const { budget, mainMin, segments } = geometry;
+  const widths = {
+    projects: docked.projects ? preferred.projects : 0,
+    files: docked.files ? preferred.files : 0,
+    auxiliary: docked.auxiliary && !segments ? preferred.auxiliary : 0,
+    inspector: docked.inspector ? preferred.inspector : 0,
+  };
+  let deficit = Math.max(0, mainMin - (budget - widths.projects - widths.files - widths.auxiliary - widths.inspector));
+  // Reclaim preferred space in the same order, without changing stored intent.
+  if (docked.auxiliary && !segments) {
+    const reclaimed = Math.min(deficit, widths.auxiliary - input.auxiliary.minWidth);
+    widths.auxiliary -= reclaimed;
     deficit -= reclaimed;
   }
-  if (inspectorDocked) {
-    const reclaimed = Math.min(deficit, inspectorWidth - i.minWidth);
-    inspectorWidth -= reclaimed;
+  if (docked.inspector) {
+    const reclaimed = Math.min(deficit, widths.inspector - input.inspector.minWidth);
+    widths.inspector -= reclaimed;
     deficit -= reclaimed;
   }
-  if (filesDocked) filesWidth -= Math.min(deficit, filesWidth - f.minWidth);
+  if (docked.files) widths.files -= Math.min(deficit, widths.files - input.files.minWidth);
+  return widths;
+}
 
-  const projectBodyWidth = Math.max(0, budget - projectWidth - auxiliaryWidth - inspectorWidth);
-  const mainWidth = Math.max(0, projectBodyWidth - filesWidth);
-  // Closed regions still need a useful retained content width, but reserve 0.
-  const auxiliaryOverlay = !segments && (auxiliaryOpen ? !auxiliaryDocked : width < mainMin + a.minWidth);
-  const auxiliaryRendered = horizontal ? segments.second : vertical ? width
-    : auxiliaryOverlay ? Math.max(0, Math.min(420, width - 32))
-    : auxiliaryOpen ? auxiliaryWidth : auxiliaryPreferred;
+function resolveNavigationPane(
+  present: boolean,
+  docked: boolean,
+  width: number,
+  overlayWidth: number,
+  resizeMax: number,
+): ResolvedPane {
+  if (!present) return { presentation: 'absent', width: 0, resizeMax };
+  if (docked) return { presentation: 'docked', width, resizeMax };
+  return { presentation: 'overlay', width: overlayWidth, resizeMax };
+}
+
+function auxiliaryRenderedWidth(
+  geometry: LayoutGeometry,
+  overlay: boolean,
+  open: boolean,
+  allocated: number,
+  preferred: number,
+): number {
+  const { segments, width } = geometry;
+  if (segments?.orientation === 'horizontal') return segments.second;
+  if (segments?.orientation === 'vertical') return width;
+  if (overlay) return Math.max(0, Math.min(420, width - 32));
+  // Closed regions retain a useful content width without reserving any space.
+  return open ? allocated : preferred;
+}
+
+function inspectorRenderedWidth(
+  open: boolean,
+  docked: boolean,
+  allocated: number,
+  preferred: number,
+  overlayWidth: number,
+): number {
+  if (!open) return preferred;
+  return docked ? allocated : overlayWidth;
+}
+
+function resolveOverlayOwner(
+  auxiliaryOpen: boolean,
+  auxiliaryOverlay: boolean,
+  inspectorOpen: boolean,
+  inspectorDocked: boolean,
+): WorkspaceLayout['overlayOwner'] {
+  if (auxiliaryOpen && auxiliaryOverlay) return 'auxiliary';
+  if (inspectorOpen && !inspectorDocked) return 'inspector';
+  return null;
+}
+
+export function resolveWorkspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
+  const width = size(input.availableWidth);
+  const mainMin = size(input.mainMinWidth);
+  const { projects, files, auxiliary, inspector } = input;
+  const auxiliaryOpen = auxiliary.present && auxiliary.open;
+  const inspectorOpen = inspector.present && inspector.open;
+  const segments = activeSegments(input);
+  const budget = segments?.orientation === 'horizontal' ? segments.first : width;
+  const geometry = { width, mainMin, budget, segments };
+  const preferred = preferredPaneWidths(input);
+  const docked = resolveDockedPanes(input, preferred, geometry);
+  const widths = allocatePaneWidths(input, preferred, docked, geometry);
+  const reserved = reservedPaneWidths(input, preferred, docked, segments);
+  const projectBodyWidth = Math.max(0, budget - widths.projects - widths.auxiliary - widths.inspector);
+  const auxiliaryOverlay = !segments && (auxiliaryOpen ? !docked.auxiliary : width < mainMin + auxiliary.minWidth);
 
   return {
     availableWidth: width,
-    mainWidth,
-    projects: {
-      presentation: !p.present ? 'absent' : projectsDocked ? 'docked' : 'overlay',
-      width: !p.present ? 0 : projectsDocked ? projectWidth : Math.max(0, Math.min(360, width - 40)),
-      resizeMax: clamp(width - mainMin - (filesDocked ? f.minWidth : 0) - reservedAuxiliary() - reservedInspector(), p.minWidth, p.maxWidth),
-    },
-    files: {
-      presentation: !f.present ? 'absent' : filesDocked ? 'docked' : 'overlay',
-      width: !f.present ? 0 : filesDocked ? filesWidth : Math.max(0, Math.min(360, projectBodyWidth - 40)),
-      resizeMax: clamp(budget - projectWidth - mainMin - reservedAuxiliary() - reservedInspector(), f.minWidth, f.maxWidth),
-    },
+    mainWidth: Math.max(0, projectBodyWidth - widths.files),
+    projects: resolveNavigationPane(
+      projects.present,
+      docked.projects,
+      widths.projects,
+      Math.max(0, Math.min(360, width - 40)),
+      clamp(width - mainMin - reserved.files - reserved.auxiliary - reserved.inspector, projects.minWidth, projects.maxWidth),
+    ),
+    files: resolveNavigationPane(
+      files.present,
+      docked.files,
+      widths.files,
+      Math.max(0, Math.min(360, projectBodyWidth - 40)),
+      clamp(budget - widths.projects - mainMin - reserved.auxiliary - reserved.inspector, files.minWidth, files.maxWidth),
+    ),
     auxiliary: {
       presentation: auxiliaryOverlay ? 'overlay' : 'docked',
-      width: auxiliaryRendered,
-      resizeMax: clamp(width - projectWidth - filesWidth - inspectorWidth - mainMin, a.minWidth, a.maxWidth),
+      width: auxiliaryRenderedWidth(geometry, auxiliaryOverlay, auxiliaryOpen, widths.auxiliary, preferred.auxiliary),
+      resizeMax: clamp(width - widths.projects - widths.files - widths.inspector - mainMin, auxiliary.minWidth, auxiliary.maxWidth),
     },
     inspector: {
-      presentation: inspectorOpen && !inspectorDocked ? 'overlay' : 'docked',
-      width: inspectorOpen ? inspectorDocked ? inspectorWidth : Math.max(0, budget - projectWidth - auxiliaryWidth) : inspectorPreferred,
-      resizeMax: clamp(budget - projectWidth - filesWidth - auxiliaryWidth - mainMin, i.minWidth, i.maxWidth),
+      presentation: inspectorOpen && !docked.inspector ? 'overlay' : 'docked',
+      width: inspectorRenderedWidth(inspectorOpen, docked.inspector, widths.inspector, preferred.inspector,
+        Math.max(0, budget - widths.projects - widths.auxiliary)),
+      resizeMax: clamp(budget - widths.projects - widths.files - widths.auxiliary - mainMin, inspector.minWidth, inspector.maxWidth),
     },
-    overlayOwner: auxiliaryOpen && auxiliaryOverlay ? 'auxiliary' : inspectorOpen && !inspectorDocked ? 'inspector' : null,
-    sharedHeader: !projectsDocked || auxiliaryOverlay || Boolean(segments),
+    overlayOwner: resolveOverlayOwner(auxiliaryOpen, auxiliaryOverlay, inspectorOpen, docked.inspector),
+    sharedHeader: !docked.projects || auxiliaryOverlay || Boolean(segments),
     segments,
   };
 }

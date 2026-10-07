@@ -1,0 +1,75 @@
+{
+  "paths": {
+    "removed": {
+      "/api/v1/content/{project_id}/conflicts/pending": "afceb666193e299fe3e128895818efe0dd580c2d5097e5fdecb632209283f193",
+      "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}": "9cd2263d77a41e5ed2caeebc877693aab5c1cba7a6b275e2504c0d7c2c01f475",
+      "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}/resolve": "64a3024a608f82292c46d802365df72f826f4c8ba2049afd9597a64015a66033",
+      "/api/v1/local-snapshots": "2ddd74ee0d8290f6e9d9c5c1a47f6a630eb4db2e019ca808ec65085f0c1d7c68",
+      "/api/v1/local-snapshots/{snapshot_id}": "054e66ae86feab91d84ed53f137b504902c97f7bca9da3887bc0d21a6f6fd02f",
+      "/api/v1/local-snapshots/{snapshot_id}/blobs": "88263edb7490e763a876675731a39b6375d8508092d6ce28c7eb75f369806ddb",
+      "/api/v1/local-snapshots/{snapshot_id}/promote": "039064c395b454caf9bbb6320165c69a8809bb6d2ca3d79a87e8a3d235ef40fd",
+      "/api/v1/scope-sync/activity": "d008ed7e7a432a4278f8ecc00ef0e370a2369e792355886f294bbb9fb843f1fc",
+      "/api/v1/scope-sync/ap/events": "484015a0673b1c02b0f6cff264a754993375e382fcb54d23027ca4a6eacf8a5d",
+      "/api/v1/scope-sync/events": "7b269075eff953885f96d119d81bf71f53e094d89a0160bd4e1410d8477018bf",
+      "/api/v1/scope-sync/policy": "6623735fec01e18ef15aec3414a1f2b3f8a7900475b412175bb8a30393ff8311",
+      "/api/v1/scope-sync/settings": "d8b0e596f1daffc786177365e43264bd9257476f923064f1e5691d9679dc8285",
+      "/api/v1/scope-sync/stats": "88cf04bbe75b7c70869d176f2717d178ac76275d8df7ec6a8c0c7f9521ebe499"
+    },
+    "added": {},
+    "changed": {
+      "/api/v1/ap-fs/admin/fs-index/rebuild": {
+        "before": "3a5216ee4874df5fef9804c05ca151b31e807b21a5d93d3c3e9c4c006d2de3d3",
+        "after": "2987792b5694a2445a86ba4894a2086471f1a482060aa4fe2ae526d052eab80c"
+      },
+      "/api/v1/ap-fs/admin/object-integrity": {
+        "before": "448a9358c22ffe28eb9fdf5e725ca770092de3d3cc3208d8cd02b34903b4d85b",
+        "after": "5d80d3f49508a19752262d293029d56bc2b68cabb2a6b21cb1ae00c97b883bb5"
+      },
+      "/api/v1/ap-fs/admin/text-index/rebuild": {
+        "before": "a11d2e3073e99a180adf462e3edba0eb6aecf1769f1c5d9e36199dfa80763571",
+        "after": "14107e32597a9a9bf4e1fdd9c6a62cff0c79ab03a96a1d171905623d5c4a0704"
+      }
+    }
+  },
+  "schemas": {
+    "removed": {
+      "ApiResponse_PendingConflictDetail_": "bb91f806e27e43579ce7378ecab7858f763fec26112a349420c95b5eb33b9bc0",
+      "ApiResponse_ResolveConflictResponse_": "b51111adc8033219dffdf926c69a73941cc8eef2b4c39f9c2d323d3fd5d83313",
+      "ApiResponse_UpsertShadowSnapshotResponse_": "84b25746421a17ba1277090624bcc69f264b7d62eabe95beb9a4c35093053623",
+      "ApiResponse__BlobUploadResponse_": "26fb9a4bf7e5cdb9a72b2f62b213ce406aa40912f666bc5480ab47eed257a42b",
+      "ApiResponse__PromoteResponse_": "7172bb13488dbe52e21e432751f1fa1447f3ace986ef07174722f2cb28da56e2",
+      "ApiResponse_list_PendingConflictSummary__": "1a6ba7859587f0f1ddc3c30b13387b3178fb44dcfc198ca81331dcea5bc385e9",
+      "ApiResponse_list_ShadowSnapshotResponse__": "1fa0d1df18a10dd30a7e9410833000b1d0aeb432aafc6e5227ca146d3f17b929",
+      "PendingConflictDetail": "d4a1b5135ba84ea8a676f8f5f4e89de83fdb4a49ed485b0b04a3fc83cb377209",
+      "PendingConflictSummary": "6a4aa0ed9d4cfd2b32cf2a4b45681eb36687597f968e2b62c62f1d0e57600481",
+      "ResolveConflictRequest": "14bb6386f0bf1059f8debce0fef79b6e2e6dccc788615ca64b7e1c1644c9300e",
+      "ResolveConflictResponse": "89d437111ffb5165bf4212ce1e0fef230c0040dd5d4325eaf486932dd855df22",
+      "ShadowSnapshotEntry": "c29b4e3aaa1e83f2b098828f93caf3ec54f02c3a967edb58b5c96be9238d5998",
+      "ShadowSnapshotResponse": "6095b247191320ece95e63ad2c7b1a9f998b1e007eeedba3dbf1909d4e29f0ef",
+      "SyncSettingsBody": "5a1b954e804a2fbf0c9363eac51c2b500a6aa1694e1446504658e7d7a91e3499",
+      "UpsertShadowSnapshotRequest": "0ca1ac6ecb846d10c92968aa9857a74e4b727114c12e73387f801ff997dd3188",
+      "UpsertShadowSnapshotResponse": "ee1b274219050a4d069be06c169b459b7159298b390d2ec76d8c63a8c5b00eb3",
+      "_BlobUploadEntry": "5411bf90be17d4881f44224e5f0afef73de5103c57fcc30e025e54733bf08f89",
+      "_BlobUploadRequest": "3507d77cff539bf654e9af1b45f96a2f72b557206b9eaae1710d73d41699d6d8",
+      "_BlobUploadResponse": "78154dafa71c92af14837ba8c52df6b90ec7630d7952740835f7182c5078bf73",
+      "_ObjectIntegrityRequest": "bd4fcf9cc954e7e4ea956344cbd042c0296c76fba540b7df24d3d2a1f26ee640",
+      "_PromoteRequest": "27e80ad99558ab7e1d4bbdf6a128ce4f23b917fee0b682771b4c0868a7e595f5",
+      "_PromoteResponse": "1fd887d36df417f9cb58de120772f3c7709fbc378789fbce663544bf2b8741c9"
+    },
+    "added": {},
+    "changed": {
+      "FileVersionInfo": {
+        "before": "8a40e0aa565a26e5f2e3ee44cbb7db06deb4a8554a71db148a4fe806020bb167",
+        "after": "428ffe24dbd8a26d21f420fdc6d76556fe195503dd3230f8a90fe9bd9621b012"
+      },
+      "VersionHistoryRef": {
+        "before": "06e94646fc59f461ff24088b55c892667bcc437550113ad2ccc1c5f5ea603916",
+        "after": "7754c4d6e58687feaea442c3382456bc2113d0c13e7d2a5fa46a21000b4a0ea0"
+      },
+      "VersionHistoryResponse": {
+        "before": "aac7a58149e92d9c06541ea738cce1e17fe65f4118d31883d108b3dd43b26889",
+        "after": "35a360ee4bc12787d6016c166da51eb4c5be16f5f1af9726da670e36c3f01f3b"
+      }
+    }
+  }
+}

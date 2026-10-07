@@ -9,8 +9,6 @@ All writes go through Write Engine (ProductOperationAdapter).
 Used by both CLI `puppyone init` and web onboarding.
 """
 
-
-
 GETTING_STARTED_MD = """\
 # Getting Started
 
@@ -212,7 +210,9 @@ async def seed_default_content(
     """
     from src.platform.project.write_lease import build_leased_worker_write_commands
 
-    commands = build_leased_worker_write_commands()
+    commands = build_leased_worker_write_commands(
+        project_id=project_id, user_id=created_by, operation_key=f"seed:{project_id}"
+    )
 
     files: dict[str, bytes] = {
         "Getting Started.md": GETTING_STARTED_MD.encode("utf-8"),
@@ -222,7 +222,8 @@ async def seed_default_content(
     }
 
     await commands.bulk_write(
-        project_id, files,
+        project_id,
+        files,
         actor=created_by,
         message="seed: project default content",
     )

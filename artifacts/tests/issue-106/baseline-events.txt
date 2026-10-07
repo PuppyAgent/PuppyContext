@@ -1,0 +1,35 @@
+frontend/components/TaskStatusWidget.tsx:110:    window.addEventListener('etl-tasks-updated', handleUpdate);
+frontend/components/TaskStatusWidget.tsx:111:    window.addEventListener('etl-task-progress', handleProgress);
+frontend/components/TaskStatusWidget.tsx:115:      window.removeEventListener('etl-tasks-updated', handleUpdate);
+frontend/components/TaskStatusWidget.tsx:116:      window.removeEventListener('etl-task-progress', handleProgress);
+frontend/components/TableManageDialog.tsx:209:        // ``etl-task-completed`` event listener elsewhere in the
+frontend/components/TableManageDialog.tsx:298:            // emit ``projects-refresh`` once the worker actually
+frontend/components/BackgroundTaskNotifier.tsx:114:      window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:193:                new CustomEvent('etl-task-completed', {
+frontend/components/BackgroundTaskNotifier.tsx:203:                new CustomEvent('etl-task-failed', {
+frontend/components/BackgroundTaskNotifier.tsx:225:      window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:226:      window.dispatchEvent(new CustomEvent('projects-refresh'));
+frontend/components/BackgroundTaskNotifier.tsx:235:    window.addEventListener('etl-tasks-updated', handleTasksUpdated);
+frontend/components/BackgroundTaskNotifier.tsx:237:      window.removeEventListener('etl-tasks-updated', handleTasksUpdated);
+frontend/components/BackgroundTaskNotifier.tsx:261:  // Why we ALSO listen for ``etl-tasks-updated``: the listener
+frontend/components/BackgroundTaskNotifier.tsx:290:  // ``etl-tasks-updated`` storm on long upload runs.
+frontend/components/BackgroundTaskNotifier.tsx:322:          window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:348:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:364:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:369: * ``etl-tasks-updated`` event.
+frontend/components/BackgroundTaskNotifier.tsx:372: * per second per part. Re-broadcasting ``etl-tasks-updated`` on each
+frontend/components/BackgroundTaskNotifier.tsx:375: * (``etl-task-progress``) that only the task widget listens for, so
+frontend/components/BackgroundTaskNotifier.tsx:393:      new CustomEvent('etl-task-progress', {
+frontend/components/BackgroundTaskNotifier.tsx:428:    window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:439:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:458:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:471:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:483:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/BackgroundTaskNotifier.tsx:504:  window.dispatchEvent(new CustomEvent('etl-tasks-updated'));
+frontend/components/editors/table/components/ValueRenderer.tsx:81:    window.addEventListener('etl-tasks-updated', handleTaskUpdate);
+frontend/components/editors/table/components/ValueRenderer.tsx:83:      window.removeEventListener('etl-tasks-updated', handleTaskUpdate);
+frontend/components/editors/table/components/EtlStatusRenderer.tsx:96:    window.addEventListener('etl-tasks-updated', handleTaskUpdate);
+frontend/components/editors/table/components/EtlStatusRenderer.tsx:98:      window.removeEventListener('etl-tasks-updated', handleTaskUpdate);
+frontend/features/files/FilesWorkspace.tsx:447:    window.addEventListener('etl-task-completed', handler);
+frontend/features/files/FilesWorkspace.tsx:450:      window.removeEventListener('etl-task-completed', handler);
+frontend/features/files/FilesWorkspace.tsx:669:        new CustomEvent('import-job-completed', {
