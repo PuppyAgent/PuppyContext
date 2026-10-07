@@ -28,7 +28,6 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: synthetic-memory-test-key
       NEXT_PUBLIC_API_URL: http://127.0.0.1:9
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -36,6 +35,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Use runner scratch directory
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci
       - run: npm run test:unit -- --maxWorkers=1 tests/health
       - run: npm run build:local-login
