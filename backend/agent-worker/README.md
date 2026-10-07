@@ -115,6 +115,25 @@ automatic approval. Approvals never widen the saved Project/Scope view.
 
 ## Recovery and release
 
+### Runtime measurements
+
+API and supervisor console logs use the shared JSON logger in containers
+(`LOG_JSON_CONSOLE=1` explicitly enables it). At the end of each execution,
+`cloud_agent_performance` contains `record.extra.agent_performance` with the
+Run ID, actual database HTTP attempts/failures, peak in-flight count, first
+text/total time and phase timings. At the end of each API response or SSE
+subscription, `cloud_agent_api_performance` contains the corresponding
+`record.extra.agent_api_performance` report, route template and Run ID when
+present in the route. The logging bridge preserves these two metric fields;
+arbitrary request extras and content are not copied.
+
+Keep API and supervisor counts separate when collecting a hosted baseline.
+Each peak in-flight value covers that individual trace, not the whole cluster;
+phase durations can overlap and must not be added as a total. Dispatcher idle
+polls and object-storage requests/bytes are not included in these reports.
+The isolated integration test's aggregate database trace remains a separate
+measurement, not a substitute for hosted observation.
+
 Runs, execution generations, tool receipts and bounded events live in PostgreSQL.
 Checksummed gzip objects store full Pi session entries (including compaction and
 inactive branches), the captured repository base, original Git objects/refs,

@@ -61,6 +61,7 @@ jobs:
           SANDBOX_TYPE: docker
           NO_PROXY: 127.0.0.1,localhost
         run: |
+          mkdir -p .agent-test-results
           uv run pytest tests/agent/runtime --ignore=tests/agent/runtime/test_desktop_integration.py \
             -q --junitxml=.agent-test-results/junit.xml --basetemp=.agent-test-results/cases
           node --test agent-worker/git-workspace.test.mjs

@@ -66,5 +66,7 @@ async def serve():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    from src.utils.logging_setup import setup_logging
+
+    setup_logging()
     asyncio.run(serve())

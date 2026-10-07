@@ -1,4 +1,9 @@
 import asyncio
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
@@ -71,3 +76,55 @@ async def test_streamed_api_telemetry_includes_late_database_calls(caplog):
         record for record in caplog.records if record.message == "cloud_agent_api_performance"
     )
     assert record.agent_api_performance["attempts"] == 2
+
+
+@pytest.mark.parametrize("entrypoint", ["api", "worker"])
+def test_deployed_console_retains_performance_fields(entrypoint, tmp_path):
+    """Exercise the real console formatter, beyond caplog's pre-format records."""
+    script = '''
+import asyncio
+import logging
+import runpy
+import sys
+from loguru import logger
+
+def emit():
+    key = "agent_performance" if sys.argv[1] == "worker" else "agent_api_performance"
+    logging.getLogger("cloud_agent").info("cloud_agent_performance", extra={
+        key: {"run_id": "console-proof", "attempts": 3, "max_inflight": 2,
+              "phase_seconds": {"prepare": 0.25}},
+        "authorization": "must-never-log-this",
+    })
+    logger.complete()
+
+if sys.argv[1] == "worker":
+    def no_external_services(coroutine):
+        coroutine.close()
+        emit()
+    asyncio.run = no_external_services
+    runpy.run_module("src.platform.access.adapters.agent.runtime.worker", run_name="__main__")
+else:
+    from src.utils.logging_setup import setup_logging
+    setup_logging()
+    emit()
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", script, entrypoint],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "LOG_JSON_CONSOLE": "1", "LOG_DIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    records = [
+        json.loads(line)["record"]
+        for line in result.stderr.splitlines() if line.startswith('{"text":')
+    ]
+    record = next(record for record in records if record["message"] == "cloud_agent_performance")
+    key = "agent_performance" if entrypoint == "worker" else "agent_api_performance"
+    assert record["extra"][key] == {
+        "run_id": "console-proof", "attempts": 3, "max_inflight": 2,
+        "phase_seconds": {"prepare": 0.25},
+    }
+    assert "must-never-log-this" not in result.stderr

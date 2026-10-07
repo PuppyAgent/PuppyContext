@@ -41,7 +41,15 @@ class InterceptHandler(logging.Handler):
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
+        # These reports contain bounded operation names/counts/timings, never
+        # request payloads. Preserve them across the stdlib -> Loguru bridge;
+        # arbitrary third-party LogRecord extras must not reach JSON logs.
+        metrics = {
+            key: getattr(record, key)
+            for key in ("agent_performance", "agent_api_performance")
+            if hasattr(record, key)
+        }
+        logger.bind(**metrics).opt(depth=depth, exception=record.exc_info).log(
             level, record.getMessage()
         )
 
