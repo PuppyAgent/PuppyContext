@@ -36,6 +36,13 @@ jobs:
           python-version: '3.12'
       - name: Install PostgreSQL 17 and locked dependencies
         run: |
+          # Ubuntu 24.04 ships PostgreSQL 16; use the official PGDG repository for 17.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --show-error --silent --retry 3 \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-17
           echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
