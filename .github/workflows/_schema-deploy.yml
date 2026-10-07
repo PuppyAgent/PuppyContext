@@ -79,7 +79,10 @@ jobs:
         run: python3 scripts/database_history.py adopt
 
       - name: Show pending schema plan
-        run: supabase db push --db-url "$SUPABASE_DATABASE_URL" --dry-run
+        # Parallel branches can land an older timestamp after a newer version
+        # has deployed. Include every unapplied version in both the plan and
+        # execution; applied history and SQL data/Contract guards stay intact.
+        run: supabase db push --db-url "$SUPABASE_DATABASE_URL" --include-all --dry-run
 
       - name: Check legacy credential readiness before any schema write
         run: >-
@@ -92,7 +95,7 @@ jobs:
         run: |
           set -uo pipefail
           set +e
-          supabase db push --db-url "$SUPABASE_DATABASE_URL" --yes 2>&1 | tee /tmp/schema-push.log
+          supabase db push --db-url "$SUPABASE_DATABASE_URL" --include-all --yes 2>&1 | tee /tmp/schema-push.log
           status=${PIPESTATUS[0]}
           set -e
 
