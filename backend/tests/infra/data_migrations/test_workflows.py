@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -389,18 +390,62 @@ def test_legacy_credential_readiness_is_checked_before_schema_writes() -> None:
     assert "ON_ERROR_STOP=1" in steps[guard_index]["run"]
 
 
-def test_only_historical_upgrade_harness_can_insert_missing_older_migrations() -> None:
-    schema = (WORKFLOWS / "_schema-deploy.yml").read_text()
+def test_historical_upgrade_harness_exercises_missing_older_migrations() -> None:
     upgrade_harness = (REPOSITORY / "scripts" / "test-repository-target-migration.sh").read_text()
 
     # This harness intentionally creates holes in local schema history so it can
-    # prove an existing installation upgrades correctly. Hosted deploys must keep
-    # Supabase's strict ordering guard and never normalize such history drift.
+    # prove an existing installation upgrades correctly.
     assert upgrade_harness.count("supabase migration up --local --include-all") == 3
     assert "20260717000000_project_deletion_admission_fence.sql" in upgrade_harness
     assert upgrade_harness.count("save_fence") == 4
     assert upgrade_harness.count("restore_fence") == 5
-    assert "--include-all" not in schema
+
+
+@pytest.mark.parametrize(
+    ("message", "pause", "expected_status", "expected_state"),
+    [
+        ("", "true", 0, "deployed"),
+        ("DATA_MIGRATION_REQUIRED:20261003_final_entrypoint_storage", "true", 0, "data_migration_required"),
+        ("DATA_MIGRATION_REQUIRED:20261003_final_entrypoint_storage", "false", 1, "data_migration_required"),
+        ("ENTRYPOINT_FREEZE_REQUIRED", "true", 1, None),
+        ("permission denied", "true", 1, None),
+    ],
+)
+def test_schema_catchup_preserves_data_guards_and_database_failures(
+    tmp_path, message, pause, expected_status, expected_state
+) -> None:
+    workflow = yaml.safe_load((WORKFLOWS / "_schema-deploy.yml").read_text())
+    steps = workflow["jobs"]["deploy_schema"]["steps"]
+    plan = next(step["run"] for step in steps if step.get("name") == "Show pending schema plan")
+    push = next(step["run"] for step in steps if step.get("id") == "push")
+    # Model a remote database containing a newer applied version: both plan and
+    # execution must include missing older versions, while real SQL failures
+    # still prevent a successful deployment attestation.
+    cli = tmp_path / "supabase"
+    cli.write_text('''#!/bin/bash
+case " $* " in *" --include-all "*) ;; *) exit 42 ;; esac
+case " $* " in *" --dry-run "*) exit 0 ;; esac
+if [ -n "$TEST_DATABASE_ERROR" ]; then
+  echo "$TEST_DATABASE_ERROR"
+  exit 1
+fi
+''')
+    cli.chmod(0o700)
+    output = tmp_path / "outputs"
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}",
+               SUPABASE_DATABASE_URL="postgresql://fixture.invalid/test",
+               GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+               TEST_DATABASE_ERROR=message, ALLOW_DATA_MIGRATION_PAUSE=pause)
+    assert subprocess.run(["bash", "-c", plan], env=env, capture_output=True).returncode == 0
+    # Isolate the workflow's diagnostic file from other local tests.
+    push = push.replace("/tmp/schema-push.log", str(tmp_path / "schema-push.log"))
+    result = subprocess.run(["bash", "-c", push], env=env, capture_output=True, text=True)
+    assert result.returncode == expected_status, result.stdout + result.stderr
+    recorded = output.read_text() if output.exists() else ""
+    if expected_state:
+        assert f"schema_state={expected_state}\n" in recorded
+    else:
+        assert "schema_state=deployed" not in recorded
 
 
 def test_needs_expressions_use_identifier_safe_job_ids() -> None:

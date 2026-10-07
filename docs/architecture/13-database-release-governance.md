@@ -93,6 +93,10 @@ rows or data-job completion receipts are rewritten. Missing history or schema
 B1 schema coverage; retired jobs do not run against removed tables.
 
 The protected schema workflow performs adoption before native `db push`.
+Both its dry-run plan and execution use `--include-all` so a reviewed migration
+merged from a parallel branch is applied even if its timestamp precedes an
+already-deployed version. This includes unapplied history only; it does not
+replay applied migrations, alter receipts, or bypass SQL Contract/data guards.
 Supabase's direct GitHub integration does not execute this custom admission:
 an existing branch needs the protected transition before that integration can
 resume. Fresh preview databases can apply B1 normally. This repository change
