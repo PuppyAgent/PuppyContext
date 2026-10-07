@@ -146,6 +146,19 @@ upgrade mechanism.
 
 ## Release orchestration
 
+Ordinary application releases are not whole-database historical audits. Their
+acceptance scope is schema compatibility, synthetic regression fixtures and a
+bounded set of real project flows. Unrelated historical corruption belongs to
+separate repair work and must not become an implicit CI/CD dependency.
+
+Native adoption can use an explicit project selection with its own immutable
+receipt. The [Qubits Agent rollout](../../supabase/data_migrations/20261008_qubits_agent_project/README.md)
+keeps selected full history and sibling data intact, while using the existing
+current-tree reconciliation once for a correct organization usage baseline.
+Global archival and destructive Contract retain their own full-inventory gates;
+they are not part of this bounded rollout. An unselected project is not thereby
+declared native-ready, and no legacy runtime fallback is introduced.
+
 The entire staging/production release and manual data dispatch share an outer
 `database-release-<environment>` concurrency group. Runs and pending releases
 are not cancelled (`queue: max`); reusable steps retain their separate

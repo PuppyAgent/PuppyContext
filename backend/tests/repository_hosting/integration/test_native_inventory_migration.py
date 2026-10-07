@@ -53,6 +53,12 @@ spec = importlib.util.spec_from_file_location("immutable_native_migration", ARTI
 migration = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(migration)
 
+rollout_spec = importlib.util.spec_from_file_location(
+    "scoped_native_rollout", ROOT / "supabase/data_migrations/20261008_qubits_agent_project/run.py"
+)
+rollout = importlib.util.module_from_spec(rollout_spec)
+rollout_spec.loader.exec_module(rollout)
+
 
 def fixture(pg):
     project = pg.create_project()
@@ -720,3 +726,63 @@ def test_native_inventory_raw_history_sequence_and_changed_source():
             )
             == "shadow"
         )
+
+
+def scoped_fixture(pg, s3, tmp_path):
+    a = fixture(pg)
+    git = Git.init(tmp_path / 'selected')
+    git.commit({'current.txt': b'current'})
+    git.commit({'next.txt': b'next'})
+    head, _ = upload_git(a, s3, git)
+    sibling = 'unselected-' + uuid.uuid4().hex
+    pg.sql('BEGIN; INSERT INTO public.projects(id,name,org_id,created_by,lifecycle_status,version_root_hash) VALUES('
+           + ','.join(map(literal, (sibling, 'Historical repair deferred', a.org, a.user, 'ready', migration.EMPTY))) + ');'
+           'INSERT INTO public.project_members(id,org_id,project_id,user_id,role,granted_by) VALUES('
+           + ','.join(map(literal, ('member-' + sibling, a.org, sibling, a.user, 'admin', a.user))) + ');'
+           'INSERT INTO public.version_commits(project_id,root_hash,who,message,commit_id) VALUES('
+           + ','.join(map(literal, (sibling, 'f' * 40, 'fixture', 'missing historical graph', 'e' * 40))) + '); COMMIT;')
+    return a, head, sibling
+
+
+def test_scoped_rollout_preserves_bad_sibling_history_and_is_idempotent(tmp_path):
+    pg = Postgres()
+    with owned_s3() as (s3, _):
+        a, head, sibling = scoped_fixture(pg, s3, tmp_path)
+        before = pg.value('SELECT public._native_migration_source(' + literal(sibling) + ');')
+        db = migration.Database(pg.url)
+        rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        assert pg.value('SELECT target_oid FROM public.version_repository_refs WHERE project_id='
+                        + literal(a.project) + " AND name=convert_to('refs/heads/main','UTF8');") == head
+        assert pg.value('SELECT public._native_migration_source(' + literal(sibling) + ');') == before
+        assert pg.value('SELECT count(*) FROM public.version_repositories WHERE project_id=' + literal(sibling)) == '0'
+        assert pg.value('SELECT value FROM public.organization_usage_counters WHERE org_id='
+                        + literal(a.org) + " AND metric='storage.logical_bytes'") == '11'
+        # No new inventory/reconciliation when the same selection is retried.
+        captures = pg.value('SELECT count(*) FROM public.version_storage_reconciliations WHERE org_id=' + literal(a.org))
+        rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        assert pg.value('SELECT count(*) FROM public.version_storage_reconciliations WHERE org_id=' + literal(a.org)) == captures
+        assert pg.value("SELECT has_function_privilege('service_role',"
+                        "'public.activate_prepared_native_repository_projects(text,text[],uuid)','EXECUTE')") == 'f'
+
+
+def test_scoped_rollout_rejects_current_snapshot_drift_and_then_resumes(tmp_path):
+    pg = Postgres()
+    with owned_s3() as (s3, _):
+        a, _, sibling = scoped_fixture(pg, s3, tmp_path)
+        db = migration.Database(pg.url)
+        original_sql = db.sql
+        def drift(statement):
+            if 'activate_prepared_native_repository_projects' in statement:
+                pg.sql('UPDATE public.projects SET version_root_hash=' + literal('d' * 40)
+                       + ' WHERE id=' + literal(sibling))
+            return original_sql(statement)
+        db.sql = drift
+        with pytest.raises(RuntimeError, match='storage_reconciliation_snapshot_changed'):
+            rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        assert pg.value('SELECT authority FROM public.version_repositories WHERE project_id=' + literal(a.project)) == 'shadow'
+        assert pg.value('SELECT count(*) FROM public.organization_usage_counters WHERE org_id=' + literal(a.org)) == '0'
+        assert pg.value('SELECT count(*) FROM public.version_repository_refs WHERE project_id=' + literal(a.project)) == '0'
+        db.sql = original_sql
+        pg.sql('UPDATE public.projects SET version_root_hash=' + literal(migration.EMPTY) + ' WHERE id=' + literal(sibling))
+        rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        assert pg.value('SELECT authority FROM public.version_repositories WHERE project_id=' + literal(a.project)) == 'native'

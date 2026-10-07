@@ -4,6 +4,7 @@ import importlib
 import json
 from pathlib import Path
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -48,3 +49,31 @@ def test_runner_dependency_export_uses_the_backend_lock(monkeypatch):
     assert {"pydantic", "pydantic-core", "pyyaml"} <= names
     assert "fastapi" not in names
     assert all("--hash=sha256:" in line for line in output.splitlines())
+
+
+def test_installer_completes_declared_data_gate_before_retrying_schema(installer, monkeypatch):
+    runner = Mock()
+    monkeypatch.setattr(installer, "DataMigrationRunner", Mock(return_value=runner))
+    process = Mock(side_effect=[
+        SimpleNamespace(returncode=1, stdout="", stderr="DATA_MIGRATION_REQUIRED:20260927_entrypoint_storage_backfill"),
+        SimpleNamespace(returncode=0, stdout="", stderr=""),
+    ])
+    monkeypatch.setattr(installer.subprocess, "run", process)
+    installer.push_schema(ROOT, Mock(), "postgresql://postgres@db/postgres", "test-only")
+    assert runner.method_calls == [
+        ("run", ("20260927_entrypoint_storage_backfill",), {}),
+        ("verify", ("20260927_entrypoint_storage_backfill",), {}),
+    ]
+    assert process.call_count == 2
+
+
+@pytest.mark.parametrize("failure", ["connection failed", "DATA_MIGRATION_REQUIRED:unknown_artifact"])
+def test_installer_never_runs_data_for_an_unapproved_failure(installer, monkeypatch, failure):
+    runner = Mock()
+    monkeypatch.setattr(installer, "DataMigrationRunner", Mock(return_value=runner))
+    monkeypatch.setattr(installer.subprocess, "run", Mock(return_value=SimpleNamespace(
+        returncode=1, stdout="", stderr=failure,
+    )))
+    with pytest.raises(RuntimeError, match="outside an approved data gate"):
+        installer.push_schema(ROOT, Mock(), "postgresql://postgres@db/postgres", "test-only")
+    assert runner.method_calls == []
