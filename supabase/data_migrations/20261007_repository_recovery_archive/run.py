@@ -28,6 +28,15 @@ MAX_GRAPH = 256 * 1024**2
 KINDS = {"commit": 1, "tree": 2, "blob": 3, "tag": 4}
 
 
+def missing_object(error):
+    """Supabase can return an empty S3 error envelope with HTTP 404."""
+    code = error.response.get("Error", {}).get("Code")
+    return code in {"NoSuchKey", "404", "NotFound"} or (
+        code in (None, "")
+        and error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    )
+
+
 def quoted(value):
     if value is None:
         return "NULL"
@@ -207,11 +216,7 @@ class ObjectConverter:
         try:
             response = self.s3.get_object(**args)
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in {
-                "NoSuchKey",
-                "404",
-                "NotFound",
-            }:
+            if missing_object(exc):
                 return None
             raise
         stream = response["Body"]
@@ -616,7 +621,7 @@ class RecoveryArchive:
         try:
             self.s3.head_object(Bucket=self.bucket, Key=destination)
         except ClientError as exc:
-            if exc.response["Error"]["Code"] not in {"404", "NoSuchKey", "NotFound"}:
+            if not missing_object(exc):
                 raise
             self.s3.copy_object(
                 Bucket=self.bucket,

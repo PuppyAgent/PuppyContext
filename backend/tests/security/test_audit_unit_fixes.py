@@ -282,39 +282,3 @@ class TestGitViewCacheInvalidation:
         view_cache.invalidate_git_view_cache(self._key())
 
         assert not cache_dir.exists()
-
-    def test_first_transport_rebuild_rewarms_without_a_prior_cache(
-        self, tmp_path, monkeypatch
-    ):
-        """The admin repair endpoint must work before a cache exists."""
-        from types import SimpleNamespace
-
-        from src.version_engine.adapters.git import view_cache
-        from src.version_engine.derived import git_transport_cache
-
-        root = tmp_path / "cache"
-        monkeypatch.setattr(view_cache, "git_view_cache_root", lambda: root)
-        calls = []
-
-        def fake_warm(repo, scope_path, scope_excludes, **kwargs):
-            calls.append((repo, scope_path, scope_excludes, kwargs))
-            return "new-canonical-head"
-
-        monkeypatch.setattr(
-            git_transport_cache, "warm_transport_bare_repo", fake_warm
-        )
-        repo = SimpleNamespace(
-            _project_id="project-1",
-            store=SimpleNamespace(dir=tmp_path / "object-store"),
-        )
-
-        result = git_transport_cache.rebuild_git_transport_view(
-            repo,
-            scope_path="",
-            scope_excludes=[],
-            follow_history=True,
-            include_blobs=True,
-        )
-
-        assert result["head"] == "new-canonical-head"
-        assert calls == [(repo, "", [], {"follow_history": True, "include_blobs": True})]

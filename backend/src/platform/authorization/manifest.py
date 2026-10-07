@@ -67,7 +67,7 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
     # target. The credential is a data-plane principal, not a local checkout.
     ("POST", "/api/v1/projects/{project_id}/git-credentials"): _human(ProjectAction.CONTENT_READ),
 
-    # Content, History and conflict surfaces.
+    # Content and History surfaces.
     # Managed Office sessions are resource-owner operations, not project grants.
     # Engine callbacks/source reads use scoped capability verification.
     ("GET", "/api/v1/office/sessions/{session_id}"): _owner("office.session_owner"),
@@ -89,14 +89,12 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
             "commit-content": ProjectAction.HISTORY_READ,
             "commits": ProjectAction.HISTORY_READ,
             "head": ProjectAction.HISTORY_READ,
-            "conflicts/pending": ProjectAction.HISTORY_READ,
             "diff": ProjectAction.HISTORY_READ,
         }.items()
     },
     ("GET", "/api/v1/content/{project_id}/refs"): _human(ProjectAction.CONTENT_READ),
     ("PUT", "/api/v1/content/{project_id}/head"): _human(ProjectAction.PROJECT_MANAGE),
     ("GET", "/api/v1/content/{project_id}/operations/{request_key}"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}"): _human(ProjectAction.HISTORY_READ),
     ("POST", "/api/v1/content/{project_id}/download/sign"): _human(ProjectAction.CONTENT_READ),
     ("POST", "/api/v1/content/{project_id}/inline/sign"): _human(ProjectAction.CONTENT_READ),
     **{
@@ -104,7 +102,6 @@ PROJECT_ROUTE_AUTHORIZATION: dict[
         for suffix in ("bulk-write", "mkdir", "mv", "rm", "write")
     },
     ("POST", "/api/v1/content/{project_id}/rollback"): _human(ProjectAction.HISTORY_RESTORE),
-    ("POST", "/api/v1/content/{project_id}/conflicts/{pending_conflict_id}/resolve"): _human(ProjectAction.HISTORY_RESTORE),
 
     # Runtime-surface administration.
     ("GET", "/api/v1/projects/{project_id}/scopes"): _human(ProjectAction.ACCESS_READ),
@@ -218,13 +215,7 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("GET", "/api/v1/nodes/project-audit-logs"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/nodes/{path:path}/audit-logs"): _human(ProjectAction.HISTORY_READ),
 
-    # Local snapshots and remote Agent workspaces.
-    ("POST", "/api/v1/local-snapshots"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/local-snapshots"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/local-snapshots/{snapshot_id}"): _human(ProjectAction.CONTENT_READ),
-    ("DELETE", "/api/v1/local-snapshots/{snapshot_id}"): _human(ProjectAction.CONTENT_WRITE),
-    ("POST", "/api/v1/local-snapshots/{snapshot_id}/blobs"): _human(ProjectAction.CONTENT_WRITE),
-    ("POST", "/api/v1/local-snapshots/{snapshot_id}/promote"): _human(ProjectAction.CONTENT_WRITE),
+    # Remote Agent workspaces.
     ("POST", "/api/v1/workspace/create"): _human(ProjectAction.AGENT_RUN),
     ("POST", "/api/v1/workspace/{agent_id}/complete"): _human(ProjectAction.CONTENT_WRITE),
     ("GET", "/api/v1/workspace/{agent_id}/status"): _human(ProjectAction.AGENT_READ),
@@ -253,13 +244,6 @@ PROJECT_ROUTE_AUTHORIZATION.update({
     ("POST", "/api/v1/scope-sandboxes/connect"): _human(ProjectAction.SANDBOX_MANAGE),
     ("GET", "/api/v1/scope-sandboxes/status"): _human(ProjectAction.ACCESS_READ),
     ("POST", "/api/v1/scope-sandboxes/revoke"): _human(ProjectAction.SANDBOX_MANAGE),
-    ("GET", "/api/v1/scope-sync/policy"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/scope-sync/events"): _human(ProjectAction.CONTENT_READ),
-    ("GET", "/api/v1/scope-sync/activity"): _human(ProjectAction.HISTORY_READ),
-    ("GET", "/api/v1/scope-sync/stats"): _human(ProjectAction.HISTORY_READ),
-    ("GET", "/api/v1/scope-sync/settings"): _human(ProjectAction.CONTENT_READ),
-    ("PUT", "/api/v1/scope-sync/settings"): _human(ProjectAction.SCOPE_MANAGE),
-    ("GET", "/api/v1/scope-sync/ap/events"): _runtime("scope_sync.read"),
     ("GET", "/api/v1/analytics/access-timeseries"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/analytics/access-summary"): _human(ProjectAction.HISTORY_READ),
     ("GET", "/api/v1/activity/items"): _human(ProjectAction.HISTORY_READ),

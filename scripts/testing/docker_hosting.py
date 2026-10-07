@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -126,6 +127,7 @@ def run_tests(root, output, command, environ, cli_env, image, result):
         path.write_text(''.join(f'{key}={value}\n' for key, value in sorted(values.items())))
         path.chmod(0o600)
         run = ['docker', 'run', '--rm', '--init', '--name', name, '--label', 'puppyone.owner=issue-062',
+               '--user', f'{os.getuid()}:{os.getgid()}',
                '--network', network, '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
                '--memory=4g', '--cpus=4', '--pids-limit=1024', '--tmpfs', '/tmp:rw,nosuid,exec,size=2g',
                '--mount', f'type=bind,src={root},dst=/source,readonly',

@@ -1,9 +1,81 @@
 # Native engine retirement acceptance — 2026-10-07
 
-This records local implementation evidence on the `qubits` worktree, based on
-`3378ef15bfa219a8c100f3403b2d40dbbb8af34a`, with uncommitted changes. It is not
-evidence of a hosted migration or deployment. No hosted DB/S3 writes, Git push,
-or environment release-pointer changes were performed.
+The initial local acceptance used the `qubits` worktree based on
+`3378ef15bfa219a8c100f3403b2d40dbbb8af34a`. It was committed as `aeef0d2d` and
+pushed to the draft [Qubits release PR #1382](https://github.com/puppyone-ai/puppyone-cloud/pull/1382)
+after authorization to deploy and migrate the staging environment. Hosted
+read-only preflight and PR CI have started. No Qubits DB/S3 mutation, service
+stop, release-pointer change, PR merge or application deployment has occurred.
+Production has not been targeted. Local acceptance does not establish hosted
+release readiness; the blockers below must be resolved before cutover.
+
+## Qubits release attempt: not ready to deploy
+
+The deployed Qubits backend is still at `9cea98f2`; its database is the test
+project `qextonmjqbhxgokmjbio` and its S3 bucket is `contextbase` in the same
+project. All 148 projects are still using the old root authority. The new
+repository and migration inventory tables are absent. The local Supabase CLI
+identity does not list this project; protected CI owns the database connection.
+
+Read-only conversion preflight uses the artifact's converter over GET-only
+database metadata/S3 adapters, with no S3 put/delete or DB execute capability.
+It found a real provider difference: hosted Supabase returns HTTP 404 with an
+empty S3 error code for missing keys. The release candidate now treats only
+that empty-code 404 as missing, preserving namespace fallback; explicit
+AccessDenied, NoSuchBucket and server errors still fail. Neither new artifact
+has been applied to a hosted database; their candidate checksums below have
+been repinned before release, not rewritten behind an existing receipt.
+
+The corrected preflight has inspected at least 140 projects and found at least
+23 blocked projects (15 missing required objects, eight missing historical
+root metadata). This is an interim count, not a complete recovery assessment.
+There are 198 history rows without root metadata: 196 short-ID commits, one
+full Git commit and one scoped Git commit. A sampled short-ID commit is also
+absent from both source object namespaces. Missing data is never fabricated
+or skipped. The operator must resolve source gaps before all-project activation
+and Contract. The user explicitly chose to retain every project and wait for
+missing objects to be restored before migration. No cleanup/deletion workaround
+is authorized; hosted cutover remains on hold under that decision.
+
+The first PR CI run exposed additional release blockers:
+
+- Default/custom standalone installations fail project creation with
+  `storage_billing_entitlement_unavailable`: the native SQL requires PuppyPay
+  entitlements even when standalone billing is disabled. This needs an explicit
+  storage/billing policy correction; do not fabricate PuppyPay rows or weaken
+  the hosted quota guard to make installation pass.
+- Populated standalone upgrade stops at
+  `DATA_MIGRATION_REQUIRED:20260927_entrypoint_storage_backfill`. The installer
+  currently pushes schema before completing the earlier reviewed data phase;
+  the current pointer alone cannot perform the full staged upgrade. Final
+  entrypoint classification/freeze and native inventory/archive phases must
+  be coordinated before starting native-only consumers.
+- The staged release pointer still selects `20261003_final_entrypoint_storage`;
+  it does not yet orchestrate the two native artifacts. The hosted operator
+  route needs its protected connection, actual writer/queue drain evidence,
+  S3 configuration and receipt verification before the separate Contract.
+- The deployed upload worker still uses `file_worker`; the final source uses
+  `upload_worker`. Consumer role/source and Wait-for-CI settings need a complete
+  verified cutover plan before any service is restarted on the candidate.
+
+CI repairs in this candidate update a deleted test reference, the authorization
+route manifest, current grant-bound MCP fakes, historical migration rehearsal
+selection and Linux evidence-directory UID handling. A test that re-created the
+removed bare-cache warmer was retired; direct-object protocol suites remain.
+The secret scan's 81 findings were individually verified against the exact
+source commit: 80 public contract/source digests and one synthetic request UUID.
+Only those exact fingerprints are suppressed; no global secret rule is disabled.
+
+Follow-up local validation: 91 focused unit cases passed; the historical
+entrypoint migration rehearsal passed all fresh/populated/conflict/retry/Contract
+checks; the Docker native migration rerun passed 23 inventory cases plus the
+separate final Contract case. The containment rehearsal passed its populated
+upgrade, REST/JWT denials, ten unsafe privilege mutations and fresh pgTAP suite
+(`/private/tmp/puppyone-ci-containment-fixed.json`). PR-wide CI remains required, including the two
+unresolved standalone failures above. Evidence files are
+`/private/tmp/puppyone-ci-followup-unit.log`,
+`/private/tmp/puppyone-ci-entrypoint-fixed.log` and
+`/private/tmp/puppyone-native-migration-linuxuid.log`.
 
 ## Delivered behavior
 
@@ -134,9 +206,9 @@ The immutable artifact checksums remain:
 
 ```text
 20261007_native_repository_inventory
-273f69ea9de1ed14494e69ed9dd5a6386431938ba08d7bdc9057825de457b49d
+a875d3082fdb2314c35e06d11e177c7a6ec2f0783dd2e3630f05199d66d56f70
 20261007_repository_recovery_archive
-0dfffa3bf880b8d1450e63f7fba45ca25b52fecf2f03d5ad2d573de6a9c922ee
+af6a951436f36f712bf078f818c5f629575df566bead7ab2a37047fbe669f118
 ```
 
 Hosted release order is stop/drain writers and GC -> Expand SQL -> inventory

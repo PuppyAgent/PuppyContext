@@ -16,7 +16,6 @@ from src.infra.data_migrations.catalog import DataMigrationCatalog
 from src.infra.data_migrations.database import PsqlClient
 from src.infra.data_migrations.errors import ExecutionError
 from src.infra.data_migrations.runner import DataMigrationRunner
-from self_hosted_migrate import migrate_data
 
 BASELINE = ROOT / 'supabase/migrations/20260926000000_baseline_b1.sql'
 EXPAND = ROOT / 'supabase/migrations/20260927010000_expand_entrypoint_storage.sql'
@@ -106,9 +105,13 @@ def rehearse(db, reset, expand):
     assert db.receipt(MIGRATION_ID) is None
     assert db.scalar('SELECT count(*) FROM public.access_tools WHERE access_surface_id IS NULL') == '1'
     db.scalar("ALTER TABLE public.search_index_tasks DISABLE TRIGGER mirror_search_tasks_to_uploads; DELETE FROM public.search_index_tasks; ALTER TABLE public.search_index_tasks ENABLE TRIGGER mirror_search_tasks_to_uploads")
-    migrate_data(ROOT, db)
+    # This rehearsal deliberately stops at the historical Expand. The current
+    # standalone pointer may require a later schema and cannot select this run.
+    runner.run(MIGRATION_ID)
+    runner.verify(MIGRATION_ID)
     receipt = db.receipt(MIGRATION_ID)
-    migrate_data(ROOT, db)
+    runner.run(MIGRATION_ID)
+    runner.verify(MIGRATION_ID)
     assert db.receipt(MIGRATION_ID) == receipt
     assert snapshot(db, 'uploads', where="type <> 'search_index'") == original_uploads
     assert snapshot(db, 'search_index_tasks') == original_tasks

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Optional
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.internal.router import router as internal_router
+from src.internal.router import verify_internal_secret
 from src.version_engine.bootstrap.dependencies import get_product_operation_adapter
-from src.internal.router import router as internal_router, verify_internal_secret
 from tests.authorization_fakes import authorization_for
 
 
@@ -21,10 +21,10 @@ class FakeVersionEntry:
     name: str
     path: str
     type: str
-    content_hash: Optional[str] = None
-    size_bytes: Optional[int] = None
-    mime_type: Optional[str] = None
-    children_count: Optional[int] = None
+    content_hash: str | None = None
+    size_bytes: int | None = None
+    mime_type: str | None = None
+    children_count: int | None = None
 
 
 class FakeProductOperationAdapter:
@@ -38,6 +38,10 @@ class FakeProductOperationAdapter:
         self.mkdir = AsyncMock()
         self.move = AsyncMock()
         self.delete = AsyncMock()
+
+    def for_user(self, project_id: str, user_id: str):
+        assert (project_id, user_id) == ("proj-1", "test-user")
+        return self
 
     def stat(self, project_id: str, path: str) -> FakeVersionEntry | None:
         return self._stat_map.get(path)
@@ -89,20 +93,25 @@ def client(app, ops):
     # X-Acting-User-Id header AND verify the user has project access.
     # The pre-existing tests don't set up real users, so we patch the
     # access check to always allow.
-    with patch(
-        "src.platform.authorization.factory.build_authorization_service",
-        return_value=authorization_for("proj-1"),
+    with (
+        patch(
+            "src.platform.authorization.factory.build_authorization_service",
+            return_value=authorization_for("proj-1"),
+        ),
+        TestClient(app) as c,
     ):
-        with TestClient(app) as c:
-            # Inject the required header for every request via headers=
-            c.headers.update({"X-Acting-User-Id": "test-user"})
-            yield c
+        # Inject the required header for every request via headers=
+        c.headers.update({"X-Acting-User-Id": "test-user"})
+        yield c
     app.dependency_overrides.clear()
 
 
 def test_resolve_node_path_success(client, ops):
     ops._stat_map["docs/readme.md"] = FakeVersionEntry(
-        name="readme.md", path="docs/readme.md", type="markdown", size_bytes=42,
+        name="readme.md",
+        path="docs/readme.md",
+        type="markdown",
+        size_bytes=42,
     )
 
     resp = client.post(
@@ -154,7 +163,10 @@ def test_list_node_children_returns_dot_entries(client, ops):
 
 def test_read_node_content_json_returns_content(client, ops):
     ops._stat_map["users.json"] = FakeVersionEntry(
-        name="users.json", path="users.json", type="json", size_bytes=20,
+        name="users.json",
+        path="users.json",
+        type="json",
+        size_bytes=20,
     )
     ops._read_file_map["users.json"] = b'{"users": []}'
 
@@ -171,7 +183,9 @@ def test_read_node_content_json_returns_content(client, ops):
 
 def test_read_node_content_folder_returns_dot_children(client, ops):
     ops._stat_map["docs"] = FakeVersionEntry(
-        name="docs", path="docs", type="folder",
+        name="docs",
+        path="docs",
+        type="folder",
     )
     ops._list_dir_map["docs"] = [
         FakeVersionEntry(name=".internal", path="docs/.internal", type="folder"),
@@ -193,8 +207,13 @@ def test_read_node_content_folder_returns_dot_children(client, ops):
 
 def test_write_node_content_markdown_requires_string(client, ops, monkeypatch):
     import src.internal.router as _r
+
     ops.write_file.return_value = SimpleNamespace(commit_id="abc1234567890def")
-    monkeypatch.setattr(_r, "_create_write_commands", lambda: FakeWriteCommands(ops))
+    monkeypatch.setattr(
+        _r,
+        "_create_write_commands",
+        lambda project_id, user_id: FakeWriteCommands(ops.for_user(project_id, user_id)),
+    )
 
     resp = client.put(
         "/internal/nodes/write",
@@ -208,7 +227,12 @@ def test_write_node_content_markdown_requires_string(client, ops, monkeypatch):
 
 def test_write_node_content_markdown_success(client, ops, monkeypatch):
     import src.internal.router as _r
-    monkeypatch.setattr(_r, "_create_write_commands", lambda: FakeWriteCommands(ops))
+
+    monkeypatch.setattr(
+        _r,
+        "_create_write_commands",
+        lambda project_id, user_id: FakeWriteCommands(ops.for_user(project_id, user_id)),
+    )
     ops.write_file.return_value = SimpleNamespace(commit_id="abc1234567890def")
 
     resp = client.put(
@@ -223,7 +247,12 @@ def test_write_node_content_markdown_success(client, ops, monkeypatch):
 
 def test_create_node_folder(client, ops, monkeypatch):
     import src.internal.router as _r
-    monkeypatch.setattr(_r, "_create_write_commands", lambda: FakeWriteCommands(ops))
+
+    monkeypatch.setattr(
+        _r,
+        "_create_write_commands",
+        lambda project_id, user_id: FakeWriteCommands(ops.for_user(project_id, user_id)),
+    )
     ops.mkdir.return_value = SimpleNamespace(commit_id="abc1234567890def")
 
     resp = client.post(
@@ -258,9 +287,16 @@ def test_create_node_rejects_unsupported_type(client, ops):
 
 def test_remove_node_success(client, ops, monkeypatch):
     import src.internal.router as _r
-    monkeypatch.setattr(_r, "_create_write_commands", lambda: FakeWriteCommands(ops))
+
+    monkeypatch.setattr(
+        _r,
+        "_create_write_commands",
+        lambda project_id, user_id: FakeWriteCommands(ops.for_user(project_id, user_id)),
+    )
     ops._stat_map["readme.md"] = FakeVersionEntry(
-        name="readme.md", path="readme.md", type="markdown",
+        name="readme.md",
+        path="readme.md",
+        type="markdown",
     )
     ops.delete.return_value = SimpleNamespace(commit_id="c1")
 
@@ -273,5 +309,8 @@ def test_remove_node_success(client, ops, monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["removed"] is True
     ops.delete.assert_awaited_once_with(
-        "proj-1", ["readme.md"], who="mcp_agent", message="delete readme.md",
+        "proj-1",
+        ["readme.md"],
+        who="mcp_agent",
+        message="delete readme.md",
     )

@@ -120,8 +120,6 @@ def backend_consumers(status: dict) -> None:
     from src.platform.authorization.models import ProjectAction
     from src.platform.authorization.repository import AuthorizationRepository
     from src.platform.authorization.service import AuthorizationService
-    from src.platform.scope_sync.events import SupabaseEventStore
-    from src.platform.scope_sync.settings_store import SupabaseSettingsStore, SyncSettings
     from src.version_engine.infrastructure.supabase.audit_repository import AuditRepository
 
     db = SupabaseClient()
@@ -139,13 +137,20 @@ def backend_consumers(status: dict) -> None:
         audit = AuditRepository(db)
         audit.insert("containment-probe", "docs/probe", project_id=project, operator_id=user)
         check(all(row["project_id"] == project for row in audit.list_by_project(project)), "Audit tenant filter failed")
-        events = SupabaseEventStore(db)
-        events.append(project_id=project, scope_id="issue053-scope-" + suffix, head_version="c" * 40,
-                      affected_paths=["docs/probe"], source="publish", origin_user=user)
-        check(bool(events.since(project, "issue053-scope-" + suffix, 0)), "Scope event read failed")
-        settings = SupabaseSettingsStore(db)
-        settings.put(project, "issue053-scope-" + suffix, SyncSettings(persona="reviewer", auto_sync=False))
-        check(settings.get(project, "issue053-scope-" + suffix).auto_sync is False, "Settings upsert failed")
+        # These Scope consumers have been retired. Exercise their historical
+        # storage privileges directly without restoring the removed runtime.
+        scope = "issue053-scope-" + suffix
+        db.client.table("scope_sync_events").insert({
+            "project_id": project, "scope_id": scope, "head_version": "c" * 40,
+            "affected_paths": ["docs/probe"], "source": "publish", "origin_user": user,
+        }).execute()
+        events = db.client.table("scope_sync_events").select("id").eq("project_id", project).eq("scope_id", scope).execute()
+        check(bool(events.data), "Historical Scope event read failed")
+        db.client.table("scope_sync_settings").upsert({
+            "project_id": project, "scope_id": scope, "persona": "reviewer", "auto_sync": False,
+        }, on_conflict="project_id,scope_id").execute()
+        settings = db.client.table("scope_sync_settings").select("auto_sync").eq("project_id", project).eq("scope_id", scope).execute()
+        check(settings.data and settings.data[0]["auto_sync"] is False, "Historical Scope settings update failed")
         tables = TableRepository(db.client)
         table_id = "issue053-backend-" + suffix
         tables.create(TableCreate(id=table_id, project_id=project, data={"probe": 1}))
@@ -174,7 +179,9 @@ def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
 
     # Exercise standalone column ACLs too: table REVOKE alone would miss these.
     stack.sql("GRANT SELECT (metadata) ON public.audit_logs TO authenticated; GRANT SELECT (label) ON public.bookmarks TO PUBLIC;")
-    stack.replace_migrations(migrations)
+    # Test this security upgrade against its actual source schema; later
+    # destructive Contracts require separate reviewed data artifacts.
+    stack.replace_migrations([path for path in migrations if path.name <= FIX.name])
     stack.cli("migration", "up", "--local", capture=True)
     stack.sql(CONTRACT.read_text())
     check(snapshot(stack) == before, "Security migration changed stored data")
@@ -206,6 +213,7 @@ def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
     print(f"PASS: {len(mutations)} deliberately unsafe ACL/RLS/view/RPC mutations are rejected", flush=True)
 
     # Full B1 + all forward migrations, using the same CLI and Docker image as CI.
+    stack.replace_migrations(migrations)
     stack.cli("db", "reset", "--local", "--no-seed", capture=True)
     stack.sql(CONTRACT.read_text())
     stack.cli("test", "db", capture=True)

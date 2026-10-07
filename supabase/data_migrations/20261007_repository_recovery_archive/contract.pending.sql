@@ -1,6 +1,6 @@
 -- Promote unchanged in a separate release after native consumer cutover and drain.
 -- requires-data-migration: 20261007_repository_recovery_archive
--- data-migration-checksum: 0dfffa3bf880b8d1450e63f7fba45ca25b52fecf2f03d5ad2d573de6a9c922ee
+-- data-migration-checksum: af6a951436f36f712bf078f818c5f629575df566bead7ab2a37047fbe669f118
 BEGIN;
 SET LOCAL lock_timeout='5s';
 SET LOCAL statement_timeout='5min';
@@ -11,7 +11,7 @@ DO $$ BEGIN
         RAISE EXCEPTION 'native_repository_required'; END IF;
     IF EXISTS(SELECT 1 FROM public.projects) AND NOT EXISTS(
         SELECT 1 FROM public.migration_log WHERE name='20261007_repository_recovery_archive'
-          AND summary->>'artifact_checksum'='0dfffa3bf880b8d1450e63f7fba45ca25b52fecf2f03d5ad2d573de6a9c922ee'
+          AND summary->>'artifact_checksum'='af6a951436f36f712bf078f818c5f629575df566bead7ab2a37047fbe669f118'
           AND coalesce((summary->>'verified')::boolean,false)) THEN
         RAISE EXCEPTION 'DATA_MIGRATION_REQUIRED:20261007_repository_recovery_archive'; END IF;
     IF EXISTS(SELECT 1 FROM public.projects p LEFT JOIN public.version_repository_archives a ON a.project_id=p.id
