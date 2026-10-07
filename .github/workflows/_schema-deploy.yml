@@ -128,6 +128,12 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -c "SET SESSION ROLE postgres;"
           -f supabase/tests/_support/data_api_containment.inc
 
+      - name: Verify Cloud Agent control plane (read-only)
+        if: steps.push.outputs.schema_state == 'deployed'
+        run: >-
+          psql -X -v ON_ERROR_STOP=1 -c "SET SESSION ROLE postgres;"
+          -f supabase/tests/_support/cloud_agent_contracts.inc
+
       - name: Refresh expiring connection before drift check
         if: steps.push.outputs.schema_state == 'deployed'
         run: python3 supabase/releases/connection.py
