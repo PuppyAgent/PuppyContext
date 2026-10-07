@@ -17,6 +17,38 @@ spec.loader.exec_module(module)
 REF = "a" * 20
 
 
+def test_staging_rejects_a_mislabeled_project_before_network_access(monkeypatch):
+    monkeypatch.setattr(module, "urlopen", lambda *a, **kw: pytest.fail("network used"))
+    with pytest.raises(ValueError, match="Qubits test project"):
+        module.connection_environment(
+            {
+                "TARGET_ENVIRONMENT": "staging",
+                "SUPABASE_PROJECT_ID": REF,
+                "SUPABASE_ACCESS_TOKEN": "must-not-be-used",
+            }
+        )
+
+
+def test_staging_accepts_only_its_matching_database_connection():
+    ref = module.STAGING_PROJECT_REF
+    result = module.connection_environment(
+        {
+            "TARGET_ENVIRONMENT": "staging",
+            "SUPABASE_PROJECT_ID": ref,
+            "DATABASE_URL": f"postgresql://postgres:fixture@db.{ref}.supabase.co:5432/postgres",
+        }
+    )
+    assert result["PGHOST"] == f"db.{ref}.supabase.co"
+    with pytest.raises(ValueError, match="protected project"):
+        module.connection_environment(
+            {
+                "TARGET_ENVIRONMENT": "staging",
+                "SUPABASE_PROJECT_ID": ref,
+                "DATABASE_URL": f"postgresql://postgres:fixture@db.{REF}.supabase.co:5432/postgres",
+            }
+        )
+
+
 def test_static_connection_keeps_password_out_of_cli_arguments():
     result = module.connection_environment(
         {

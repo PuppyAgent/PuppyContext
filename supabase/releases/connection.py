@@ -10,11 +10,17 @@ import time
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 from urllib.request import Request, urlopen
 
+# Public deployment identity, not a credential. A mislabeled staging secret
+# must never direct Qubits schema or data jobs at the production database.
+STAGING_PROJECT_REF = "qextonmjqbhxgokmjbio"
+
 
 def connection_environment(source: dict[str, str]) -> dict[str, str]:
     ref = source.get("SUPABASE_PROJECT_ID", "")
     if not re.fullmatch(r"[a-z]{20}", ref):
         raise ValueError("A protected Supabase project ref is required")
+    if source.get("TARGET_ENVIRONMENT") == "staging" and ref != STAGING_PROJECT_REF:
+        raise ValueError("Staging connection does not match the Qubits test project")
     uri = source.get("DATABASE_URL", "")
     temporary = not uri or source.get("DATABASE_TEMPORARY") == "1"
     expires_at = float(source.get("DATABASE_CREDENTIAL_EXPIRES_AT", "0"))
