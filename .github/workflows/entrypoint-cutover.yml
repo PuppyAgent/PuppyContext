@@ -62,4 +62,5 @@ jobs:
           ENTRYPOINT_CUTOVER_DECISIONS: ${{ secrets.ENTRYPOINT_CUTOVER_DECISIONS }}
           ENTRYPOINT_CUTOVER_EVIDENCE: ${{ secrets.ENTRYPOINT_CUTOVER_EVIDENCE }}
           ENTRYPOINT_CUTOVER_RESTORE_POINT: ${{ secrets.ENTRYPOINT_CUTOVER_RESTORE_POINT }}
+          ENTRYPOINT_CUTOVER_LOGICAL_BACKUP: ${{ secrets.ENTRYPOINT_CUTOVER_LOGICAL_BACKUP }}
         run: backend/.venv/bin/python scripts/qubits_entrypoint_cutover.py

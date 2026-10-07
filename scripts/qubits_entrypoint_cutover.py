@@ -13,7 +13,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -37,6 +37,44 @@ def verified_pitr_point(backups: dict, ref: str, point: str, evidence: dict) -> 
         raise ValueError("CUTOVER_RESTORE_POINT_PRECEDES_STOP")
     if evidence.get("environment") != "qubits":
         raise ValueError("CUTOVER_WRONG_EVIDENCE_ENVIRONMENT")
+
+
+def verified_logical_backup(ref: str, point: str, evidence: dict, backup: dict) -> None:
+    """Validate a protected operator attestation, not a cloud-provider backup.
+
+    The operator retains the actual archive and proves restoration separately.
+    This adapter cannot attest file availability from a digest alone.
+    """
+    if evidence.get("environment") != "qubits" or backup.get("project_ref") != ref:
+        raise ValueError("CUTOVER_WRONG_EVIDENCE_ENVIRONMENT")
+    digest = backup.get("sha256", "")
+    if (
+        type(backup.get("format_version")) is not int
+        or backup["format_version"] != 1
+        or not isinstance(digest, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", digest)
+        or point != f"operator-logical:{ref}:sha256:{digest}"
+        or type(backup.get("bytes")) is not int
+        or backup["bytes"] <= 0
+    ):
+        raise ValueError("CUTOVER_LOGICAL_BACKUP_REQUIRED")
+    for field in ("retained_at", "restore_procedure", "verification_record", "verified_by"):
+        if not isinstance(backup.get(field), str) or not backup[field].strip():
+            raise ValueError("CUTOVER_LOGICAL_BACKUP_EVIDENCE_REQUIRED")
+    if backup.get("restore_verified") is not True:
+        raise ValueError("CUTOVER_LOGICAL_RESTORE_UNVERIFIED")
+    timestamps = []
+    for document, field in ((evidence, "writers_stopped_at"), (backup, "created_at"), (backup, "verified_at")):
+        try:
+            value = datetime.fromisoformat(document[field].replace("Z", "+00:00"))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise ValueError("CUTOVER_INVALID_BACKUP_TIME") from None
+        if value.tzinfo is None:
+            raise ValueError("CUTOVER_INVALID_BACKUP_TIME")
+        timestamps.append(value)
+    stopped, created, verified = timestamps
+    if not stopped <= created <= verified <= datetime.now(timezone.utc):
+        raise ValueError("CUTOVER_BACKUP_TIME_ORDER_INVALID")
 
 
 def main() -> None:
@@ -81,7 +119,12 @@ def main() -> None:
     evidence_bytes = os.environ["ENTRYPOINT_CUTOVER_EVIDENCE"].encode()
     evidence = json.loads(evidence_bytes)
     point = os.environ["ENTRYPOINT_CUTOVER_RESTORE_POINT"]
-    verified_pitr_point(backups, ref, point, evidence)
+    if point.startswith("operator-logical:"):
+        verified_logical_backup(
+            ref, point, evidence, json.loads(os.environ["ENTRYPOINT_CUTOVER_LOGICAL_BACKUP"])
+        )
+    else:
+        verified_pitr_point(backups, ref, point, evidence)
     # These existing commands verify row fingerprints and explicit process,
     # queue and consumer evidence. No receipt or successful migration is faked.
     approve(db, rows)

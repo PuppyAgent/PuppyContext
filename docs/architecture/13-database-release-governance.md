@@ -241,10 +241,23 @@ The one-time Qubits entrypoint cutover can run its existing owner commands via
 `Qubits Entrypoint Cutover`, using the protected staging connection. Its default
 inspection is read-only and reports hashed identities and recovery metadata.
 Explicit preparation consumes reviewed decision/process evidence from staging
-secrets, validates an available PITR point after the recorded writer stop, and
+secrets, validates an available PITR point after the recorded writer stop or a
+protected operator attestation for an actually restored logical backup, and
 calls the existing approval/freeze commands. It does not stop processes, invent
 queue evidence, classify rows, execute data copying, or create receipts. The
 ordinary deployment workflow resumes the portable data migration afterward.
+
+For logical recovery, `ENTRYPOINT_CUTOVER_RESTORE_POINT` is
+`operator-logical:<project-ref>:sha256:<archive-sha256>` and the protected
+`ENTRYPOINT_CUTOVER_LOGICAL_BACKUP` JSON contains `format_version: 1`,
+`project_ref`, `sha256`, positive `bytes`, `created_at`, `verified_at`,
+`retained_at`, `restore_procedure`, `verification_record`, `verified_by` and
+`restore_verified: true`. Timestamps must include timezones and order the real
+writer stop, backup and successful restore verification. The operator keeps
+the private archive and verification record; a checksum alone is insufficient.
+This is an operator attestation, not an independent cloud-provider availability
+check. The adapter neither uploads a backup nor relaxes database grants to
+make a restore pass. Keep the artifact accessible for the recovery window.
 
 Native adoption can use an explicit project selection with its own immutable
 receipt. The [Qubits Agent rollout](../../supabase/data_migrations/20261008_qubits_agent_project/README.md)
@@ -477,6 +490,13 @@ points only; logical-backup support there is also an implementation gap. These
 are open enforcement gaps, not completed work. Until corrected, release owners
 must apply the documented admission rules and must not treat the narrower
 GitHub merge button as release approval.
+
+**Follow-up, 2026-10-08:** Qubits protection now requires the existing
+`Database validation result` in addition to Frontend Build and Gitleaks; their
+GitHub App bindings and other settings were preserved. The cutover adapter now
+also validates the protected logical-backup attestation described above.
+Generic automated target-history/dependency admission remains an open gap;
+these changes do not themselves establish a successful hosted migration.
 
 Schema and data jobs for an environment share the same concurrency group and
 cannot cancel a running database operation. Production uses a protected GitHub
