@@ -2,14 +2,21 @@
 
 import importlib.util
 import json
+import shutil
+import socket
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
-PSQL = "/opt/homebrew/opt/postgresql@17/bin/psql"
+PSQL = str(
+    Path(shutil.which("postgres") or "/opt/homebrew/opt/postgresql@17/bin/postgres").with_name(
+        "psql"
+    )
+)
 
 
 def literal(value):
@@ -76,6 +83,9 @@ def submitted(postgres):
     """)
     policy = {
         "model": "fixture",
+        "revision": postgres.row(
+            f"SELECT public.authorization_revision_token('{project}') AS token"
+        )["token"],
         "surface_updated_at": postgres.row(
             f"SELECT updated_at FROM access_surfaces WHERE id='{agent}'"
         )["updated_at"],
@@ -107,6 +117,16 @@ def control_api(postgres):
 
     name = "agent-test-rest-" + str(uuid4())
     port = urlparse(postgres.url).port
+    linux = sys.platform == "linux"
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        rest_port = listener.getsockname()[1]
+    database_host = "127.0.0.1" if linux else "host.docker.internal"
+    network = (
+        ["--network", "host", "-e", f"PGRST_SERVER_PORT={rest_port}"]
+        if linux
+        else ["-p", "127.0.0.1::3000"]
+    )
     subprocess.run(
         [
             "docker",
@@ -114,10 +134,9 @@ def control_api(postgres):
             "-d",
             "--name",
             name,
-            "-p",
-            "127.0.0.1::3000",
+            *network,
             "-e",
-            f"PGRST_DB_URI=postgresql://postgres@host.docker.internal:{port}/postgres",
+            f"PGRST_DB_URI=postgresql://postgres@{database_host}:{port}/postgres",
             "-e",
             "PGRST_DB_SCHEMAS=public",
             "-e",
@@ -128,7 +147,11 @@ def control_api(postgres):
         capture_output=True,
     )
     try:
-        address = subprocess.check_output(["docker", "port", name, "3000/tcp"], text=True).strip()
+        address = (
+            f"127.0.0.1:{rest_port}"
+            if linux
+            else subprocess.check_output(["docker", "port", name, "3000/tcp"], text=True).strip()
+        )
         url = "http://" + address
         with httpx.Client(trust_env=False) as probe:
             for _ in range(100):
@@ -144,7 +167,12 @@ def control_api(postgres):
                         ["docker", "logs", name], stderr=subprocess.STDOUT, text=True
                     )[-2000:]
                 )
-        client = SyncPostgrestClient(url, http_client=httpx.Client(trust_env=False))
+        from src.infra.supabase.instrumentation import DatabaseTransport
+
+        transport = DatabaseTransport(path_prefix="/")
+        client = SyncPostgrestClient(
+            url, http_client=httpx.Client(trust_env=False, transport=transport)
+        )
 
         class Adapter:
             def table(self, name):
@@ -153,7 +181,9 @@ def control_api(postgres):
             def rpc(self, *args, **kwargs):
                 return client.rpc(*args, **kwargs)
 
-        yield Adapter()
+        adapter = Adapter()
+        adapter.transport = transport
+        yield adapter
         client.aclose() if hasattr(client, "aclose") else None
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)

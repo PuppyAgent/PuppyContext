@@ -90,7 +90,7 @@ class ProductOperationAdapter:
         return grant
 
     @contextmanager
-    def open_read(self, project_id, grant, *, selector=b"HEAD"):
+    def open_read(self, project_id, grant, *, selector=b"HEAD", bulk=False):
         admitted_actor(grant, project_id, write=False)
         service = self._repos.get_native_service(project_id)
         if service is None:
@@ -106,6 +106,8 @@ class ProductOperationAdapter:
             )
 
             try:
+                if bulk:
+                    snapshot.backend = snapshot.backend.pinned_reader(snapshot)
                 yield NativeTreeReader(snapshot, selector=selector)
             except ObjectNotFoundError as exc:
                 raise NativeObjectNotFoundError(str(exc)) from exc

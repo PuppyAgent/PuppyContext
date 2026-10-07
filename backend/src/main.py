@@ -584,6 +584,9 @@ def create_app() -> FastAPI:
     from src.utils.middleware import RequestContextMiddleware
 
     app.add_middleware(RequestContextMiddleware)
+    from src.platform.access.adapters.agent.runtime.telemetry import AgentDatabaseTelemetry
+
+    app.add_middleware(AgentDatabaseTelemetry)
 
     # Keep lifecycle admission outside Version Engine internals while making
     # every FastAPI Product command hold a renewable Project write lease.

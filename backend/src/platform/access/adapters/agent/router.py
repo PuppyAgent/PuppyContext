@@ -25,11 +25,7 @@ def receipt(
     user=Depends(get_current_user),
     service=Depends(get_agent_service),
 ):
-    service.admission.authorize(user.user_id, project_id)
-    run = service.repository.receipt(user.user_id, project_id, str(request_id))
-    if run is None:
-        raise HTTPException(404, "Request not found")
-    return service.snapshot(user.user_id, run["id"])
+    return service.receipt(user.user_id, project_id, str(request_id))
 
 
 @router.get("/sessions/{session_id}/runs")
@@ -41,6 +37,17 @@ def session_runs(
     service=Depends(get_agent_service),
 ):
     return service.session_runs(user.user_id, str(session_id), limit, before)
+
+
+@router.get("/sessions")
+def history(
+    project_id: str,
+    agent_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    user=Depends(get_current_user),
+    service=Depends(get_agent_service),
+):
+    return service.history(user.user_id, project_id, agent_id, limit)
 
 
 @router.get("/runs/{run_id}")

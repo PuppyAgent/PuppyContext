@@ -34,7 +34,10 @@ def test_additive_migration_preserves_existing_agents_and_pre_activation_rollbac
             }
         ]
         for migration in migrations:
-            if migration not in agent:
+            if (
+                migration not in agent
+                and migration.name != "20261008010000_bound_agent_data_operations.sql"
+            ):
                 scratch.sql(module.product_migration_sql(migration))
         previous_fence = scratch.sql(
             "SELECT pg_get_functiondef('public._version_assert_write_lease(text,uuid,text)'::regprocedure)"
@@ -90,5 +93,33 @@ def test_additive_migration_preserves_existing_agents_and_pre_activation_rollbac
         for migration in agent:
             scratch.sql(migration.read_text())
         assert scratch.sql("SELECT to_regclass('public.agent_runs') IS NOT NULL") == "t"
+        # Upgrade the new contracts over populated saved configuration and
+        # completed old-runtime receipts. Old workers must be drained before
+        # activation; historical policy JSON is preserved, never synthesized.
+        old = scratch.rpc("submit", **{**args, "policy": {"model": "saved-model"}})
+        scratch.sql(f"UPDATE agent_runs SET state='failed' WHERE id='{old['id']}'")
+        receipt = scratch.row(f"SELECT * FROM agent_runs WHERE id='{old['id']}'")
+        messages = scratch.sql("SELECT jsonb_agg(m ORDER BY id) FROM chat_messages m")
+        fence = scratch.sql(
+            "SELECT pg_get_functiondef('public.agent_run_publication_fence(uuid,uuid,bigint,text)'::regprocedure)"
+        )
+        bounded = ROOT / "supabase/migrations/20261008010000_bound_agent_data_operations.sql"
+        # Rehearse a transaction rollback before committing this immutable SQL.
+        scratch.sql(bounded.read_text().replace("COMMIT;", "ROLLBACK;"))
+        assert scratch.sql("SELECT to_regclass('public.authorization_revisions') IS NULL") == "t"
+        assert (
+            scratch.sql(
+                "SELECT pg_get_functiondef('public.agent_run_publication_fence(uuid,uuid,bigint,text)'::regprocedure)"
+            )
+            == fence
+        )
+        scratch.sql(bounded.read_text())
+        assert scratch.row(f"SELECT * FROM agent_runs WHERE id='{old['id']}'") == receipt
+        assert scratch.row(f"SELECT config FROM access_surfaces WHERE id='{agent_id}'") == before
+        assert scratch.sql("SELECT jsonb_agg(m ORDER BY id) FROM chat_messages m") == messages
+        context = scratch.rpc("context", user=user, project=project, agent=agent_id)
+        assert context["surface"]["config"] == before["config"]
+        assert context["facts"]["project_role"] == "admin"
+        assert context["revision"]["project"] == project
     finally:
         postgres.sql(f"DROP DATABASE {database} WITH (FORCE)")

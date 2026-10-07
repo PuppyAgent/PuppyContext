@@ -46,7 +46,7 @@ async def serve():
                 await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
                 continue
             try:
-                run = await asyncio.to_thread(repository.rpc, "claim", worker=worker_id)
+                run = await asyncio.to_thread(repository.claim_run, worker=worker_id)
                 if run is None:
                     await asyncio.sleep(1)
                     continue

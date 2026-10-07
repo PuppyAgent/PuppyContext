@@ -7,39 +7,34 @@ from fastapi import HTTPException
 from src.config import settings
 from src.platform.access.adapters.agent.runtime.admission import Admission, digest
 from src.platform.access.adapters.agent.runtime.models import public_run
-from src.platform.access.adapters.agent.runtime.repository import RunRepository
+from src.platform.access.adapters.agent.runtime.ports import RunStore
 from src.platform.authorization.models import ProjectAction
 
 
 class AgentService:
-    def __init__(self, repository=None, admission=None):
-        self.repository = repository or RunRepository()
+    def __init__(self, repository: RunStore, admission=None):
+        self.repository = repository
         self.admission = admission or Admission(self.repository)
 
     def submit(self, user_id, request):
-        self.admission.authorize(user_id, request.project_id)
         identity = digest(request.model_dump(mode="json"))
-        old = self.repository.receipt(user_id, request.project_id, str(request.request_id))
+        context = self.admission.load(
+            user_id, request.project_id, request.agent_id, request.scope_id, str(request.request_id)
+        )
+        old = context.receipt
         if old:
-            self.owned(user_id, old["id"])
             if old["input_sha256"] != identity:
                 raise HTTPException(409, "Request identity was reused with different input")
-            return public_run(old, self.repository.tools(old["id"]))
+            return public_run(old)
         if not settings.MANAGED_AI_ENABLED:
             raise HTTPException(503, {"code": "managed_agent_inference_disabled"})
-        surface = self.admission.resolve(
-            user_id, request.project_id, request.agent_id, request.scope_id
-        )
-        policy = self.admission.policy(surface)
-        if not policy["readonly"]:
-            self.admission.authorize(user_id, request.project_id, ProjectAction.CONTENT_WRITE)
+        policy = context.policy
         if not policy["model"]:
             raise HTTPException(409, "Configure an Agent model before submitting")
-        run = self.repository.rpc(
-            "submit",
+        run = self.repository.submit_run(
             user=user_id,
             project=request.project_id,
-            agent=surface["id"],
+            agent=context.agent_id,
             session=request.session_id,
             request=str(request.request_id),
             digest=identity,
@@ -49,54 +44,80 @@ class AgentService:
         )
         return public_run(run)
 
+    def view(self, user_id, run_id, after=0, *, action=ProjectAction.AGENT_READ):
+        value = self.repository.load_run_view(user_id, run_id, after)
+        return self.authorize_view(value, user_id, action=action)
+
+    def authorize_view(self, value, user_id, *, action=ProjectAction.AGENT_READ):
+        if not value:
+            raise HTTPException(404, "Run not found")
+        run = value["run"]
+        self.admission.authorization.authorize_facts(
+            value["facts"], run["project_id"], user_id, action
+        )
+        self.admission.visible(value["surface"], user_id, run["project_id"])
+        return value
+
     def owned(self, user_id, run_id, *, action=ProjectAction.AGENT_READ):
-        run = self.repository.get(run_id)
-        if run is None or run["user_id"] != user_id:
-            raise HTTPException(404, "Run not found")
-        self.admission.authorize(user_id, run["project_id"], action)
-        if not self.admission.configs.is_visible_to(run["agent_id"], user_id):
-            raise HTTPException(404, "Run not found")
-        return run
+        return self.view(user_id, run_id, action=action)["run"]
 
     def session_runs(self, user_id, session_id, limit=50, before=None):
-        rows = self.repository.session_runs(user_id, session_id, limit, before)
-        if not rows:
+        value = self.repository.load_session_view(user_id, session_id, limit, before)
+        if not value:
             raise HTTPException(404, "Session runs not found")
-        # Every session is bound to one Agent and one submitting user.
-        self.owned(user_id, rows[0]["id"])
+        rows = value["runs"]
+        self.authorize_view({**value, "run": rows[0]}, user_id)
         return [public_run(row) for row in rows]
 
+    def history(self, user_id, project_id, agent_id, limit=50):
+        value = self.repository.load_history_view(user_id, project_id, agent_id, limit)
+        if not value:
+            raise HTTPException(404, "Agent not found")
+        self.admission.authorization.authorize_facts(
+            value["facts"], project_id, user_id, ProjectAction.AGENT_READ
+        )
+        self.admission.visible(value["surface"], user_id, project_id)
+        return value["sessions"]
+
+    def receipt(self, user_id, project_id, request_id):
+        value = self.repository.load_receipt_view(user_id, project_id, request_id)
+        if not value:
+            raise HTTPException(404, "Request not found")
+        self.authorize_view(value, user_id)
+        return public_run(value["run"], value["tools"])
+
     def snapshot(self, user_id, run_id):
-        run = self.owned(user_id, run_id)
-        return public_run(run, self.repository.tools(run_id))
+        value = self.view(user_id, run_id)
+        return public_run(value["run"], value["tools"])
 
     def command(self, user_id, run_id, command, **values):
-        run = self.owned(user_id, run_id, action=ProjectAction.AGENT_RUN)
-        if command == "approve":
-            self.admission.recheck(run)
+        value = self.view(user_id, run_id, action=ProjectAction.AGENT_RUN)
         return public_run(
-            self.repository.rpc("command", run=run_id, user=user_id, command=command, **values)
+            self.repository.command_run(
+                run=run_id, user=user_id, command=command, revision=value["revision"], **values
+            )
         )
 
     async def events(self, user_id, run_id, after):
         from src.platform.access.adapters.agent.runtime.models import TERMINAL
 
         while True:
-            run = await asyncio.to_thread(self.owned, user_id, run_id)
+            value = await asyncio.to_thread(self.view, user_id, run_id, after)
+            run = value["run"]
             sequence = run["sequence"]
             if after > sequence or after < max(0, sequence - 512):
                 yield {
                     "event": "reset",
                     "id": sequence,
-                    "data": await asyncio.to_thread(self.snapshot, user_id, run_id),
+                    "data": public_run(run, value["tools"]),
                 }
                 return
-            rows = await asyncio.to_thread(self.repository.events, run_id, after, sequence)
+            rows = value["events"]
             if rows and rows[0]["sequence"] != after + 1:
                 yield {
                     "event": "reset",
                     "id": sequence,
-                    "data": await asyncio.to_thread(self.snapshot, user_id, run_id),
+                    "data": public_run(run, value["tools"]),
                 }
                 return
             for row in rows:

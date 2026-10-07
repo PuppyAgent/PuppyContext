@@ -2,12 +2,16 @@
 
 import asyncio
 import logging
+import time
 from contextlib import suppress
-from datetime import UTC, datetime
+from uuid import uuid4
 
 from src.config import settings
+from src.infra.supabase.instrumentation import DatabaseTrace, database_stage, database_trace
 from src.platform.access.adapters.agent.runtime.checkpoints import Checkpoints, validate_files
+from src.platform.access.adapters.agent.runtime.heartbeat import EndRun, ExecutionLease
 from src.platform.access.adapters.agent.runtime.models import TERMINAL
+from src.platform.access.adapters.agent.runtime.ports import RunStore
 from src.platform.access.adapters.agent.runtime.publication import PublicationRejected
 from src.platform.managed_ai.contracts import InferenceFailed, ModelChunk
 from src.platform.managed_ai.schemas import CompletionRequest
@@ -16,16 +20,10 @@ from src.platform.scope_sandbox.execution.pi_worker import PiWorker, WorkerLost
 logger = logging.getLogger(__name__)
 
 
-class EndRun(Exception):
-    def __init__(self, state, code):
-        self.state, self.code = state, code
-        super().__init__(code)
-
-
 class RunSupervisor:
     def __init__(
         self,
-        repository,
+        repository: RunStore,
         admission,
         publication,
         inference,
@@ -46,6 +44,17 @@ class RunSupervisor:
         self.value = None
         self.run = None
         self.finished = False
+        self.lease = ExecutionLease(repository)
+        self.context = None
+        self.execution = None
+        self.pending_text = ""
+        self.pending_batch = None
+        self.metrics = None
+        self.started_at = None
+        self.first_text_seconds = None
+        self.elapsed_seconds = None
+        self.worker_started_at = None
+        self.tool_started_at = {}
 
     async def write(self, kind, payload=None, **patch):
         async with self.lock:
@@ -53,50 +62,100 @@ class RunSupervisor:
         return self.run
 
     async def check(self):
-        current = await asyncio.to_thread(self.repo.get, self.run["id"])
-        if (
-            current["execution_id"] != self.run["execution_id"]
-            or current["fence"] != self.run["fence"]
-        ):
-            raise EndRun("outcome_unknown", "execution_fenced")
-        if current["stop_requested"]:
-            raise EndRun("stopped", "stop_requested")
-        if datetime.fromisoformat(current["deadline"].replace("Z", "+00:00")) <= datetime.now(UTC):
-            raise EndRun("failed", "runtime_timeout")
-        if current["billing_run_id"]:
+        status = await self.lease.check(self.run)
+        await self.check_billing(status["billing_run_id"])
+        return self.context.grant
+
+    async def check_billing(self, billing_run_id):
+        if billing_run_id:
             try:
-                await self.billing.check_session(current["billing_run_id"])
+                await self.billing.check_session(billing_run_id)
             except Exception as exc:
                 raise EndRun("failed", "runtime_credit_unavailable") from exc
-        try:
-            return await asyncio.to_thread(self.admission.recheck, self.run)
-        except Exception as exc:
-            raise EndRun("failed", "authorization_revoked") from exc
 
     async def heartbeat(self):
-        while True:
-            await asyncio.sleep(5)
+        async def touch():
             if self.run["state"] not in TERMINAL:
-                await self.check()
-            await self.write("heartbeat")
+                await self.check_billing(self.run["billing_run_id"])
             if self.worker:
                 await self.worker.touch()
 
+        await self.lease.run(lambda: self.run, touch)
+
+    async def flush_text(self):
+        async with self.lock:
+            if not self.pending_text:
+                return
+            while self.pending_text:
+                if self.pending_batch is None:
+                    delta = self.pending_text[:16000]
+                    snapshot = {
+                        **self.run["snapshot"],
+                        "text": (self.run["snapshot"].get("text", "") + delta)[-200000:],
+                    }
+                    self.pending_batch = (
+                        str(uuid4()),
+                        len(delta),
+                        [
+                            {
+                                "kind": "text",
+                                "payload": {"delta": delta},
+                                "patch": {"snapshot": snapshot},
+                            }
+                        ],
+                    )
+                batch_id, length, events = self.pending_batch
+                self.run = await asyncio.to_thread(
+                    self.repo.append_events_batch,
+                    self.run,
+                    events,
+                    batch_id=batch_id,
+                )
+                self.pending_text = self.pending_text[length:]
+                self.pending_batch = None
+
+    async def text_flush_loop(self):
+        while True:
+            await asyncio.sleep(1)
+            await self.flush_text()
+
     async def save(self, value, reason):
+        await self.flush_text()
         payload = {**value, "reason": reason}
-        manifest = await self.checkpoints.save(self.run, payload)
-        await self.write("checkpoint", {"reason": reason}, checkpoint=manifest)
+        with database_stage("checkpoint"):
+            manifest = await self.checkpoints.save(self.run, payload)
+            await self.write("checkpoint", {"reason": reason}, checkpoint=manifest)
         self.value, self.durable = payload, manifest
         return manifest
 
     async def run_claim(self, run):
+        self.metrics = DatabaseTrace(run["id"])
+        self.started_at = time.monotonic()
+        with database_trace(self.metrics):
+            try:
+                await self._run_claim(run)
+            finally:
+                self.elapsed_seconds = time.monotonic() - self.started_at
+                logger.info(
+                    "cloud_agent_performance",
+                    extra={
+                        "agent_performance": {
+                            **self.metrics.report(),
+                            "elapsed_seconds": time.monotonic() - self.started_at,
+                            "first_text_seconds": self.first_text_seconds,
+                        }
+                    },
+                )
+
+    async def _run_claim(self, run):
         self.run = run
         heartbeat = asyncio.create_task(self.heartbeat())
         operation = asyncio.create_task(self.execute())
+        flusher = asyncio.create_task(self.text_flush_loop())
         outcome = None
         try:
             done, _ = await asyncio.wait(
-                {heartbeat, operation}, return_when=asyncio.FIRST_COMPLETED
+                {heartbeat, operation, flusher}, return_when=asyncio.FIRST_COMPLETED
             )
             for task in done:
                 await task
@@ -108,10 +167,10 @@ class RunSupervisor:
             logger.exception("cloud_agent_execution_failed", extra={"run_id": run["id"]})
             outcome = ("failed", "execution_failed")
         finally:
-            for task in (heartbeat, operation, *self.models.values()):
+            for task in (heartbeat, operation, flusher, *self.models.values()):
                 if not task.done():
                     task.cancel()
-            for task in (heartbeat, operation, *self.models.values()):
+            for task in (heartbeat, operation, flusher, *self.models.values()):
                 with suppress(asyncio.CancelledError, Exception):
                     await task
         if outcome:
@@ -186,6 +245,12 @@ class RunSupervisor:
                 retain_resource=not saved,
             )
             return
+        self.execution = self.run.get("_execution") or await asyncio.to_thread(
+            self.repo.load_execution, self.run["id"]
+        )
+        self.context = self.admission.evaluate(
+            self.execution["context"], self.run["user_id"], self.run["project_id"]
+        )
         grant = await self.check()
         if self.run["publication"] and self.run["publication"].get("status") in {
             "committed",
@@ -199,14 +264,14 @@ class RunSupervisor:
                 "failed" if publication_status == "failed" else "conflict", "publication_reconciled"
             )
             return
-        tools = await asyncio.to_thread(self.repo.tools, self.run["id"])
+        tools = self.execution["tools"]
         if any(tool["state"] == "executing" for tool in tools):
             raise EndRun("outcome_unknown", "tool_outcome_unknown")
         if self.run["state"] == "publishing":
             raise EndRun("outcome_unknown", "publication_outcome_unknown")
         # Takeover first quiesces old providers; no old process is reattached as
         # an execution owner. All confirmed state lives outside that provider.
-        for execution in await asyncio.to_thread(self.repo.executions, self.run["id"]):
+        for execution in self.execution["executions"]:
             if execution["id"] != self.run["execution_id"] and execution["resource"]:
                 # With no executing tool, the last checkpoint/receipt is the
                 # complete acknowledged state. Quiesce the old process before
@@ -247,8 +312,9 @@ class RunSupervisor:
                 snapshot={**self.run["snapshot"], "text": confirmed},
             )
         else:
-            self.value = await asyncio.to_thread(self.publication.capture, self.run, grant)
-            previous = await asyncio.to_thread(self.repo.previous, self.run)
+            with database_stage("workspace_prepare"):
+                self.value = await asyncio.to_thread(self.publication.capture, self.run, grant)
+            previous = self.execution["previous"]
             if previous and previous["checkpoint"]:
                 if previous["state"] not in {"succeeded", "stopped", "failed"} or (
                     previous["publication"] or {}
@@ -279,13 +345,15 @@ class RunSupervisor:
         # Provider identity intent is durable before allocation (Docker's name is
         # deterministic; E2B also carries the execution identity in metadata).
         await self.write("resource", {}, resource=self.worker.resource)
-        resource = await self.worker.create()
+        with database_stage("sandbox_create"):
+            resource = await self.worker.create()
         await self.write("resource", {}, resource=resource)
         definitions = (
             await asyncio.to_thread(self.bound_tools.definitions, self.run)
             if self.bound_tools
             else []
         )
+        self.worker_started_at = time.monotonic()
         await self.worker.start(
             {
                 **self.run["policy"],
@@ -308,13 +376,14 @@ class RunSupervisor:
         while True:
             frame = await self.worker.receive()
             kind = frame.get("type")
+            if kind != "text":
+                await self.flush_text()
             if kind == "text":
-                delta = str(frame["delta"])
-                snapshot = {
-                    **self.run["snapshot"],
-                    "text": (self.run["snapshot"].get("text", "") + delta)[-200000:],
-                }
-                await self.write("text", {"delta": delta[:100000]}, snapshot=snapshot)
+                if self.first_text_seconds is None:
+                    self.first_text_seconds = time.monotonic() - self.started_at
+                self.pending_text += str(frame["delta"])
+                if len(self.pending_text.encode()) >= 32768:
+                    await self.flush_text()
             elif kind == "checkpoint":
                 supplied = frame["checkpoint"]
                 if "git" in self.value and not isinstance(supplied.get("git"), dict):
@@ -348,20 +417,26 @@ class RunSupervisor:
                     raise EndRun("failed", "model_failed")
                 self.finished = True
                 await self.check()
-                if "git" in self.value:
-                    workspace = await self.worker.capture(
-                        workspace=True,
-                        commit=None
-                        if self.run["policy"]["readonly"]
-                        else "Agent run " + self.run["id"],
-                    )
-                else:
-                    workspace = {"files": await self.worker.capture()}
+                with database_stage("sandbox_capture_commit"):
+                    if "git" in self.value:
+                        workspace = await self.worker.capture(
+                            workspace=True,
+                            commit=None
+                            if self.run["policy"]["readonly"]
+                            else "Agent run " + self.run["id"],
+                        )
+                    else:
+                        workspace = {"files": await self.worker.capture()}
                 await self.save({**self.value, **workspace}, "settled")
                 return
             elif kind in {"failed", "disconnected"}:
                 raise EndRun("failed", "worker_disconnected")
             elif kind == "ready":
+                if self.worker_started_at is not None:
+                    self.metrics.duration(
+                        "sandbox_restore_and_start", time.monotonic() - self.worker_started_at
+                    )
+                    self.worker_started_at = None
                 if frame.get("pi_version") != "0.85.1" or frame.get("node_version") != "v22.22.3":
                     raise ValueError("Unexpected worker artifact")
                 if "git" in self.value and frame.get("workspace_version") != 1:
@@ -373,6 +448,10 @@ class RunSupervisor:
                 raise ValueError("Unknown worker frame")
 
     async def model(self, frame):
+        with database_stage("model_stream"):
+            await self._model(frame)
+
+    async def _model(self, frame):
         request_id = frame["id"]
         inference = None
         error = None
@@ -435,7 +514,7 @@ class RunSupervisor:
         if receipt["state"] == "waiting":
             await self.write("state", {"state": "waiting_approval"}, state="waiting_approval")
             while receipt["state"] == "waiting":
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
                 await self.check()
                 receipts = await asyncio.to_thread(self.repo.tools, self.run["id"])
                 receipt = next(t for t in receipts if t["call_id"] == frame["call_id"])
@@ -445,8 +524,12 @@ class RunSupervisor:
         await self.worker.send(
             {"type": "reply", "id": frame["id"], "allow": receipt["state"] != "rejected"}
         )
+        self.tool_started_at[frame["call_id"]] = time.monotonic()
 
     async def tool_end(self, frame):
+        started = self.tool_started_at.pop(frame["call_id"], None)
+        if started is not None and self.metrics:
+            self.metrics.duration("sandbox_tools", time.monotonic() - started)
         if "git" in self.value and not isinstance(frame.get("git"), dict):
             raise ValueError("Missing tool Git checkpoint")
         validate_files(frame["files"])
@@ -484,7 +567,8 @@ class RunSupervisor:
 
     async def publish(self, grant):
         await self.write("state", {"state": "publishing"}, state="publishing")
-        result = await self.publication.publish(self.run, self.value, grant)
+        with database_stage("publication"):
+            result = await self.publication.publish(self.run, self.value, grant)
         await self.write("publication", result, publication=result)
         await self.finish(
             "succeeded" if result["status"] in {"committed", "no_changes"} else "conflict",
@@ -492,28 +576,47 @@ class RunSupervisor:
         )
 
     async def finish(self, state, code, *, retain_resource=False):
+        await self.flush_text()
         # Cleanup happens before terminal ACK and is retried by takeover on a
         # crash. Provider deletion is safe only once recovery data is durable.
-        await self.write("heartbeat")
+        if not self.finished:
+            await self.write("heartbeat")
+        completed_execution = self.finished and not retain_resource and self.worker is not None
         if not retain_resource:
-            for execution in await asyncio.to_thread(self.repo.executions, self.run["id"]):
+            executions = (
+                [
+                    {
+                        "id": self.run["execution_id"],
+                        "fence": self.run["fence"],
+                        "resource": self.worker.resource,
+                    }
+                ]
+                if completed_execution
+                else await asyncio.to_thread(self.repo.executions, self.run["id"])
+            )
+            for execution in executions:
                 if execution["fence"] > self.run["fence"]:
                     continue
                 if execution["resource"]:
-                    if (
-                        self.worker
-                        and execution["resource"]["session_id"] == self.worker.execution_id
-                    ):
-                        await self.worker.stop()
-                    else:
-                        await PiWorker.cleanup(execution["resource"])
-                await asyncio.to_thread(self.repo.cleaned, execution["id"])
+                    with database_stage("sandbox_cleanup"):
+                        if (
+                            self.worker
+                            and execution["resource"]["session_id"] == self.worker.execution_id
+                        ):
+                            await self.worker.stop()
+                        else:
+                            await PiWorker.cleanup(execution["resource"])
+                if not completed_execution:
+                    await asyncio.to_thread(self.repo.cleaned, execution["id"])
         if self.run["billing_run_id"] and not retain_resource:
             await self.billing.finish_session(self.run["billing_run_id"])
         snapshot = {**self.run["snapshot"], "code": code, "resource_retained": retain_resource}
-        await self.write(
-            "terminal",
-            {"state": state, "code": code, "resource_retained": retain_resource},
-            state=state,
-            snapshot=snapshot,
-        )
+        async with self.lock:
+            self.run = await asyncio.to_thread(
+                self.repo.complete_run,
+                self.run,
+                state=state,
+                code=code,
+                snapshot=snapshot,
+                cleaned=bool(completed_execution),
+            )

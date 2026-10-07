@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from types import SimpleNamespace
 
 from src.infra.search.dependencies import get_search_service
 from src.infra.search.schemas import SearchToolQueryInput
@@ -18,8 +19,8 @@ class BoundTools:
 
     def definitions(self, run):
         tools = []
-        for tool_id in run["policy"]["tool_ids"]:
-            tool = self.service.get_by_id(tool_id)
+        for definition in run["policy"]["tool_definitions"]:
+            tool = SimpleNamespace(**definition)
             if tool is None or tool.project_id != run["project_id"]:
                 raise PermissionError("Agent tool belongs to another Project")
             if tool.type != "search" or (
@@ -44,7 +45,6 @@ class BoundTools:
         return tools
 
     async def execute(self, run, name, values):
-        await asyncio.to_thread(self.admission.recheck, run)
         candidate = next(
             (
                 tid
@@ -55,7 +55,10 @@ class BoundTools:
         )
         if candidate is None:
             raise PermissionError("Tool is not bound to this Agent")
-        tool = await asyncio.to_thread(self.service.get_by_id, candidate)
+        definition = next(
+            (value for value in run["policy"]["tool_definitions"] if value["id"] == candidate), None
+        )
+        tool = SimpleNamespace(**definition) if definition else None
         if (
             tool is None
             or tool.type != "search"

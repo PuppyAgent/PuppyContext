@@ -10,10 +10,10 @@ scheduled execution; `POST /agents` and the old runtime DTO are removed.
 Build from the repository root:
 
 ```sh
-docker build -t puppyone-cloud-agent:git-workspace-v1 backend/agent-worker
+docker build -t puppyone-cloud-agent:data-access-v1 backend/agent-worker
 ```
 
-Apply the two `20261006060000` / `20261006060100` migrations through the existing
+Apply the `20261006060000`, `20261006060100` and `20261008010000` migrations through the existing
 database release workflow. The API and supervisor share Supabase, S3, managed
 inference and runtime billing configuration. In `backend/`, start:
 
@@ -33,7 +33,7 @@ Agent, must be supported by the existing managed inference gateway.
 Docker requires a Docker-enabled worker host. Railway's hosted worker should use
 `SANDBOX_TYPE=e2b` and a separately built, immutable
 `CLOUD_AGENT_E2B_TEMPLATE` containing this artifact, `/workspace`, user `node`,
-Node 22.22.3, Git and all three runtime `.mjs` files. The E2B transport disables Internet
+Node 22.22.3, Git, ripgrep, fd-find (`fd` on PATH) and all three runtime `.mjs` files. The E2B transport disables Internet
 access and binds resources to execution/project metadata. E2B template creation
 and hosted behavior have **not** been verified by the local Docker tests.
 
@@ -78,6 +78,7 @@ All routes are under `/api/v1`, authenticated with the existing user JWT:
 | `GET /agents/requests/{project_id}/{request_id}` | Recover a lost submission receipt |
 | `GET /agents/runs/{run_id}` | Snapshot, publication outcome and tool/approval state |
 | `GET /agents/sessions/{session_id}/runs` | Newest-first runs, `limit` 1–100, optional `before` timestamp |
+| `GET /agents/sessions?project_id=…&agent_id=…` | Actor-owned Cloud Pi chat history, `limit` 1–200; one consistent authorization/list query |
 | `GET /agents/runs/{run_id}/events` | SSE replay, `after` or `Last-Event-ID`; no execution ownership |
 | `POST /agents/runs/{run_id}/stop` | Durable idempotent stop command |
 | `POST /agents/runs/{run_id}/approvals/{call_id}` | `{decision_id: UUID, allow: boolean}` |
@@ -135,7 +136,6 @@ run requires resolution; operator recovery uses the retained base/files/receipts
 Publication reuses the canonical Version Engine, original base and SQL fencing.
 Native Git publication conditionally updates its fixed ref and preserves original
 commit IDs; it never regenerates commits or force-pushes over another author.
-The pre-existing legacy projection path retains its `manual_review` policy.
 The native publication adapter has real PostgreSQL/S3 coverage with synthetic
 native enrollment/readiness; the current Project readiness service still owns
 its existing first-root-Git-push gate. Native readiness rollout belongs to
@@ -150,12 +150,33 @@ them after accepting production runs. Changes to historical migrations are
 unnecessary. Runtime records block parent deletion while work/recovery is active;
 terminal records cascade with intentional session/Agent/Project deletion.
 
+The data-access migration adds revision guards and batch receipts. Before
+activation, drain **all** pre-migration runs and settle retained resources;
+their policies do not contain a revision token. Preserve completed runs and
+saved Agent configuration. Do not manufacture tokens on old in-flight work.
+Use the protected database release lane, then deploy the matching API, worker
+artifact and Desktop client. The current native-only source also requires the
+separate native inventory/data release; a legacy hosted Project is not upgraded
+by this Agent schema migration. Never point this build at a legacy repository
+and infer that applying only Agent SQL makes its Git history ready.
+
+An unknown required RPC produces sanitized, retryable
+`503 database_schema_outdated`. This is a deployment mismatch, not a reason to
+recreate the Agent or silently bypass admission.
+
+`cloud_agent_performance` logs worker total attempts, maximum in-flight requests,
+operation counts, stage durations, elapsed time and first text. The ASGI
+`cloud_agent_api_performance` measurement includes the entire SSE lifetime.
+Neither logs database query parameters, credentials or prompt/response content.
+
 ## Verification
 
 From `backend/`:
 
 ```sh
 uv run pytest tests/agent/runtime -q
+AGENT_DESKTOP_REPO="$DESKTOP_CHECKOUT" AGENT_DESKTOP_REPORT_DIR="$EVIDENCE_DIR" \
+  uv run pytest tests/agent/runtime/test_desktop_integration.py -q
 node --test agent-worker/git-workspace.test.mjs
 uv run pytest tests/agent --ignore=tests/agent/runtime tests/security tests/scheduler tests/platform/billing -q
 ```

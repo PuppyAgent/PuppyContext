@@ -24,6 +24,10 @@ class StorageBackend(abc.ABC):
         """Namespace binding when the backend addresses multiple Projects."""
         return None
 
+    def pinned_reader(self, snapshot):
+        """Optional bounded bulk metadata read; filesystem backends need none."""
+        return self
+
     def get_durable(self, h: str) -> bytes:
         """Explicit physical read capability; unknown/caching backends fail closed."""
         raise NotImplementedError("backend does not provide durable object readback")

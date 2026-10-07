@@ -1,5 +1,5 @@
 FROM node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates fd-find ripgrep && ln -s /usr/bin/fdfind /usr/local/bin/fd && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/puppyone-agent
 COPY package.json package-lock.json patch-dependencies.mjs ./
 RUN npm ci --omit=dev --ignore-scripts && node patch-dependencies.mjs && npm cache clean --force

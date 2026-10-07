@@ -104,12 +104,14 @@ def test_real_postgres_restart_preserves_receipt(postgres, submitted, control_ap
     import subprocess
     from pathlib import Path
 
+    from tests.agent.runtime.conftest import PSQL
+
     args, run = submitted
     directory = postgres.sql("SHOW data_directory")
     assert Path(directory).parent.name.startswith("hosting-native-")
     subprocess.run(
         [
-            "/opt/homebrew/opt/postgresql@17/bin/pg_ctl",
+            str(Path(PSQL).with_name("pg_ctl")),
             "-D",
             directory,
             "-l",

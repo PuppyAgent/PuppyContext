@@ -38,7 +38,7 @@ class Publication:
         policy, project = run["policy"], run["project_id"]
         files = {}
         workspace = {}
-        with self.ops.open_read(project, grant) as reader:
+        with self.ops.open_read(project, grant, bulk=True) as reader:
             native = reader.get_read_revision(project)
             if native:
                 full_project(run)

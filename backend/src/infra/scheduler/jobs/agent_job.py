@@ -5,7 +5,6 @@ import logging
 from uuid import uuid4
 
 from src.platform.access.adapters.agent.runtime.models import SubmitRun
-from src.platform.access.adapters.agent.service import AgentService
 from src.platform.access.surface_repository import AccessSurfaceRepository
 from src.platform.authorization.models import ProjectAction
 from src.platform.authorization.service import redacted_project_ref
@@ -46,7 +45,9 @@ async def _execute_agent_task_async(agent_id: str) -> dict:
     request_id = str(uuid4())
     config = surface.get("config") or {}
     try:
-        service = AgentService()
+        from src.platform.access.adapters.agent.dependencies import get_agent_service
+
+        service = get_agent_service()
         result = await asyncio.to_thread(
             service.submit,
             user_id,

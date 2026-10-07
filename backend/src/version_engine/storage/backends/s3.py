@@ -213,6 +213,9 @@ class CachedStorageBackend(StorageBackend):
     def publication_project_id(self) -> str | None:
         return self._inner.publication_project_id
 
+    def pinned_reader(self, snapshot):
+        return self._inner.pinned_reader(snapshot)
+
     def get_durable(self, h: str) -> bytes:
         return self._inner.get_durable(h)
 
@@ -504,6 +507,25 @@ class S3StorageBackend(StorageBackend):
         if self._layout.primary_namespace != _CANONICAL_STORAGE_NAMESPACE:
             raise ValueError("native publication requires the canonical object namespace")
         return self._project_id
+
+    def pinned_reader(self, snapshot):
+        from src.version_engine.storage.pinned_reader import PinnedObjectReader
+
+        if snapshot.project_id != self.publication_project_id:
+            raise StorageWriteError("pinned reader Project mismatch")
+        snapshot.check_live()
+        rows = snapshot.control.call("get_version_pinned_object_locations",
+                                     p_project_id=snapshot.project_id,
+                                     p_actor=snapshot.actor, p_pin_id=snapshot.pin)
+        reader = S3StorageBackend(self._s3, self._project_id, supabase=self._supabase,
+                                 io_strategy=self._io_strategy, require_immutable_chunks=True)
+        locations = {}
+        for row in rows:
+            location = ObjectLocation(row["pack_key"], row["offset_bytes"], row["size_bytes"])
+            reader._validate_location(location)
+            locations[row["object_id"]] = location
+        reader._pinned_locations = locations
+        return PinnedObjectReader(reader, snapshot)
 
     def get_durable(self, h: str) -> bytes:
         # A location cached before compaction/deletion is not current proof.
@@ -1416,6 +1438,8 @@ class S3StorageBackend(StorageBackend):
             raise StorageWriteError("object location is outside its canonical Project namespace")
 
     def _lookup_object_location(self, h: str) -> ObjectLocation | None:
+        if hasattr(self, "_pinned_locations"):
+            return self._pinned_locations.get(h)
         cached = self._cached_object_location(h)
         if cached is not None:
             return cached

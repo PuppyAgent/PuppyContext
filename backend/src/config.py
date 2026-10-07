@@ -413,7 +413,7 @@ class Settings(BaseSettings):
     # - "auto": Auto-select (use E2B if E2B_API_KEY is available, otherwise use Docker)
     SANDBOX_TYPE: Literal["e2b", "docker", "auto"] = "auto"
     E2B_API_KEY: str = ""
-    CLOUD_AGENT_IMAGE: str = "puppyone-cloud-agent:git-workspace-v1"
+    CLOUD_AGENT_IMAGE: str = "puppyone-cloud-agent:data-access-v1"
     CLOUD_AGENT_E2B_TEMPLATE: str = ""
     CLOUD_AGENT_DEFAULT_MODEL: str = ""
     CLOUD_AGENT_MAX_TOKENS: int = Field(default=4096, ge=1, le=32768)
