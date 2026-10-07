@@ -3,7 +3,7 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '2min';
 
--- Facts, not a second role policy. Canonical Python AuthorizationService owns
+-- Facts, not a second role policy. The canonical AuthorizationService owns
 -- interpretation. STABLE functions share the caller statement's MVCC snapshot.
 CREATE FUNCTION public.authorization_project_facts(p_project text,p_user uuid)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path=pg_catalog,public,pg_temp AS $$
