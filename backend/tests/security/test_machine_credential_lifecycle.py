@@ -113,6 +113,19 @@ class _MemoryClient:
 
 @pytest.fixture(autouse=True)
 def _credential_secret(monkeypatch):
+    from src.platform.authorization.repository import (
+        AuthorizationRepository,
+        ProjectAuthorizationFacts,
+    )
+    from tests.authorization_fakes import authorization_facts_response
+
+    def load_facts(repository, project, user):
+        data = authorization_facts_response(repository._client.tables,
+                                            "authorization_project_facts",
+                                            {"p_project": project, "p_user": user}).execute().data
+        return ProjectAuthorizationFacts(**data) if data else None
+
+    monkeypatch.setattr(AuthorizationRepository, "load_project_facts", load_facts)
     monkeypatch.setattr(settings, "ACCESS_CREDENTIAL_PREVIOUS_HASH_SECRET", "")
     monkeypatch.setattr(
         settings,

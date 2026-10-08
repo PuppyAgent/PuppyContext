@@ -5,6 +5,7 @@ on:
     paths:
       - 'backend/src/**'
       - 'backend/tests/agent/**'
+      - 'backend/tests/repository_hosting/integration/test_read_request_budgets.py'
       - 'backend/agent-worker/**'
       - 'backend/pyproject.toml'
       - 'backend/uv.lock'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'backend/src/**'
       - 'backend/tests/agent/**'
+      - 'backend/tests/repository_hosting/integration/test_read_request_budgets.py'
       - 'backend/agent-worker/**'
       - 'supabase/migrations/**'
       - '.github/workflows/agent-runtime-contracts.yml'
@@ -63,7 +65,8 @@ jobs:
           NO_PROXY: 127.0.0.1,localhost
         run: |
           mkdir -p .agent-test-results
-          uv run pytest tests/agent/runtime --ignore=tests/agent/runtime/test_desktop_integration.py \
+          uv run pytest tests/agent/runtime tests/repository_hosting/integration/test_read_request_budgets.py \
+            --ignore=tests/agent/runtime/test_desktop_integration.py \
             -q --junitxml=.agent-test-results/junit.xml --basetemp=.agent-test-results/cases
           node --test agent-worker/git-workspace.test.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

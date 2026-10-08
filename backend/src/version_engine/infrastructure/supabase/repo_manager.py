@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -119,6 +120,23 @@ class VersionRepoManager:
             billing=RepositoryBilling(control),
             policy=RepositoryFilePolicy(control),
         )
+
+    @contextmanager
+    def open_native_read(self, project_id: str, grant):
+        """Read identity, refs and pin in one admitted database operation.
+
+        The captured snapshot is the authority for object format and generation;
+        a separate service-selection snapshot would only repeat this read.
+        """
+        from src.version_engine.infrastructure.supabase.ref_authority_repository import (
+            AdmittedRefAuthorityRepository,
+        )
+        from src.version_engine.read.repository_snapshot import repository_snapshot
+
+        control = AdmittedRefAuthorityRepository(self._supabase.client, lease_provider=lambda _: None)
+        backend = S3StorageBackend(self._s3, project_id, supabase=self._supabase)
+        with repository_snapshot(control, backend, grant, project_id=project_id) as snapshot:
+            yield snapshot
 
     def get_gc_repo(self, project_id: str):
         """Backend-only inventory for GC; not a bypass for current-tree access."""

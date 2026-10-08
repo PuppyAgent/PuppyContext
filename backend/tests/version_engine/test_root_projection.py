@@ -12,7 +12,7 @@ from tests.repository_hosting.integration.test_ref_transaction_service import gr
 @pytest.mark.parametrize("failure", [None, RuntimeError("authority unavailable")])
 def test_missing_native_authority_never_enters_old_root_repair(failure):
     manager = SimpleNamespace(
-        get_native_service=Mock(return_value=None, side_effect=failure),
+        open_native_read=Mock(side_effect=failure or RuntimeError("repository unavailable")),
         get_repo=Mock(side_effect=AssertionError("old root read")),
         get_server_repo=Mock(side_effect=AssertionError("old root repair")),
     )

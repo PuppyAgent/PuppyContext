@@ -543,7 +543,7 @@ class S3StorageBackend(StorageBackend):
                 raise StorageWriteError(
                     "publication object location is outside its canonical Project namespace"
                 )
-        return reader.get(h)
+        return reader._get_with_location(h, location)
 
     def _key_for(self, h: str) -> str:
         return f"{self._prefix}/{h[:_HASH_PREFIX_LEN]}/{h[_HASH_PREFIX_LEN:]}"
@@ -593,6 +593,10 @@ class S3StorageBackend(StorageBackend):
 
     def get(self, h: str) -> bytes:
         location = self._lookup_object_location(h)
+        return self._get_with_location(h, location)
+
+    def _get_with_location(self, h: str, location: ObjectLocation | None) -> bytes:
+        """Reuse this attempt's lookup, including absence; retries may refresh it."""
         if location is not None:
             return self._get_packed_object_at(h, location)
         try:
@@ -630,7 +634,7 @@ class S3StorageBackend(StorageBackend):
         # hash-verified, which would reopen the 520885e2 hole for range
         # reads; reusing ``get`` keeps the verification + indexed bundle
         # fall-through in one place.
-        data = self.get(h)
+        data = self._get_with_location(h, location)
         end = len(data) if limit is None else min(len(data), start + limit)
         return data[start:end], len(data)
 
@@ -1075,6 +1079,9 @@ class S3StorageBackend(StorageBackend):
 
     async def async_get(self, h: str) -> bytes:
         location = self._lookup_object_location(h)
+        return await self._async_get_with_location(h, location)
+
+    async def _async_get_with_location(self, h: str, location: ObjectLocation | None) -> bytes:
         if location is not None:
             return await self._async_get_packed_object_at(h, location)
         key = self._key_for(h)
@@ -1114,7 +1121,7 @@ class S3StorageBackend(StorageBackend):
         # Primary loose objects are small; read the whole verified object
         # via ``async_get`` and slice. A partial range read could not be
         # hash-verified (see ``get_range`` for the same rationale).
-        data = await self.async_get(h)
+        data = await self._async_get_with_location(h, location)
         end = len(data) if limit is None else min(len(data), start + limit)
         return data[start:end], len(data)
 
@@ -1148,17 +1155,20 @@ class S3StorageBackend(StorageBackend):
         import asyncio
 
         unique = list(dict.fromkeys(hashes))
-        if self._supabase is not None:
-            remaining = [h for h in unique if self._cached_object_location(h) is None]
+        locations = {h: self._cached_object_location(h) for h in unique}
+        if hasattr(self, "_pinned_locations"):
+            locations = {h: self._pinned_locations.get(h) for h in unique}
+        elif self._supabase is not None:
+            remaining = [h for h in unique if locations[h] is None]
             if remaining:
-                await asyncio.to_thread(self._lookup_many_object_locations, remaining)
+                locations.update(await asyncio.to_thread(self._lookup_many_object_locations, remaining))
 
         sem = asyncio.Semaphore(concurrency)
         results: dict[str, bytes] = {}
 
         async def _fetch(h: str):
             async with sem:
-                results[h] = await self.async_get(h)
+                results[h] = await self._async_get_with_location(h, locations[h])
 
         await asyncio.gather(*[_fetch(h) for h in unique])
         return results

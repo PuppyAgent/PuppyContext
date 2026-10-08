@@ -57,6 +57,11 @@ class _Client:
     def table(self, name):
         return _Query(self, name)
 
+    def rpc(self, name, params):
+        from tests.authorization_fakes import authorization_facts_response
+
+        return authorization_facts_response(self.tables, name, params)
+
 
 def _project(lifecycle_status: str) -> dict[str, object]:
     return {

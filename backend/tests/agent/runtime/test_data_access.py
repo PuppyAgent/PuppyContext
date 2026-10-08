@@ -285,8 +285,21 @@ async def test_ten_second_model_reply_has_bounded_renewal(prepared, tmp_path):
     assert result["state"] == "succeeded"
     assert result["snapshot"]["text"] == model.expected
     report = supervisor.metrics.report()
-    control = sum(count for name, count in report["operations"].items() if "agent_run" in name)
-    assert control <= 20, report
+    # A stream can straddle the one-second flush boundary and create two
+    # batches. Renewal is also time-dependent: four protected boundaries plus
+    # at most one periodic check per five seconds. Budget each independently
+    # so an extra metadata query cannot hide behind unused timer/stream budget.
+    periodic = {"POST rpc/agent_run_renew", "POST rpc/agent_run_append_batch"}
+    fixed = sum(
+        count
+        for name, count in report["operations"].items()
+        if "agent_run" in name and name not in periodic
+    )
+    assert fixed <= 13, report
+    assert report["operations"].get("POST rpc/agent_run_append_batch", 0) <= 2, report
+    assert report["operations"].get("POST rpc/agent_run_renew", 0) <= (
+        4 + int(supervisor.elapsed_seconds // 5)
+    ), report
     assert report["max_inflight"] <= 2
     assert supervisor.first_text_seconds >= 10
     assert supervisor.elapsed_seconds < 30

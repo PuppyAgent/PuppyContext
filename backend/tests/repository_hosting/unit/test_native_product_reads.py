@@ -8,6 +8,7 @@ import pytest
 
 from src.version_engine.adapters.product.operation_adapter import ProductOperationAdapter
 from src.version_engine.domain.errors import ObjectNotFoundError
+from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.git_object_format import TreeEntry, encode_object, encode_tree
 from tests.repository_hosting.integration.test_ref_transaction_service import grant
 from tests.repository_hosting.unit.test_repository_snapshot import fixture, row
@@ -50,9 +51,11 @@ def native_reads(request):
         row(b"refs/heads/trunk", {"kind": "oid", "oid": commit}, "commit"),
     ]
     manager = Mock()
-    manager.get_native_service.return_value = SimpleNamespace(
-        control=control, backend=backend, object_format=fmt
+    manager.read_backend = backend
+    manager.open_native_read.side_effect = lambda project, grant: repository_snapshot(
+        control, backend, grant, project_id=project
     )
+    manager.get_native_service.side_effect = AssertionError("read constructed publication service")
     manager.get_repo.side_effect = AssertionError("legacy repository used")
     manager.get_server_repo.side_effect = AssertionError("transport repository used")
     return (
@@ -115,7 +118,7 @@ def test_product_read_missing_tree_fails_without_legacy_fallback(native_reads):
             raise ObjectNotFoundError("canonical tree unavailable")
         return objects[oid]
 
-    manager.get_native_service.return_value.backend.get_durable = unavailable
+    manager.read_backend.get_durable = unavailable
     with pytest.raises(ObjectNotFoundError), ops.open_read("p", grant("p")) as read:
         read.list_dir("p")
     assert calls[-1] == "release"
@@ -143,7 +146,7 @@ def test_product_read_unborn_is_intrinsic_and_metadata_failures_do_not_downgrade
         assert read.get_head_commit_id("p") == ""
         assert read.list_dir("p") == []
     assert calls == ["begin", "release"]
-    manager.get_native_service.side_effect = RuntimeError("metadata unavailable")
+    manager.open_native_read.side_effect = RuntimeError("metadata unavailable")
     with pytest.raises(RuntimeError, match="metadata unavailable"), ops.open_read("p", grant("p")):
         pytest.fail("metadata outage downgraded")
     manager.get_repo.assert_not_called()
@@ -189,7 +192,8 @@ def test_native_content_routes_use_admitted_product_view(native_reads, method):
         response.model_dump_json()
     assert calls[0] == "begin" and calls[-1] == "release"
     assert calls.count("begin") == 1
-    manager.get_native_service.assert_called_once_with("p")
+    manager.open_native_read.assert_called_once()
+    manager.get_native_service.assert_not_called()
     manager.get_repo.assert_not_called()
     manager.get_server_repo.assert_not_called()
 
@@ -233,7 +237,7 @@ def test_native_missing_objects_do_not_consult_legacy_incident_classification(
     from src.version_engine.entrypoints.http import content_read
 
     ops, manager, _wire, calls, _objects, _root, _commit, _blob, _child = native_reads
-    manager.get_native_service.return_value.backend.get_durable = Mock(
+    manager.read_backend.get_durable = Mock(
         side_effect=ObjectNotFoundError("missing")
     )
     incident = Mock(side_effect=AssertionError("legacy incident consulted"))
