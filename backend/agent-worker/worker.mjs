@@ -3,7 +3,6 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { captureGit, knowledgeFiles, restoreFiles, restoreGit } from './git-workspace.mjs';
 import path from 'node:path';
 import {
   createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager,
@@ -44,14 +43,10 @@ async function safePath(value, allowMissing = false) {
   return target;
 }
 
-async function workspace() {
-  return { ...await knowledgeFiles(root), ...(config.git ? { git: await captureGit(root) } : {}) };
-}
-
 async function checkpoint(reason) {
   // All session entries, not just rendered messages: retains compactions and branches.
   const value = { version: 1, pi_version: VERSION, entries: [manager.getHeader(), ...manager.getEntries()],
-    leaf_id: manager.getLeafId(), ...await workspace() };
+    leaf_id: manager.getLeafId() };
   await request('checkpoint', { reason, checkpoint: value });
 }
 
@@ -68,8 +63,8 @@ function wrap(definition) {
     let result;
     try { result = await execute(id, input, signal, update, context); }
     catch (error) { result = { content: [{ type: 'text', text: String(error.message) }], isError: true }; }
-    // Receipt + modified files become durable before Pi is allowed to continue.
-    await request('tool_end', { call_id: id, name: definition.name, input, result, ...await workspace() });
+    // The supervisor links the receipt to a provider recovery point before ACK.
+    await request('tool_end', { call_id: id, name: definition.name, input, result, mutated: !['read', 'ls', 'find', 'grep'].includes(definition.name) });
     return result;
   }};
 }
@@ -77,12 +72,10 @@ function wrap(definition) {
 async function start(value) {
   config = value;
   if (VERSION !== '0.85.1' || process.version !== 'v22.22.3') throw new Error('Worker version mismatch');
-  if (config.git) await restoreGit(root, config.git);
-  await restoreFiles(root, config.files || {}, config.modes || {});
   manager = SessionManager.inMemory(root, undefined, config.entries);
   if (config.leaf_id) manager.branch(config.leaf_id);
   if (config.finalize_only) {
-    send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 1 });
+    send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 2 });
     send({ type: 'finished', stopped: false, error: null });
     return;
   }
@@ -147,7 +140,7 @@ async function start(value) {
       send({ type: 'text', delta: event.assistantMessageEvent.delta });
   });
   session.agent.toolExecution = 'sequential';
-  send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 1 });
+  send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 2 });
   try {
     if (config.resume) {
       // Reconcile completed/approved calls explicitly. Agent.continue() needs

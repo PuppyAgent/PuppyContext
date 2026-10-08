@@ -10,7 +10,7 @@ scheduled execution; `POST /agents` and the old runtime DTO are removed.
 Build from the repository root:
 
 ```sh
-docker build -t puppyone-cloud-agent:data-access-v1 backend/agent-worker
+docker build -t puppyone-cloud-agent:workspace-v2 backend/agent-worker
 ```
 
 Apply the `20261006060000`, `20261006060100` and `20261008010000` migrations through the existing
@@ -33,7 +33,7 @@ Agent, must be supported by the existing managed inference gateway.
 Docker requires a Docker-enabled worker host. Railway's hosted worker should use
 `SANDBOX_TYPE=e2b` and a separately built, immutable
 `CLOUD_AGENT_E2B_TEMPLATE` containing this artifact, `/workspace`, user `node`,
-Node 22.22.3, Git, ripgrep, fd-find (`fd` on PATH) and all three runtime `.mjs` files. The E2B transport disables Internet
+Node 22.22.3, Git, ripgrep, fd-find (`fd` on PATH) and the runtime controller, Git relay and Pi worker modules. The E2B transport disables Internet
 access and binds resources to execution/project metadata. E2B template creation
 and hosted behavior have **not** been verified by the local Docker tests.
 
@@ -46,27 +46,43 @@ resolves and records its immutable image ID before allocating each execution.
 
 ## Knowledge repository workspace
 
-For a native full Project, the backend captures the selected cloud branch and
-complete reachable Git history under the existing read pin. A standard Git bundle
-travels over the provider control channel; the sandbox runs `git clone` on it.
-This is an offline Git transport, not a backend checkout or a file-only export.
-No E2B template start command or cloud write credential is needed for each run.
-The template contains the tools; the supervisor starts each actual writing task.
+For a native full Project, admission fixes the repository generation, selected
+branch and base OID. The sandbox uses stock Git `init` + `fetch` + `checkout` for
+the initial working copy. Fetch transfers full reachable history; subsequent
+turns restore the session's provider snapshot and fast-forward from the same
+Git service. No backend checkout, file inventory or Git bundle is produced.
 
-After a successful turn, the provider's trusted capture command freezes Agent
-processes, stages changes and creates a Git commit. The backend publishes that
-original commit graph through the existing fenced native ref transaction, with
-the same semantics as a push to the captured branch. This implementation does
-not execute an unrestricted HTTP `git push` from an Agent tool. Unchanged turns
-create no commit. Concurrent edits reject publication and retain the local commit.
+A root-owned controller launches Pi and tools as uid 1000. The sandbox has no
+Internet access or cloud credentials. During preparation and final push only,
+a loopback HTTP listener relays bounded smart-HTTP bytes over the provider's
+private control channel to `version_engine/adapters/git/run_transport.py`.
+That adapter uses the same `NativeGitRepository` and ref transaction service
+as public `/git/{project}.git`. It owns the Git protocol; Agent only supplies
+an admitted project, original base, candidate and fenced run identity.
 
-Full native Project views are supported. Restricted native Agent views reject
-before receiving broader history; native Scope projections remain a separate
-capability. The selected branch must have a UTF-8 name; detached HEAD rejects.
-Checkpoints are bounded to 32 MiB of packed Git data, 64 MiB of working files and
-10,000 files. Current workspace files must be regular files (no symlinks or
-submodules); their executable modes are retained. No limit truncates history:
-an oversized repository fails preparation explicitly.
+Read tools reuse the existing provider recovery point. Mutating tools, including
+failed shell commands, save a provider snapshot before acknowledging the tool
+receipt. Conversation checkpoints contain bounded Pi entries and opaque recovery
+references in PostgreSQL, never project files or pack data. On successful model
+completion, the controller stops all model processes, stages and commits changes
+once, preserves the exact candidate, then runs stock `git push --porcelain`.
+Unchanged runs create no commit or push. Original operation receipts reconcile
+lost replies; conflicts retain the candidate without force pushing.
+
+Docker recovery uses a root-private named volume with immutable snapshot
+directories; unchanged files share hardlinks. It survives container deletion,
+not loss of the Docker data disk. E2B uses native durable snapshots and reconnects
+the command stream with sequence deduplication. Recovery restarts the controller
+and model under a new execution fence. The current lifecycle recreates compute
+from a retained filesystem; it does not promise a warm running VM across turns.
+
+Full native Project views are supported. Restricted views reject before fetching
+broader history. The selected branch must have a UTF-8 name; detached HEAD rejects.
+Conversation payloads are limited to 8 MiB, each Git transport body to 128 MiB,
+and Docker working memory/disk by its provider limits. Exceeding a limit fails
+explicitly; history is never silently truncated. Recovery material is retained
+while referenced by run/tool checkpoints. Resource cleanup only removes compute;
+it must not erase a referenced recovery volume or snapshot.
 
 ## Client contract
 
@@ -135,22 +151,21 @@ The isolated integration test's aggregate database trace remains a separate
 measurement, not a substitute for hosted observation.
 
 Runs, execution generations, tool receipts and bounded events live in PostgreSQL.
-Checksummed gzip objects store full Pi session entries (including compaction and
-inactive branches), the captured repository base, original Git objects/refs,
-staged index and bounded working files. Git metadata is never published as a
-knowledge file. A completed model turn is recorded separately from the final
-frozen/committed checkpoint so a crash between those stages can be recovered.
-An old execution cannot write after takeover. Completed receipts can restore
+Versioned checksummed manifests store full Pi session entries (including compaction
+and inactive branches), repository base and provider recovery reference. Files,
+Git history, index and untracked work remain inside the provider snapshot. A
+completed model turn is recorded separately from final committed recovery so a
+crash between those stages can be recovered. An old execution cannot write after takeover. Completed receipts can restore
 missing tool results without re-execution; an `executing` receipt is unknown and
-is never replayed. The trusted capture helper freezes tool processes before
-copying the actual sandbox filesystem. Recovery objects must be durable before
+is never replayed. The trusted controller freezes tool processes before
+saving the provider recovery point. Recovery objects must be durable before
 provider deletion. Storage failure retains the provider and transfers cleanup
 to the durable run owner. Terminal states remain immutable on cleanup retries.
 
 Unpublished changes remain in recovery objects. This backend does not automatically
 publish an unknown tool outcome, resolve conflicts or turn an old display-only
 chat into a resumable Pi session. A new session is required when the previous
-run requires resolution; operator recovery uses the retained base/files/receipts.
+run requires resolution; operator recovery uses the retained base/provider snapshot/receipts.
 
 Publication reuses the canonical Version Engine, original base and SQL fencing.
 Native Git publication conditionally updates its fixed ref and preserves original
@@ -200,7 +215,7 @@ From `backend/`:
 uv run pytest tests/agent/runtime -q
 AGENT_DESKTOP_REPO="$DESKTOP_CHECKOUT" AGENT_DESKTOP_REPORT_DIR="$EVIDENCE_DIR" \
   uv run pytest tests/agent/runtime/test_desktop_integration.py -q
-node --test agent-worker/git-workspace.test.mjs
+node --test agent-worker/git.test.mjs
 uv run pytest tests/agent --ignore=tests/agent/runtime tests/security tests/scheduler tests/platform/billing -q
 ```
 
@@ -231,25 +246,10 @@ The scripted model fixture checks the latest tool result before reporting
 completion, so a shell error cannot pass merely because an earlier turn succeeded.
 These are deterministic persistence tests; they do not evaluate model quality.
 
-### Git workspace verification (2026-10-07)
+### Acceptance boundaries
 
-Runtime implementation `5161a778` was verified with the locally built
-`git-workspace-v1` artifact and the expanded regression suite:
-
-- Real Git helper suite: 8 passed on both the host and the pinned Linux worker
-  image (Node 22.22.3), including repeated recovery, merge/tag identity, binary
-  files, modes, hook suppression and corrupt-pack rejection.
-- Full Agent runtime suite: 74 passed, using real Pi/Docker, owned PostgreSQL/
-  PostgREST and MinIO. Both SHA-1 and SHA-256 complete three sequential turns;
-  fault tests cover concurrent publication, changed refs, invalid packs,
-  authorization changes, crash windows and storage outages.
-- This follow-up adds 32 cases: 27 runtime cases and 5 Git helper cases. It
-  changes tests and verification documentation without changing the runtime artifact.
-- Backend non-integration regression command: 3,726 passed, 904 skipped,
-  34 expected failures and 150 deselected.
-- Ruff, whitespace checks and strict OpenSpec validation passed.
-- Canonical documentation was updated in `puppy-issues/document/puppyone/agent-runtime/`.
-  Its global validator still reports the two pre-existing lifecycle metadata
-  errors in the unrelated Rust-native-frontend README, with no new errors.
-
-No hosted API, E2B template or paid model was created or deployed by this validation.
+Local acceptance exercises real Pi, Docker, PostgreSQL, PostgREST, MinIO and
+stock Git. The model response source is deterministic. E2B acceptance is an
+explicit opt-in test against a template built from the same committed artifact;
+Docker results alone do not establish hosted provider behavior. No test runs
+an inventory or migration against existing customer projects.
