@@ -94,6 +94,7 @@ async def test_e2b_snapshot_survives_source_deletion_and_rebinds_controller():
 async def test_e2b_stock_git_fetch_commit_push_and_clean_next_turn(prepared, monkeypatch):
     from e2b import AsyncSandbox
 
+    from src.platform.access.adapters.agent.runtime.workspace import reap_workspaces
     from tests.agent.runtime.test_supervisor import (
         BashModel,
         approve_to_completion,
@@ -120,12 +121,14 @@ async def test_e2b_stock_git_fetch_commit_push_and_clean_next_turn(prepared, mon
         return worker
 
     try:
-        for attempt in range(2):
+        original_resource = None
+        for attempt in range(3):
             supervisor = case.supervisor(
                 model=BashModel(
                     'test -f base.md; printf "saved in E2B" > cloud.md'
                     if attempt == 0
-                    else "test -f cloud.md; git fsck --full"
+                    else 'test "$(cat cloud.md)" = "saved in E2B"; '
+                    'test "$(cat human.md)" = "external cloud change"; git fsck --full'
                 )
             )
             supervisor.worker_factory = factory
@@ -137,7 +140,33 @@ async def test_e2b_stock_git_fetch_commit_push_and_clean_next_turn(prepared, mon
                 "committed" if attempt == 0 else "no_changes"
             )
             assert read_case(case, "cloud.md") == b"saved in E2B"
+            workspace = case.postgres.row(
+                f"SELECT *,extract(epoch FROM (retire_after-idle_since)) AS idle_seconds "
+                f"FROM agent_session_workspaces WHERE session_id='{result['session_id']}'"
+            )
+            assert workspace["state"] == "paused"
+            assert 21599 <= float(workspace["idle_seconds"]) <= 21601
+            resource = supervisor.worker.resource["resource_id"]
+            info = await AsyncSandbox.get_info(resource, api_key=settings.E2B_API_KEY)
+            assert info.state == "paused"
             if attempt == 0:
+                original_resource = resource
+                await native_write(case, "human.md", b"external cloud change")
+            elif attempt == 1:
+                assert resource == original_resource
+                assert supervisor.worker.reused and supervisor.worker.restore_point is None
+                # Own scratch metadata advances the deadline; no six-hour sleep
+                # and no mutation of any hosted application database are needed.
+                case.postgres.sql(
+                    "UPDATE agent_session_workspaces SET retire_after=clock_timestamp()-interval '1 second' "
+                    f"WHERE session_id='{result['session_id']}'"
+                )
+                assert await reap_workspaces(case.repo, PiWorker) == 1
+                assert await reap_workspaces(case.repo, PiWorker) == 0
+            else:
+                assert resource != original_resource
+                assert not supervisor.worker.reused
+            if attempt < 2:
                 case.run = await next_run(case, session_id=result["session_id"])
     finally:
         for worker in workers:

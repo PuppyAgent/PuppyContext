@@ -17,3 +17,13 @@ pre-activation transaction rollback. No customer inventory was scanned.
 
 Hosted E2B artifact upload/acceptance and shared migration/deployment are separate
 release actions, not established by Docker or local SQL results.
+
+## Qubits release (authorized 2026-10-09)
+- [x] Refresh Qubits and compare its complete applied schema history (38 versions); only the four additive 20261009 migrations are pending.
+- [x] Rehearse populated upgrades and extend the hosted schema gate to workspace commands, proof confinement and publication guards (5 real PostgreSQL cases).
+- [ ] Build the committed E2B artifact and verify snapshot recovery, same-sandbox pause/resume, external changes and retirement against E2B.
+- [ ] Pass candidate CI, merge into Qubits and complete the protected database workflow.
+- [ ] Verify deployed API/Agent versions, real model replies and Git publication.
+
+Qubits API/Agent/file/import/MCP source triggers use `qubits` and Wait for CI.
+Current deployed source is `a5dc0ea53f7a61e6df00d66751884be5ba3f6a14`.
