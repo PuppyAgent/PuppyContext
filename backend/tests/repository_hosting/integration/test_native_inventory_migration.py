@@ -59,6 +59,12 @@ rollout_spec = importlib.util.spec_from_file_location(
 rollout = importlib.util.module_from_spec(rollout_spec)
 rollout_spec.loader.exec_module(rollout)
 
+current_spec = importlib.util.spec_from_file_location(
+    "current_tree_rollout", ROOT / "supabase/data_migrations/20261008_qubits_agent_current_tree/run.py"
+)
+current_rollout = importlib.util.module_from_spec(current_spec)
+current_spec.loader.exec_module(current_rollout)
+
 
 def fixture(pg):
     project = pg.create_project()
@@ -744,13 +750,14 @@ def scoped_fixture(pg, s3, tmp_path):
     return a, head, sibling
 
 
-def test_scoped_rollout_preserves_bad_sibling_history_and_is_idempotent(tmp_path):
+@pytest.mark.parametrize("scoped", [rollout, current_rollout])
+def test_scoped_rollout_preserves_bad_sibling_history_and_is_idempotent(tmp_path, scoped):
     pg = Postgres()
     with owned_s3() as (s3, _):
         a, head, sibling = scoped_fixture(pg, s3, tmp_path)
         before = pg.value('SELECT public._native_migration_source(' + literal(sibling) + ');')
         db = migration.Database(pg.url)
-        rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        scoped.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
         assert pg.value('SELECT target_oid FROM public.version_repository_refs WHERE project_id='
                         + literal(a.project) + " AND name=convert_to('refs/heads/main','UTF8');") == head
         assert pg.value('SELECT public._native_migration_source(' + literal(sibling) + ');') == before
@@ -759,13 +766,14 @@ def test_scoped_rollout_preserves_bad_sibling_history_and_is_idempotent(tmp_path
                         + literal(a.org) + " AND metric='storage.logical_bytes'") == '11'
         # No new inventory/reconciliation when the same selection is retried.
         captures = pg.value('SELECT count(*) FROM public.version_storage_reconciliations WHERE org_id=' + literal(a.org))
-        rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        scoped.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
         assert pg.value('SELECT count(*) FROM public.version_storage_reconciliations WHERE org_id=' + literal(a.org)) == captures
         assert pg.value("SELECT has_function_privilege('service_role',"
                         "'public.activate_prepared_native_repository_projects(text,text[],uuid)','EXECUTE')") == 'f'
 
 
-def test_scoped_rollout_rejects_current_snapshot_drift_and_then_resumes(tmp_path):
+@pytest.mark.parametrize("scoped", [rollout, current_rollout])
+def test_scoped_rollout_rejects_current_snapshot_drift_and_then_resumes(tmp_path, scoped):
     pg = Postgres()
     with owned_s3() as (s3, _):
         a, _, sibling = scoped_fixture(pg, s3, tmp_path)
@@ -778,11 +786,37 @@ def test_scoped_rollout_rejects_current_snapshot_drift_and_then_resumes(tmp_path
             return original_sql(statement)
         db.sql = drift
         with pytest.raises(RuntimeError, match='storage_reconciliation_snapshot_changed'):
-            rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+            scoped.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
         assert pg.value('SELECT authority FROM public.version_repositories WHERE project_id=' + literal(a.project)) == 'shadow'
         assert pg.value('SELECT count(*) FROM public.organization_usage_counters WHERE org_id=' + literal(a.org)) == '0'
         assert pg.value('SELECT count(*) FROM public.version_repository_refs WHERE project_id=' + literal(a.project)) == '0'
         db.sql = original_sql
         pg.sql('UPDATE public.projects SET version_root_hash=' + literal(migration.EMPTY) + ' WHERE id=' + literal(sibling))
-        rollout.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
+        scoped.execute(db, s3.client, s3.bucket_name, [a.project], apply=True)
         assert pg.value('SELECT authority FROM public.version_repositories WHERE project_id=' + literal(a.project)) == 'native'
+
+
+def test_scoped_rollout_counts_current_sibling_above_history_budget(tmp_path, monkeypatch):
+    pg = Postgres()
+    with owned_s3() as (s3, _):
+        a, head, sibling = scoped_fixture(pg, s3, tmp_path)
+        # Scale the independent history budget, using actual PG/S3 and Git bytes.
+        monkeypatch.setattr(current_rollout, "MAX_GRAPH", 1024)
+        entries = []
+        for name, content in ((b'a', b'a' * 1024), (b'b', b'b' * 1024)):
+            oid, raw = current_rollout.loose('blob', content)
+            s3.client.put_object(Bucket=s3.bucket_name,
+                Key=f'version/{sibling}/objects/{oid[:2]}/{oid[2:]}', Body=raw)
+            entries.append(b'100644 ' + name + b'\0' + bytes.fromhex(oid))
+        tree, raw = current_rollout.loose('tree', b''.join(entries))
+        s3.client.put_object(Bucket=s3.bucket_name,
+            Key=f'version/{sibling}/objects/{tree[:2]}/{tree[2:]}', Body=raw)
+        pg.sql('UPDATE public.projects SET version_root_hash=' + literal(tree)
+               + ' WHERE id=' + literal(sibling))
+        before = pg.value('SELECT public._native_migration_source(' + literal(sibling) + ')')
+        current_rollout.execute(migration.Database(pg.url), s3.client, s3.bucket_name, [a.project], apply=True)
+        assert pg.value('SELECT value FROM public.organization_usage_counters WHERE org_id='
+                        + literal(a.org) + " AND metric='storage.logical_bytes'") == '2059'
+        assert pg.value('SELECT public._native_migration_source(' + literal(sibling) + ')') == before
+        assert pg.value('SELECT authority FROM public.version_repositories WHERE project_id=' + literal(a.project)) == 'native'
+        assert pg.value('SELECT count(*) FROM public.version_repositories WHERE project_id=' + literal(sibling)) == '0'

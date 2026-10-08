@@ -260,11 +260,17 @@ check. The adapter neither uploads a backup nor relaxes database grants to
 make a restore pass. Keep the artifact accessible for the recovery window.
 
 Native adoption can use an explicit project selection with its own immutable
-receipt. The [Qubits Agent rollout](../../supabase/data_migrations/20261008_qubits_agent_project/README.md)
+receipt. The [Qubits Agent rollout](../../supabase/data_migrations/20261008_qubits_agent_current_tree/README.md)
 keeps selected full history and sibling data intact, while using the existing
 current-tree reconciliation once for a correct organization usage baseline.
 Global archival and destructive Contract retain their own full-inventory gates;
-they are not part of this bounded rollout. An unselected project is not thereby
+they are not part of this bounded rollout. Current-tree usage has independent
+read/traversal budgets and retains object sizes, not every blob. It must not
+inherit the selected history converter's aggregate 256 MiB limit: a large
+unselected current tree still needs truthful usage accounting. Per-object
+hash/type/size checks and the final snapshot fence remain mandatory. Run a
+large one-time measurement close to object storage, with per-project progress;
+normal deployment only verifies the selected completion state. An unselected project is not thereby
 declared native-ready, and no legacy runtime fallback is introduced.
 
 The entire staging/production release and manual data dispatch share an outer
