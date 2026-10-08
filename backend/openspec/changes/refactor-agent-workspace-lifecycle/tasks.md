@@ -7,12 +7,15 @@
 - [x] Add real sandbox, Git, concurrency, recovery and request-budget tests.
 - [x] Run local regression and documentation checks; record exact limitations.
 
-Merge and hosted deployment are intentionally not part of this delivery.
+The user subsequently authorized Qubits release on 2026-10-09; the release
+checklist lives in `add-session-workspaces-and-object-proofs/tasks.md`.
 
 ## Hosted provider acceptance
-- [ ] Build the committed test-only E2B template and run both real E2B recovery/Git tests.
+- [x] Build the committed E2B template and run both real E2B recovery/Git tests.
 
-Local checks use real Docker, PostgreSQL/PostgREST, MinIO and stock Git. E2B
-upload is pending explicit authorization after automatic approval review rejected
-exporting the internal worker artifact to E2B. No E2B test or hosted deployment
-was executed. This item is not satisfied by Docker results.
+Local checks use real Docker, PostgreSQL/PostgREST, MinIO and stock Git. The
+committed public Worker artifact passed real E2B acceptance on 2026-10-09:
+2 tests in 115.57 seconds, including snapshot recovery after deletion and three
+Git turns covering same-ID pause/resume, external writes and expiry/rebuild.
+Template `dtj6qxwvr32fleetor3f`, build `3cd59bab-0680-4bdf-ba8f-9c1bdcaeec3f`.
+This provider result is separate from hosted application deployment.

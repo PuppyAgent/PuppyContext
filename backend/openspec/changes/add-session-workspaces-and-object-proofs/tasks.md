@@ -21,7 +21,7 @@ release actions, not established by Docker or local SQL results.
 ## Qubits release (authorized 2026-10-09)
 - [x] Refresh Qubits and compare its complete applied schema history (38 versions); only the four additive 20261009 migrations are pending.
 - [x] Rehearse populated upgrades and extend the hosted schema gate to workspace commands, proof confinement and publication guards (5 real PostgreSQL cases).
-- [ ] Build the committed E2B artifact and verify snapshot recovery, same-sandbox pause/resume, external changes and retirement against E2B.
+- [x] Build the committed E2B artifact and verify snapshot recovery, same-sandbox pause/resume, external changes and retirement against E2B (2 passed, 115.57 seconds; template `dtj6qxwvr32fleetor3f`, build `3cd59bab-0680-4bdf-ba8f-9c1bdcaeec3f`).
 - [ ] Pass candidate CI, merge into Qubits and complete the protected database workflow.
 - [ ] Verify deployed API/Agent versions, real model replies and Git publication.
 

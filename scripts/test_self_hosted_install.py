@@ -44,6 +44,101 @@ def jwt(role, secret):
     return f"{message}.{signature}"
 
 
+def prepare_fixture_cutover(compose, directory):
+    """Rehearse the explicit owner step after stopping the old Compose stack.
+
+    The installer must not manufacture evidence that external writers stopped.
+    This test owns every process and verifies that only DB/Redis remain. Its
+    synthetic fixture has no ambiguous legacy connections to classify.
+    """
+    from entrypoint_source_decisions import freeze
+
+    def call(*args, **kwargs):
+        return subprocess.run(
+            [*compose, *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            **kwargs,
+        ).stdout.strip()
+
+    call("up", "--detach", "--wait", "db", "redis")
+    running = call("ps", "--services", "--status", "running").splitlines()
+    if set(running) != {"db", "redis"}:
+        raise RuntimeError("Fixture cutover requires all application producers stopped")
+    queues = {
+        queue: int(call("exec", "-T", "redis", "redis-cli", "ZCARD", queue))
+        for queue in ("arq:queue", "etl", "imports", "synchronize")
+    }
+    in_progress = call(
+        "exec", "-T", "redis", "redis-cli", "--scan", "--pattern", "arq:in-progress:*"
+    )
+    if any(queues.values()) or in_progress:
+        raise RuntimeError("Fixture cutover requires drained queues")
+    backup = directory / "before-entrypoint-cutover.sql"
+    backup.write_text(
+        call("exec", "-T", "db", "pg_dump", "-U", "postgres", "-d", "postgres")
+    )
+    backup.chmod(0o600)  # Synthetic credentials/session rows never become CI artifacts.
+    first = subprocess.run(
+        [*compose, "run", "--rm", "--no-deps", "migrate"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if (
+        first.returncode == 0
+        or "20261003230100_contract_final_entrypoint_storage.sql" not in first.stderr
+    ):
+        raise RuntimeError("Unfrozen populated upgrade must stop at its Contract gate")
+
+    class FixtureDatabase:
+        def scalar(self, sql, variables=None):
+            args = [
+                "exec",
+                "-T",
+                "db",
+                "psql",
+                "-U",
+                "postgres",
+                "-d",
+                "postgres",
+                "-X",
+                "-qAt",
+                "-v",
+                "ON_ERROR_STOP=1",
+            ]
+            for key, value in (variables or {}).items():
+                args.extend(["-v", key + "=" + value])
+            return call(*args, input=sql)
+
+    db = FixtureDatabase()
+    if db.scalar("SELECT count(*) FROM connections;") != "0":
+        raise RuntimeError("Fixture requires explicit decisions for legacy connections")
+    freeze(
+        db,
+        json.dumps(
+            {
+                "environment": "owned installation upgrade fixture",
+                "producer_stop_verified": True,
+                "queue_drain_verified": True,
+                "old_consumers_exited": True,
+                "records": [
+                    {
+                        "running_services": running,
+                        "queue_counts": queues,
+                        "in_progress": 0,
+                    }
+                ],
+            }
+        ).encode(),
+        restore_point_ref=str(backup),
+        approved_by="installation-test-owner",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -157,6 +252,7 @@ def main():
                     if args.variant == "upgrade":
                         compose = compose_for(ROOT)
                         run(*compose, "build")
+                        prepare_fixture_cutover(compose, directory)
                         run(
                             *compose,
                             "up",
