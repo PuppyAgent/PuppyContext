@@ -49,3 +49,21 @@ def test_query_adapter_contains_no_table_mutations():
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             assert node.func.attr not in {"insert", "update", "upsert", "delete"}
+
+
+def test_model_and_tool_boundaries_use_atomic_commands():
+    tree = ast.parse((BASE / "runtime/runner.py").read_text())
+    for method in ast.walk(tree):
+        if not isinstance(method, ast.AsyncFunctionDef) or method.name not in {
+            "_model",
+            "tool_start",
+            "tool_end",
+            "bound_tool",
+        }:
+            continue
+        for node in ast.walk(method):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                assert node.func.attr not in {"check", "write", "tool", "tools"}, (
+                    method.name,
+                    node.lineno,
+                )

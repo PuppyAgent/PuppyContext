@@ -9,7 +9,7 @@ from src.platform.access.adapters.agent.runtime.workspace import (
 )
 from src.platform.project.write_lease import ProjectWriteLease
 from src.version_engine.adapters.git.run_transport import RunPublication
-from src.version_engine.write_engine.native_operation_writer import NativeWriteBase
+from src.version_engine.read.ref_metadata import GitBranchBase
 
 
 class PublicationRejected(ValueError):
@@ -31,16 +31,22 @@ class Publication:
     async def exchange(self, run, value, grant, frame):
         publishing = "git-receive-pack" in frame.get("path", "")
         if not publishing:
-            return await self.transport.exchange(run["project_id"], grant, frame)
+            return await self.transport.exchange(
+                run["project_id"], grant, frame, base=value["base"]
+            )
         candidate = value["workspace"].get("tip")
         if run["state"] != "publishing" or run["policy"]["readonly"] or not candidate:
             raise PermissionError("Run has no publication capability")
-        binding = RunPublication(run["id"], NativeWriteBase.parse(value["base"]), candidate)
+        binding = RunPublication(run["id"], GitBranchBase.parse(value["base"]), candidate)
+        if frame["method"] == "GET":
+            return await self.transport.exchange(
+                run["project_id"], grant, frame, base=value["base"], publication=binding
+            )
         lease = ProjectWriteLease(run["project_id"], "agent.git.push", reuse_active=False)
         lease.holder_id = actor(run)
         async with lease:
             return await self.transport.exchange(
-                run["project_id"], grant, frame, publication=binding
+                run["project_id"], grant, frame, base=value["base"], publication=binding
             )
 
     async def publish(self, run, checkpoint, grant, worker):
@@ -54,7 +60,7 @@ class Publication:
             raise RuntimeError("Original Git publication is still pending")
         if result is None:
             current = await asyncio.to_thread(self.transport.describe, run["project_id"], grant)
-            if NativeWriteBase.parse(current) != NativeWriteBase.parse(checkpoint["base"]):
+            if GitBranchBase.parse(current) != GitBranchBase.parse(checkpoint["base"]):
                 return {
                     "status": "conflict",
                     "commit_id": state["tip"],

@@ -1,6 +1,8 @@
 """Checked full-repository file policy; no enrollment or transport authority."""
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from src.version_engine.admission.file_policy import oversized_blob_occurrences
 from src.version_engine.infrastructure.supabase.billing_repository import verified_current_tree
 
@@ -13,6 +15,10 @@ class RepositoryFilePolicy:
 
     def check(self, project_id):
         value = self.control.call('check_version_repository_file_policy', p_project_id=project_id)
+        return self.validate(project_id, value)
+
+    @staticmethod
+    def validate(project_id, value):
         if (not isinstance(value, dict) or value.get('project_id') != project_id
                 or not isinstance(value.get('org_id'), str) or not value['org_id']
                 or type(value.get('source_revision')) is not int or value['source_revision'] <= 0
@@ -22,14 +28,19 @@ class RepositoryFilePolicy:
             raise RuntimeError('invalid repository file policy contract')
         return value
 
-    def verify(self, service, grant, edits, roots, context, manifest=None):
+    def verify(self, service, grant, edits, roots, context, manifest=None, *, snapshot=None):
         from src.version_engine.read.repository_snapshot import repository_snapshot
         from src.version_engine.write_engine.ref_transaction import RefState
 
         result = dict(context)
         limit = context['file_limit']
-        with repository_snapshot(self.control, service.backend, grant, project_id=service.project_id,
-                                 max_bytes=service.verifier.max_bytes) as snapshot:
+        read = nullcontext(snapshot) if snapshot is not None else repository_snapshot(
+            self.control, service.backend, grant, project_id=service.project_id,
+            max_bytes=service.verifier.max_bytes)
+        with read as snapshot:
+            snapshot.check_live()
+            if snapshot.project_id != service.project_id:
+                raise ValueError("repository snapshot Project mismatch")
             if snapshot.object_format != service.object_format:
                 raise ValueError('repository object format mismatch')
             if manifest is None and roots:

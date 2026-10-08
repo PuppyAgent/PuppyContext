@@ -24,6 +24,15 @@ def measured(name, call):
     return value, trace.report()
 
 
+def assert_run_budget(supervisor, report, fixed):
+    # Slow hosts may cross a real five-second heartbeat. Keep every attempt in
+    # the report; only actual timed heartbeats have a duration-derived allowance.
+    heartbeats = report["stages"].get("heartbeat", 0)
+    assert report["operations"].get("POST rpc/agent_run_renew", 0) == heartbeats, report
+    assert heartbeats <= int(supervisor.elapsed_seconds / 5), report
+    assert report["attempts"] <= fixed + heartbeats, report
+
+
 @pytest.mark.asyncio
 async def test_named_operations_have_real_http_budgets(prepared):
     c = prepared
@@ -233,9 +242,8 @@ async def test_workspace_metadata_queries_do_not_scale_per_file(prepared, count,
     value, report = measured("workspace", lambda: c.publication.capture(c.run, grant))
     assert "files" not in value and "git" not in value
     assert value["workspace"]["base_oid"]
-    assert report["attempts"] <= 4, report
-    assert report["operations"].get("POST rpc/get_version_pinned_object_locations", 0) == 0
-    assert sum(n for op, n in report["operations"].items() if "version_object_locations" in op) == 1
+    assert report["attempts"] == 1, report
+    assert report["operations"] == {"POST rpc/get_admitted_version_repository_snapshot": 1}
     import json
 
     (tmp_path / "workspace-performance.json").write_text(
@@ -465,6 +473,7 @@ async def test_real_pi_answers_file_question_using_offline_find_and_read(
     assert counts["prepare"] == counts["snapshot"] == counts["finalize"] == 1
     assert counts["push"] == 0
     report = supervisor.metrics.report()
+    assert_run_budget(supervisor, report, 20)
     assert report["max_inflight"] <= 2, report
     assert report["operations"].get("POST rpc/get_version_pinned_object_locations") == 1
     (tmp_path / "read-tool-performance.json").write_text(
@@ -688,9 +697,17 @@ async def test_writing_run_uses_one_push_and_bounded_object_reservations(
     assert commands["finalize"] == commands["push"] == 1, commands
     assert commands["snapshot"] == 3, commands  # prepared, mutation, exact commit
     assert http["POST git-receive-pack"] == 1, http
+    # Read the published state independently of the execution trace. Every file
+    # must be present with exact bytes; counts alone cannot establish success.
+    grant = c.admission.load(c.user, c.project, c.agent).grant
+    with c.ops.open_read(c.project, grant) as reader:
+        for index in range(count):
+            assert reader.read_file(c.project, f"note-{index}.md") == f"note {index}".encode()
     report = supervisor.metrics.report()
-    # New-object batch, canonical empty tree, and full-closure capacity seal.
-    assert report["operations"].get("POST rpc/reserve_version_object_capacity") == 3, report
+    # Empty tree shares the incoming batch; closure reconciliation is in seal.
+    assert report["operations"].get("POST rpc/reserve_version_object_capacity") == 1, report
+    assert report["operations"].get("POST rpc/seal_version_capacity_batch") == 1, report
+    assert_run_budget(supervisor, report, 35)
     assert report["operations"].get("GET version_object_locations", 0) <= 3, report
     assert report["max_inflight"] <= 10, report
     assert all(
@@ -709,3 +726,36 @@ async def test_writing_run_uses_one_push_and_bounded_object_reservations(
             indent=2,
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_atomic_command_adapters_each_use_one_real_database_attempt(prepared):
+    c = prepared
+    manifest = await c.checkpoints.save(c.run, {"entries": [], "recovery": None})
+    frame = {"call_id": "command-budget", "name": "read", "input": {"path": "note.md"}}
+    operations = [
+        (
+            "start_execution",
+            lambda: c.repo.start_execution(c.run, checkpoint=manifest, billing=None, resource={}),
+        ),
+        (
+            "begin_model",
+            lambda: c.repo.begin_model(c.run, request=str(uuid4()), checkpoint=manifest, limit=2),
+        ),
+        (
+            "begin_tool",
+            lambda: c.repo.begin_tool(c.run, frame, checkpoint=manifest, mutation=False),
+        ),
+        (
+            "complete_tool",
+            lambda: c.repo.complete_tool(
+                c.run, frame, checkpoint=manifest, result={"pi_result": {}, "checkpoint": manifest}
+            ),
+        ),
+        ("settle_model", lambda: c.repo.settle_model(c.run, checkpoint=manifest)),
+    ]
+    for name, call in operations:
+        result, report = measured(name, call)
+        assert report["operations"] == {"POST rpc/agent_run_" + name: 1}, report
+        assert report["failures"] == 0 and report["max_inflight"] == 1
+        assert result["run"]["id"] == c.run["id"]

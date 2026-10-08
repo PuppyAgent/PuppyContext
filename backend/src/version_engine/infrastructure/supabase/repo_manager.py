@@ -89,6 +89,19 @@ class VersionRepoManager:
         migration/RPC capability is an error, never permission to use old roots.
         The service and physical backend are request-owned, not cached authority.
         """
+        metadata = self.repository_metadata(project_id)
+        if metadata is None or metadata["authority"] == "shadow":
+            return None
+        return self.service_from_metadata(project_id, metadata)
+
+    def service_from_metadata(self, project_id: str, metadata):
+        """Construct from this request's admitted facts; construction does no I/O.
+
+        This is not cached authority. Read pins and final SQL publication still
+        validate current generation, permissions, lease, policy and CAS.
+        """
+        if metadata.get("project_id") != project_id or metadata.get("object_format") not in {"sha1", "sha256"}:
+            raise ValueError("repository metadata binding mismatch")
         from src.platform.project.write_lease import active_project_write_lease
         from src.version_engine.infrastructure.supabase.billing_repository import RepositoryBilling
         from src.version_engine.infrastructure.supabase.capacity_repository import (
@@ -102,9 +115,6 @@ class VersionRepoManager:
         )
         from src.version_engine.write_engine.ref_transaction import RefTransactionService
 
-        metadata = self.repository_metadata(project_id)
-        if metadata is None or metadata["authority"] == "shadow":
-            return None
         control = AdmittedRefAuthorityRepository(
             self._supabase.client,
             lease_provider=active_project_write_lease,

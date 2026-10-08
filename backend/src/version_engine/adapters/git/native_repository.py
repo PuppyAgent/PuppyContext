@@ -30,17 +30,23 @@ class PublicationIndeterminateError(RuntimeError):
 
 
 class NativeGitRepository:
-    def __init__(self, service: RefTransactionService):
+    def __init__(self, service: RefTransactionService, *, expected_generation=None):
+        self.expected_generation = expected_generation
         self.service = service
         self.control = service.control
         self.project_id = service.project_id
         self.format = service.object_format
+
+    def check_generation(self, generation):
+        if self.expected_generation is not None and generation != self.expected_generation:
+            raise PermissionError("Git repository generation changed")
 
     def info_refs(self, grant, service: str, *, protocol=""):
         actor = admitted_actor(grant, self.project_id, write=False)
         if service not in {"git-upload-pack", "git-receive-pack"}:
             raise ValueError("unsupported Git service")
         snapshot = self.control.read_snapshot(self.project_id, actor)
+        self.check_generation(snapshot.get("generation"))
         output = advertisement(snapshot, service, protocol, self.format)
         return Response(
             pkt_line(f"# service={service}\n".encode()) + flush_pkt() + output,
@@ -62,6 +68,7 @@ class NativeGitRepository:
                 raise ValueError("unsupported protocol-v2 command")
             if commands[0] == b"command=ls-refs":
                 snapshot = self.control.read_snapshot(self.project_id, actor)
+                self.check_generation(snapshot.get("generation"))
                 return Response(
                     ls_refs(snapshot, packets, self.format),
                     media_type="application/x-git-upload-pack-result",
@@ -74,6 +81,7 @@ class NativeGitRepository:
         )
         read = context.__enter__()
         try:
+            self.check_generation(read.generation)
             read.backend = read.backend.pinned_reader(read)
             if read.object_format != self.format:
                 raise ValueError("repository object format mismatch")
@@ -100,6 +108,7 @@ class NativeGitRepository:
             with repository_snapshot(
                 self.control, self.service.backend, grant, project_id=self.project_id
             ) as snapshot:
+                self.check_generation(snapshot.generation)
                 snapshot.backend = snapshot.backend.pinned_reader(snapshot)
                 reader = PublishedObjectReader(snapshot, self.control)
                 if publication is not None and snapshot.generation != publication.base.generation:
@@ -192,7 +201,10 @@ class NativeGitRepository:
                         pending = set().union(*(closures[edit.name] for edit in batch)) - uploaded
 
                         def prepare(pending=pending):
-                            batch, size = {}, 0
+                            # The canonical empty tree shares the incoming batch;
+                            # it must not create a second physical lease/reservation.
+                            empty_oid, empty_loose = encode_object("tree", b"", object_format=self.format)
+                            batch, size = {empty_oid: empty_loose}, len(empty_loose)
                             for oid in pending:
                                 checkpoint()
                                 snapshot.check_live()
@@ -229,6 +241,8 @@ class NativeGitRepository:
                                 roots=desired,
                                 prepare=prepare,
                                 message="git push",
+                                read_snapshot=snapshot,
+                                prepare_includes_empty_tree=True,
                             )
                         except Exception as exc:
                             actor = admitted_actor(grant, self.project_id, write=False)

@@ -96,7 +96,7 @@ def test_native_file_policy_requires_complete_admission_and_replay_is_read():
         calls.append(kwargs)
         return original
     control = SimpleNamespace(apply_policy=apply, apply_billed=lambda *args: pytest.fail('unmetered policy'),
-                              result=lambda *args: original)
+                              result=lambda *args: original, publication_context=lambda *args: {"result": original})
     policy = RepositoryFilePolicy(control)
     with pytest.raises(ValueError, match='matching control and billing'):
         RefTransactionService(control, SimpleNamespace(), project_id='project', policy=policy)

@@ -14,15 +14,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from src.version_engine.adapters.git.execution import MAX_PACK_BYTES, admission, run_owned
 from src.version_engine.adapters.git.native_repository import NativeGitRepository
-from src.version_engine.read.native_tree_reader import NativeTreeReader
-from src.version_engine.read.operation_status import operation_status
-from src.version_engine.write_engine.native_operation_writer import NativeWriteBase
+from src.version_engine.read.ref_metadata import GitBranchBase
 
 
 @dataclass(frozen=True)
 class RunPublication:
     request_key: str
-    base: NativeWriteBase
+    base: GitBranchBase
     candidate: str
 
     def validate(self, edits):
@@ -36,20 +34,17 @@ class RunGitTransport:
         self.manager = manager
 
     def describe(self, project, grant):
-        with self.manager.open_native_read(project, grant) as snapshot:
-            base = NativeTreeReader(snapshot).get_read_revision(project)
-        return base
+        return GitBranchBase.from_metadata(
+            self.manager.get_native_ref_metadata(project, grant)
+        ).wire()
 
     def result(self, project, grant, request_key):
-        service = self.manager.get_native_service(project)
-        if service is None:
-            raise ValueError("Native repository unavailable")
-        status = operation_status(service.control, project, grant, request_key)
+        status = self.manager.get_native_operation_status(project, grant, request_key)
         if status is None:
             return None
         return status["result"] or {"status": "pending"}
 
-    async def exchange(self, project, grant, frame, *, publication=None):
+    async def exchange(self, project, grant, frame, *, base, publication=None):
         prefix = f"/git/{project}.git/"
         url = urlsplit(frame["path"])
         if url.scheme or url.netloc or url.fragment or not url.path.startswith(prefix):
@@ -73,10 +68,18 @@ class RunGitTransport:
         if len(data) > MAX_PACK_BYTES:
             raise ValueError("Git input exceeds limit")
         with admission() as retain:
-            service = await run_owned(self.manager.get_native_service, project)
+            selected = GitBranchBase.parse(base)
+            service = self.manager.service_from_metadata(
+                project,
+                {
+                    "project_id": project,
+                    "object_format": selected.object_format,
+                    "repository_profile": "native",
+                },
+            )
             if service is None:
                 raise ValueError("Native repository unavailable")
-            repo = NativeGitRepository(service)
+            repo = NativeGitRepository(service, expected_generation=selected.generation)
             with tempfile.TemporaryDirectory(prefix="agent-git-http-") as directory:
                 source = Path(directory) / "request"
                 source.write_bytes(data)

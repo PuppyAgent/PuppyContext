@@ -65,6 +65,24 @@ class RunSupervisor:
             self.run = await asyncio.to_thread(self.repo.write, self.run, kind, payload, **patch)
         return self.run
 
+    async def command(self, method, *args, **kwargs):
+        async with self.lock:
+            reply = await asyncio.to_thread(method, self.run, *args, **kwargs)
+            self.run = reply["run"]
+        status = reply.get("status", {})
+        if code := status.get("code"):
+            raise EndRun("stopped" if code == "stop_requested" else "failed", code)
+        await self.check_billing(self.run["billing_run_id"])
+        return reply
+
+    async def conversation_manifest(self, supplied, reason):
+        value = {
+            **self.value,
+            **{key: supplied[key] for key in ("version", "pi_version", "entries", "leaf_id")},
+            "reason": reason,
+        }
+        return value, await self.checkpoints.save(self.run, value)
+
     async def check(self):
         status = await self.lease.check(self.run)
         await self.check_billing(status["billing_run_id"])
@@ -123,12 +141,15 @@ class RunSupervisor:
             await asyncio.sleep(1)
             await self.flush_text()
 
-    async def save(self, value, reason):
+    async def save(self, value, reason, **patch):
         await self.flush_text()
         payload = {**value, "reason": reason}
         with database_stage("checkpoint"):
             manifest = await self.checkpoints.save(self.run, payload)
-            await self.write("checkpoint", {"reason": reason}, checkpoint=manifest)
+            if reason == "agent_settled":
+                await self.command(self.repo.settle_model, checkpoint=manifest)
+            else:
+                await self.write("checkpoint", {"reason": reason}, checkpoint=manifest, **patch)
         self.value, self.durable = payload, manifest
         return manifest
 
@@ -271,7 +292,7 @@ class RunSupervisor:
         self.context = self.admission.evaluate(
             self.execution["context"], self.run["user_id"], self.run["project_id"]
         )
-        grant = await self.check()
+        grant = self.context.grant
         if self.run["publication"] and self.run["publication"].get("status") in {
             "committed",
             "no_changes",
@@ -288,7 +309,12 @@ class RunSupervisor:
         if any(tool["state"] == "executing" for tool in tools):
             raise EndRun("outcome_unknown", "tool_outcome_unknown")
         if self.run["state"] == "publishing":
-            raise EndRun("outcome_unknown", "publication_outcome_unknown")
+            saved = await self.checkpoints.load(self.run, self.run["checkpoint"])
+            if saved.get("reason") != "settled" or not saved.get("recovery"):
+                raise EndRun("outcome_unknown", "publication_outcome_unknown")
+            # A durable, quiesced candidate can be reconciled by the original
+            # operation key. Never rerun the model or invent a new commit.
+
         # Takeover first quiesces old providers; no old process is reattached as
         # an execution owner. All confirmed state lives outside that provider.
         for execution in self.execution["executions"]:
@@ -344,7 +370,7 @@ class RunSupervisor:
                     entries=old["entries"], leaf_id=old["leaf_id"], recovery=old.get("recovery")
                 )
             self.value["run_entry_start"] = len(self.value.get("entries") or [])
-            await self.save(self.value, "prepared")
+            self.durable = await self.checkpoints.save(self.run, self.value)
         if self.run["billing_run_id"]:
             billing_id = await self.billing.resume_session(
                 self.run["billing_run_id"],
@@ -361,12 +387,14 @@ class RunSupervisor:
                     "maximum_runtime_units": settings.RUNTIME_AGENT_MAX_UNITS,
                 }
             )
-        await self.write("state", {"state": "running"}, state="running", billing_run_id=billing_id)
         self.worker = self.worker_factory(self.run["execution_id"], self.run["project_id"])
         self.worker.restore_point = self.value.get("recovery")
 
         async def git_exchange(frame):
-            current_grant = await self.check()
+            # Git reads check current Project authority in their own SQL read;
+            # receive-pack additionally checks the Run fence through its lease.
+            # Long transfers remain cancellable by the periodic execution lease.
+            current_grant = self.context.grant
             stage = (
                 "git_receive_http"
                 if "git-receive-pack" in frame.get("path", "")
@@ -378,7 +406,12 @@ class RunSupervisor:
         self.worker.git_handler = git_exchange
         # Provider identity intent is durable before allocation (Docker's name is
         # deterministic; E2B also carries the execution identity in metadata).
-        await self.write("resource", {}, resource=self.worker.resource)
+        await self.command(
+            self.repo.start_execution,
+            checkpoint=self.durable or self.run["checkpoint"],
+            billing=billing_id,
+            resource=self.worker.resource,
+        )
         with database_stage("sandbox_create"):
             resource = await self.worker.create()
         await self.write("resource", {}, resource=resource)
@@ -402,7 +435,7 @@ class RunSupervisor:
             }
         )
         await self.consume()
-        await self.publish(await self.check())
+        await self.publish(self.context.grant)
 
     async def consume(self):
         while True:
@@ -433,7 +466,6 @@ class RunSupervisor:
             elif kind == "bound_tool":
                 await self.bound_tool(frame)
             elif kind == "model_request":
-                await self.check()
                 self.models[frame["id"]] = asyncio.create_task(self.model(frame))
             elif kind == "model_cancel":
                 if task := self.models.get(frame["id"]):
@@ -442,12 +474,11 @@ class RunSupervisor:
                 if frame.get("stopped"):
                     raise EndRun("stopped", "stop_requested")
                 if frame.get("error"):
-                    raise EndRun("failed", "model_failed")
+                    raise getattr(self, "model_rejection", EndRun("failed", "model_failed"))
                 self.finished = True
-                await self.check()
                 with database_stage("sandbox_capture_commit"):
                     self.value = await self.recovery.finalize(self.worker, self.value, self.run)
-                await self.save(self.value, "settled")
+                await self.save(self.value, "settled", state="publishing")
                 return
             elif kind in {"failed", "disconnected"}:
                 raise EndRun("failed", "worker_disconnected")
@@ -461,10 +492,9 @@ class RunSupervisor:
                     raise ValueError("Unexpected worker artifact")
                 if frame.get("workspace_version") != 2:
                     raise ValueError("Sandbox artifact does not support provider workspaces")
+                if frame.get("operation_version") != 1:
+                    raise EndRun("failed", "worker_protocol_mismatch")
                 self.value["recovery"] = self.worker.recovery
-                await self.write(
-                    "ready", {key: frame[key] for key in ("pi_version", "node_version")}
-                )
             else:
                 raise ValueError("Unknown worker frame")
 
@@ -487,11 +517,14 @@ class RunSupervisor:
                 or body.max_tokens > self.run["policy"]["max_tokens"]
             ):
                 raise PermissionError("Model request exceeds run policy")
-            await self.write(
-                "model",
-                {"request_id": request_id},
-                snapshot={**self.run["snapshot"], "model_calls": count},
+            value, manifest = await self.conversation_manifest(frame["checkpoint"], "before_model")
+            await self.command(
+                self.repo.begin_model,
+                request=request_id,
+                checkpoint=manifest,
+                limit=settings.CLOUD_AGENT_MAX_MODEL_CALLS,
             )
+            self.value, self.durable = value, manifest
             inference = await self.inference.completion(
                 self.run["user_id"], "cloud-agent:" + request_id, body
             )
@@ -502,6 +535,9 @@ class RunSupervisor:
                     )
                 elif isinstance(event, InferenceFailed):
                     error = event.code
+        except EndRun as exc:
+            self.model_rejection = exc
+            error = exc.code
         except Exception:
             logger.exception("cloud_agent_model_failed", extra={"run_id": self.run["id"]})
             error = "model_request_failed"
@@ -512,7 +548,6 @@ class RunSupervisor:
                 await self.worker.send({"type": "model_end", "id": request_id, "error": error})
 
     async def tool_start(self, frame):
-        await self.check()
         name = frame["name"]
         allowed = {"read", "ls", "find", "grep"}
         if not self.run["policy"]["readonly"]:
@@ -524,24 +559,23 @@ class RunSupervisor:
             from src.platform.scope_sandbox.execution_policy import assert_command_allowed
 
             assert_command_allowed(frame["input"].get("command", ""))
-        receipt = await asyncio.to_thread(
-            self.repo.tool, self.run, frame, "waiting" if mutation else "executing"
+        value, manifest = await self.conversation_manifest(frame["checkpoint"], "before_tool")
+        reply = await self.command(
+            self.repo.begin_tool, frame, checkpoint=manifest, mutation=mutation
         )
+        receipt = reply["tool"]
         if receipt["state"] == "completed":
             await self.worker.send(
                 {"type": "reply", "id": frame["id"], "result": receipt["result"]["pi_result"]}
             )
             return
-        if receipt["state"] == "waiting":
-            await self.write("state", {"state": "waiting_approval"}, state="waiting_approval")
-            while receipt["state"] == "waiting":
-                await asyncio.sleep(1)
-                await self.check()
-                receipts = await asyncio.to_thread(self.repo.tools, self.run["id"])
-                receipt = next(t for t in receipts if t["call_id"] == frame["call_id"])
-        if receipt["state"] == "approved":
-            await asyncio.to_thread(self.repo.tool, self.run, frame, "executing")
-        await self.write("state", {"state": "running"}, state="running")
+        self.value, self.durable = value, manifest
+        while receipt["state"] == "waiting":
+            await asyncio.sleep(1)
+            reply = await self.command(
+                self.repo.begin_tool, frame, checkpoint=manifest, mutation=mutation
+            )
+            receipt = reply["tool"]
         await self.worker.send(
             {"type": "reply", "id": frame["id"], "allow": receipt["state"] != "rejected"}
         )
@@ -553,40 +587,39 @@ class RunSupervisor:
             self.metrics.duration("sandbox_tools", time.monotonic() - started)
         value = await self.recovery.after_tool(self.worker, self.value, frame)
         manifest = await self.checkpoints.save(self.run, value)
-        await asyncio.to_thread(
-            self.repo.tool,
-            self.run,
+        await self.command(
+            self.repo.complete_tool,
             frame,
-            "completed",
-            {"pi_result": frame["result"], "checkpoint": manifest},
+            result={"pi_result": frame["result"], "checkpoint": manifest},
+            checkpoint=manifest,
         )
-        await self.write("checkpoint", {"reason": "after_tool"}, checkpoint=manifest)
         self.value, self.durable = value, manifest
         await self.worker.send({"type": "reply", "id": frame["id"]})
 
     async def bound_tool(self, frame):
         if self.bound_tools is None:
             raise PermissionError("No configured tools")
-        await self.check()
-        receipt = await asyncio.to_thread(self.repo.tool, self.run, frame, "executing")
+        value, manifest = await self.conversation_manifest(frame["checkpoint"], "before_tool")
+        receipt = (
+            await self.command(self.repo.begin_tool, frame, checkpoint=manifest, mutation=False)
+        )["tool"]
         if receipt["state"] == "completed":
             result = receipt["result"]["pi_result"]
         else:
+            self.value, self.durable = value, manifest
             result = await self.bound_tools.execute(self.run, frame["name"], frame["input"])
-            await asyncio.to_thread(
-                self.repo.tool,
-                self.run,
+            await self.command(
+                self.repo.complete_tool,
                 frame,
-                "completed",
-                {"pi_result": result, "checkpoint": self.run["checkpoint"]},
+                result={"pi_result": result, "checkpoint": manifest},
+                checkpoint=manifest,
             )
         await self.worker.send({"type": "reply", "id": frame["id"], "result": result})
 
     async def publish(self, grant):
-        await self.write("state", {"state": "publishing"}, state="publishing")
         with database_stage("publication"):
             result = await self.publication.publish(self.run, self.value, grant, self.worker)
-        await self.write("publication", result, publication=result)
+        self.run = {**self.run, "publication": result}
         await self.finish(
             "succeeded" if result["status"] in {"committed", "no_changes"} else "conflict",
             "completed",

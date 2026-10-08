@@ -87,6 +87,19 @@ initiating user's current grant and a durable task/step identity; they do not
 publish as the Project creator by default. Table read-modify-write operations
 carry the revision that supplied their input.
 
+Git workspace preparation reads only admitted refs, format and generation; its
+`GitBranchBase` CAS identity does not require the Product splice base tree.
+Transport service construction can use this operation's format metadata without
+another authority-selection query. Each actual read still obtains admitted
+refs or a live pin, and generation changes reject the bound Git request.
+
+A receive operation lends its live snapshot to billing and file-policy checks.
+`get_version_publication_context` groups initial repository/result/policy reads;
+final publication still checks fresh authority and policy revisions. New objects
+and the canonical empty tree share a bounded batch. The last closure-capacity
+batch and seal form one SQL transaction. Physical I/O leases and durable closure
+verification remain mandatory, independently of query-count optimization.
+
 Physical object publication requires a live admission, verified closure and
 capacity reservation. SQL rechecks current membership or credential status,
 lifecycle, generation, policy, lease and CAS at publication. Logical billing,

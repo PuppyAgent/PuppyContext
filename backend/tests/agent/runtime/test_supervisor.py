@@ -120,6 +120,28 @@ def worker_factory(execution, project):
     return PiWorker(execution, project, provider="docker", store=InMemoryExecutionSessionStore())
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [None, 0, 2])
+async def test_old_worker_protocol_rejected_before_model_or_tool(prepared, monkeypatch, version):
+    original = PiWorker.receive
+
+    async def incompatible(worker):
+        frame = await original(worker)
+        if frame["type"] == "ready":
+            frame["operation_version"] = version
+        return frame
+
+    monkeypatch.setattr(PiWorker, "receive", incompatible)
+    model = ModelFixture()
+    await prepared.supervisor(model=model).run_claim(prepared.run)
+    run = prepared.repo.get(prepared.run["id"])
+    assert run["state"] == "failed", run
+    assert run["snapshot"]["code"] == "worker_protocol_mismatch"
+    assert model.calls == 0
+    assert prepared.repo.tools(run["id"]) == []
+    assert not prepared.repo.executions(run["id"])
+
+
 @pytest.fixture
 async def prepared(services, postgres, submitted, request):
     from types import SimpleNamespace
@@ -345,20 +367,20 @@ async def test_stop_waiting_approval_has_no_tool_effect(prepared):
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_completed_tool_receipt_recovers_before_manifest_ack(prepared, monkeypatch):
     case = prepared
-    original = case.repo.write
+    original = case.repo.complete_tool
 
-    def crash(run, kind, payload=None, **patch):
-        if kind == "checkpoint" and payload == {"reason": "after_tool"}:
-            raise asyncio.CancelledError()
-        return original(run, kind, payload, **patch)
+    def crash(run, frame, *, result, checkpoint):
+        original(run, frame, result=result, checkpoint=checkpoint)
+        # SQL has saved receipt AND manifest; lose the entire command ACK.
+        raise asyncio.CancelledError()
 
-    monkeypatch.setattr(case.repo, "write", crash)
+    monkeypatch.setattr(case.repo, "complete_tool", crash)
     first = case.supervisor()
     with pytest.raises(asyncio.CancelledError):
         await approve_to_completion(case, asyncio.create_task(first.run_claim(case.run)))
     assert case.repo.tools(case.run["id"])[0]["state"] == "completed"
     await first.worker.stop()
-    monkeypatch.setattr(case.repo, "write", original)
+    monkeypatch.setattr(case.repo, "complete_tool", original)
     case.postgres.sql(
         f"UPDATE agent_runs SET lease_until=now()-interval '1 second' WHERE id='{case.run['id']}'"
     )
@@ -375,14 +397,12 @@ async def test_completed_tool_receipt_recovers_before_manifest_ack(prepared, mon
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_unknown_tool_is_not_replayed(prepared, monkeypatch):
     case = prepared
-    original = case.repo.tool
 
-    def crash(run, frame, state, result=None):
-        if state == "completed":
-            raise asyncio.CancelledError()
-        return original(run, frame, state, result)
+    def crash(run, frame, *, result, checkpoint):
+        # The effect ran, but no completion transaction reached the database.
+        raise asyncio.CancelledError()
 
-    monkeypatch.setattr(case.repo, "tool", crash)
+    monkeypatch.setattr(case.repo, "complete_tool", crash)
     first = case.supervisor()
     with pytest.raises(asyncio.CancelledError):
         await approve_to_completion(case, asyncio.create_task(first.run_claim(case.run)))
@@ -976,15 +996,16 @@ async def test_native_settled_model_recovers_without_running_model_again(
     prepared, monkeypatch, phase
 ):
     case = prepared
-    original = case.repo.write
+    method = "settle_model" if phase == "agent_settled" else "write"
+    original = getattr(case.repo, method)
 
-    def crash(run, kind, payload=None, **patch):
-        result = original(run, kind, payload, **patch)
-        if kind == "checkpoint" and payload == {"reason": phase}:
+    def crash(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if phase == "agent_settled" or (args[1:3] == ("checkpoint", {"reason": phase})):
             raise asyncio.CancelledError()
         return result
 
-    monkeypatch.setattr(case.repo, "write", crash)
+    monkeypatch.setattr(case.repo, method, crash)
     first = case.supervisor()
     with pytest.raises(asyncio.CancelledError):
         await approve_to_completion(case, asyncio.create_task(first.run_claim(case.run)))
@@ -992,7 +1013,7 @@ async def test_native_settled_model_recovers_without_running_model_again(
     saved = await case.checkpoints.load(before, before["checkpoint"])
     assert saved["reason"] == phase
     await first.worker.stop()
-    monkeypatch.setattr(case.repo, "write", original)
+    monkeypatch.setattr(case.repo, method, original)
     case.postgres.sql(
         f"UPDATE agent_runs SET lease_until=now()-interval '1 second' WHERE id='{case.run['id']}'"
     )
@@ -1200,7 +1221,9 @@ async def test_model_stream_interruption_does_not_duplicate_partial_text(prepare
 @pytest.mark.asyncio
 async def test_detached_writers_cannot_cross_confirmed_tool_boundary(prepared):
     case = prepared
-    model = BashModel("(sleep 2; echo late > late.txt) >background.log 2>&1 &\nprintf saved > note.md")
+    model = BashModel(
+        "(sleep 2; echo late > late.txt) >background.log 2>&1 &\nprintf saved > note.md"
+    )
     original = model.completion
 
     async def delayed(*args):

@@ -1,6 +1,8 @@
 """Checked existing logical-usage settlement, not a native activation switch."""
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from src.platform.billing.storage import logical_verified_tree_bytes
 from src.version_engine.storage.publication import ClosureVerifier
 from src.version_engine.write_engine.git_object_graph import object_edges
@@ -37,6 +39,10 @@ class RepositoryBilling:
 
     def check(self, project_id):
         value = self.control.call('check_version_repository_billing', p_project_id=project_id)
+        return self.validate(project_id, value)
+
+    @staticmethod
+    def validate(project_id, value):
         if (not isinstance(value, dict) or value.get('project_id') != project_id
                 or value.get('metric') != 'storage.logical_bytes'
                 or not isinstance(value.get('org_id'), str) or not value['org_id']
@@ -48,7 +54,7 @@ class RepositoryBilling:
             raise RuntimeError('invalid repository billing contract')
         return value
 
-    def measure(self, service, grant, edits, context, manifest=None):
+    def measure(self, service, grant, edits, context, manifest=None, *, snapshot=None):
         # Local import avoids the snapshot/ref-service type dependency cycle.
         from src.version_engine.read.repository_snapshot import repository_snapshot
 
@@ -58,8 +64,13 @@ class RepositoryBilling:
                 value = states.get(value.target)
             return value.oid if value is not None else None
 
-        with repository_snapshot(self.control, service.backend, grant, project_id=service.project_id,
-                                 max_bytes=service.verifier.max_bytes) as snapshot:
+        read = nullcontext(snapshot) if snapshot is not None else repository_snapshot(
+            self.control, service.backend, grant, project_id=service.project_id,
+            max_bytes=service.verifier.max_bytes)
+        with read as snapshot:
+            snapshot.check_live()
+            if snapshot.project_id != service.project_id:
+                raise ValueError("repository snapshot Project mismatch")
             if snapshot.object_format != service.object_format:
                 raise ValueError('repository object format mismatch')
             states = dict(snapshot.refs)

@@ -222,6 +222,8 @@ class PiWorker:
             result = await self.git_handler(frame)
             await self.send({"type": "reply", "id": frame["id"], **result})
         except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception("agent_git_exchange_failed")
             with suppress(Exception):
                 await self.send({"type": "reply", "id": frame["id"], "error": type(exc).__name__})
 

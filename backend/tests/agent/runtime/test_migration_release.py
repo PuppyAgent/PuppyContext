@@ -36,6 +36,7 @@ def test_additive_migration_preserves_existing_agents_and_pre_activation_rollbac
         for migration in migrations:
             if (
                 migration not in agent
+                and migration.name < "20261009000000"
                 and migration.name != "20261008010000_bound_agent_data_operations.sql"
             ):
                 scratch.sql(module.product_migration_sql(migration))
@@ -121,5 +122,15 @@ def test_additive_migration_preserves_existing_agents_and_pre_activation_rollbac
         assert context["surface"]["config"] == before["config"]
         assert context["facts"]["project_role"] == "admin"
         assert context["revision"]["project"] == project
+        # Additive operation transactions preserve all populated records, and
+        # a rolled-back installation exposes no half-installed command API.
+        for migration in migrations:
+            if migration.name < "20261009000000":
+                continue
+            scratch.sql(migration.read_text().replace("COMMIT;", "ROLLBACK;"))
+            scratch.sql(migration.read_text())
+            assert scratch.row(f"SELECT * FROM agent_runs WHERE id='{old['id']}'") == receipt
+            assert scratch.row(f"SELECT config FROM access_surfaces WHERE id='{agent_id}'") == before
+            assert scratch.sql("SELECT jsonb_agg(m ORDER BY id) FROM chat_messages m") == messages
     finally:
         postgres.sql(f"DROP DATABASE {database} WITH (FORCE)")
