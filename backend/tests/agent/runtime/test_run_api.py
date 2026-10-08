@@ -5,20 +5,61 @@ import json
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from src.config import settings
-from src.exceptions import PermissionException
+from src.exceptions import NotFoundException, PermissionException
+from src.infra.supabase.instrumentation import DatabaseTrace, database_trace
 from src.platform.access.adapters.agent.dependencies import get_agent_service
 from src.platform.access.adapters.agent.router import router
 from src.platform.access.adapters.agent.runtime.models import SubmitRun
 from src.platform.auth.dependencies import get_current_user
 from src.platform.auth.models import CurrentUser
+from src.platform.project.write_lease import ProjectWriteLease
 from tests.agent.runtime.test_supervisor import prepared as prepared_fixture
 
 prepared = prepared_fixture
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
+async def test_native_head_admits_cloud_agent_without_external_push(prepared):
+    case = prepared
+    case.admission.readiness = None  # Exercise the actual aggregate SQL facts.
+    case.postgres.sql(f"UPDATE agent_runs SET state='failed' WHERE project_id='{case.project}'")
+    with pytest.raises(HTTPException) as missing_head:
+        case.admission.load(case.user, case.project, case.agent)
+    assert missing_head.value.detail == {"code": "project_agent_not_ready"}
+    async with ProjectWriteLease(case.project, "fixture.cloud-readiness"):
+        await case.ops.write_file(
+            case.project, "cloud.md", b"Cloud-created content", who="user:" + case.user
+        )
+    facts = case.repo.load_run_context(case.user, case.project, case.agent)
+    assert facts["readiness"]["project_head_commit_id"]
+    assert facts["readiness"]["project_git_push_accepted"] is False
+    trace = DatabaseTrace("native-cloud-admission")
+    with database_trace(trace):
+        context = case.admission.load(case.user, case.project, case.agent)
+    assert context.grant.project_id == case.project
+    assert trace.report()["attempts"] == 1
+    assert trace.report()["max_inflight"] == 1
+    request = SubmitRun(
+        project_id=case.project, agent_id=case.agent, request_id=uuid4(), prompt="Read cloud.md"
+    )
+    result = case.service.submit(case.user, request)
+    assert result["project_id"] == case.project
+    with pytest.raises(NotFoundException) as denied:
+        case.admission.load(str(uuid4()), case.project, case.agent)
+    assert denied.value.status_code == 404
+    case.postgres.sql(
+        f"UPDATE agent_runs SET state='failed' WHERE project_id='{case.project}'; "
+        f"UPDATE access_surfaces SET status='paused' WHERE project_id='{case.project}' AND kind='git_remote'"
+    )
+    with pytest.raises(HTTPException) as missing_surface:
+        case.admission.load(case.user, case.project, case.agent)
+    assert missing_surface.value.detail == {"code": "project_agent_not_ready"}
 
 
 @pytest.mark.asyncio

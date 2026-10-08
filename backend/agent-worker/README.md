@@ -155,10 +155,14 @@ run requires resolution; operator recovery uses the retained base/files/receipts
 Publication reuses the canonical Version Engine, original base and SQL fencing.
 Native Git publication conditionally updates its fixed ref and preserves original
 commit IDs; it never regenerates commits or force-pushes over another author.
-The native publication adapter has real PostgreSQL/S3 coverage with synthetic
-native enrollment/readiness; the current Project readiness service still owns
-its existing first-root-Git-push gate. Native readiness rollout belongs to
-ISSUE-062 and is not claimed by that component test.
+Cloud Agent admission requires a Project Git surface and a valid authoritative
+native HEAD, including one installed by a verified migration or product write.
+It does not require an external client's first Git push. The existing external
+client onboarding projection keeps its separate first-push gate. Admission still
+evaluates the real Project grant and saved Agent policy; publication retains its
+authority, lifecycle, billing and CAS checks. Real PostgreSQL/PostgREST/S3 tests
+cover admission after a product commit without a Git push, missing HEAD/surface,
+cross-account denial and the one-request context budget.
 
 Deploy migrations before the API/supervisor and client switch. Stop old Agent
 producers and drain existing Python runs before replacing them. Do not run
