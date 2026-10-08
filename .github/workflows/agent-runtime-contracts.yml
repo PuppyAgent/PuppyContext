@@ -67,6 +67,7 @@ jobs:
           mkdir -p .agent-test-results
           uv run pytest tests/agent/runtime tests/repository_hosting/integration/test_read_request_budgets.py \
             --ignore=tests/agent/runtime/test_desktop_integration.py \
+            --hosting-live --hosting-s3 \
             -q --junitxml=.agent-test-results/junit.xml --basetemp=.agent-test-results/cases
           node --test agent-worker/git-workspace.test.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

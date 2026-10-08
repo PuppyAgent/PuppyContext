@@ -25,7 +25,9 @@ services = owned.services
 submitted = owned.submitted
 prepared = prepared_fixture
 
-pytestmark = pytest.mark.integration
+# The ordinary hosting component job has no PG/PostgREST/S3 services. The
+# Agent runtime job provisions these owned fixtures and opts into both layers.
+pytestmark = [pytest.mark.integration, pytest.mark.hosting_live, pytest.mark.hosting_s3]
 
 
 def test_batch_migration_upgrades_populated_authorization(postgres, submitted):
