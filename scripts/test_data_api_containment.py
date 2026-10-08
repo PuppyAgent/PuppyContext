@@ -109,31 +109,18 @@ def rest_matrix(status: dict, *, before: bool) -> int:
 
 
 def backend_consumers(status: dict) -> None:
-    # Actual repositories over PostgREST plus the canonical authorization policy
-    # over real tenant facts. No in-memory database/authentication substitute.
+    # Consumers of the historical containment schema, over real PostgREST.
+    # Current authorization uses newer RPCs and is checked after the full reset.
     os.environ.update(SUPABASE_URL=status["API_URL"], SUPABASE_KEY=status["SERVICE_ROLE_KEY"], SKIP_AUTH="false")
     # Bootstrap the normal facade before domain repositories: its existing
     # re-exports otherwise form an import cycle in a fresh standalone process.
     from src.infra.supabase import SupabaseClient, TableRepository
     from src.content.table.supabase_schemas import TableCreate, TableUpdate
-    from src.exceptions import NotFoundException
-    from src.platform.authorization.models import ProjectAction
-    from src.platform.authorization.repository import AuthorizationRepository
-    from src.platform.authorization.service import AuthorizationService
     from src.version_engine.infrastructure.supabase.audit_repository import AuditRepository
 
     db = SupabaseClient()
-    auth = AuthorizationService(AuthorizationRepository(db.client))
     for suffix, user in zip(("a", "b"), USERS, strict=True):
         project = "issue053-project-" + suffix
-        other = "issue053-project-" + ("b" if suffix == "a" else "a")
-        auth.authorize(project, user, ProjectAction.CONTENT_WRITE)
-        try:
-            auth.authorize(other, user, ProjectAction.CONTENT_READ)
-        except NotFoundException:
-            pass
-        else:
-            raise AssertionError("Cross-tenant grant accepted")
         audit = AuditRepository(db)
         audit.insert("containment-probe", "docs/probe", project_id=project, operator_id=user)
         check(all(row["project_id"] == project for row in audit.list_by_project(project)), "Audit tenant filter failed")
@@ -167,6 +154,64 @@ def backend_consumers(status: dict) -> None:
         "p_created_at": datetime.now(UTC).isoformat(), "p_audit_agent_id": "", "p_audit_detail": {},
     }).execute()
     check(bool(outcome.data and outcome.data[0]["published"]), "Backend atomic publisher failed")
+
+
+def current_authorization_consumers(stack: LocalStack, status: dict) -> None:
+    """Current production authorization against the complete current schema."""
+    from src.infra.supabase import SupabaseClient
+    from src.exceptions import NotFoundException
+    from src.platform.authorization.models import ProjectAction
+    from src.platform.authorization.repository import AuthorizationRepository
+    from src.platform.authorization.service import AuthorizationService
+
+    # Only current tenant tables: historical Scope/publisher fixtures above
+    # cannot be replayed after the final native-repository Contract.
+    for suffix, user in zip(("a", "b"), USERS, strict=True):
+        stack.sql(f"""
+            BEGIN;
+            INSERT INTO auth.users(id, email) VALUES ('{user}', 'issue053-{suffix}@example.test');
+            INSERT INTO organizations(id, name, slug, type, plan, seat_limit, created_by)
+            VALUES ('issue053-org-{suffix}', 'Security fixture', 'issue053-org-{suffix}',
+                    'team', 'free', 1, '{user}');
+            INSERT INTO org_members(id, org_id, user_id, role)
+            VALUES ('issue053-om-{suffix}', 'issue053-org-{suffix}', '{user}', 'owner');
+            INSERT INTO projects(id, name, org_id, created_by, lifecycle_status)
+            VALUES ('issue053-project-{suffix}', 'Security fixture', 'issue053-org-{suffix}',
+                    '{user}', 'ready');
+            INSERT INTO project_members(id, org_id, project_id, user_id, role, granted_by)
+            VALUES ('issue053-pm-{suffix}', 'issue053-org-{suffix}', 'issue053-project-{suffix}',
+                    '{user}', 'admin', '{user}');
+            COMMIT;
+        """)
+    repository = AuthorizationRepository(SupabaseClient().client)
+    authorization = AuthorizationService(repository)
+    projects = ['issue053-project-a', 'issue053-project-b']
+    for index, user in enumerate(USERS):
+        authorization.authorize(projects[index], user, ProjectAction.CONTENT_WRITE)
+        facts = repository.load_project_facts_batch(projects, user)
+        check(facts[projects[index]] == repository.load_project_facts(projects[index], user),
+              'Current single/batch authorization facts disagree')
+        try:
+            authorization.authorize(projects[1 - index], user, ProjectAction.CONTENT_READ)
+        except NotFoundException:
+            pass
+        else:
+            raise AssertionError('Cross-tenant grant accepted')
+
+    # Actual browser roles must not impersonate the backend's principal input.
+    token = jwt.encode({'sub': USERS[0], 'role': 'authenticated', 'aud': 'authenticated',
+                        'exp': int(time.time()) + 3600}, status['JWT_SECRET'], algorithm='HS256')
+    with httpx.Client(base_url=status['API_URL'] + '/rest/v1/', trust_env=False, timeout=20) as client:
+        for bearer in (status['ANON_KEY'], token):
+            headers = {'apikey': status['ANON_KEY'], 'Authorization': 'Bearer ' + bearer}
+            for name, payload in (
+                ('authorization_project_facts', {'p_project': projects[1], 'p_user': USERS[1]}),
+                ('authorization_project_facts_batch', {'p_projects': projects, 'p_user': USERS[1]}),
+            ):
+                response = client.post('rpc/' + name, headers=headers, json=payload)
+                check(response.status_code in (401, 403, 404)
+                      and response.json().get('code') in ('42501', 'PGRST202'),
+                      'Browser can call backend authorization RPC: ' + name)
 
 
 def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
@@ -217,10 +262,12 @@ def rehearse(stack: LocalStack, migrations: list[Path]) -> dict:
     stack.cli("db", "reset", "--local", "--no-seed", capture=True)
     stack.sql(CONTRACT.read_text())
     stack.cli("test", "db", capture=True)
+    current_authorization_consumers(stack, status)
     print("PASS: fresh installation and complete pgTAP suite", flush=True)
+    print("PASS: current authorization consumers, tenant isolation and backend-only RPCs", flush=True)
     return {"pre_fix_http_checks": exposed, "post_fix_http_checks": denied, "negative_mutations": len(mutations),
             "populated_upgrade": "PASS", "data_unchanged": "PASS", "retry": "PASS", "backend_consumers": "PASS",
-            "fresh_install": "PASS", "full_pgtap": "PASS"}
+            "fresh_install": "PASS", "full_pgtap": "PASS", "current_authorization_consumers": "PASS"}
 
 
 def main() -> None:
