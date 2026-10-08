@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 
 from fastapi import HTTPException
 
@@ -106,16 +107,20 @@ class Admission:
         value = self.repository.load_run_context(user, project, agent_id, scope_id, request_id)
         self.authorization.authorize_facts(value["facts"], project, user, ProjectAction.AGENT_RUN)
         ready = value["readiness"]
-        is_ready = (
-            self.readiness.resolve(project).claude_ready
-            if self.readiness
-            else bool(
+        # Cloud workspaces clone the authoritative native HEAD. A verified
+        # migration or product write can create it without an external Git push.
+        # External-client onboarding has a separate first-push requirement.
+        if self.readiness:
+            resolved = self.readiness.resolve(project)
+            is_ready = resolved.project_git_surface_exists and resolved.project_head_exists
+        else:
+            is_ready = bool(
                 ready
                 and ready.get("project_git_surface_exists")
-                and ready.get("project_head_commit_id")
-                and ready.get("project_git_push_accepted")
+                and re.fullmatch(
+                    r"(?:[0-9a-f]{40}|[0-9a-f]{64})", ready.get("project_head_commit_id") or ""
+                )
             )
-        )
         if not is_ready and not value.get("receipt"):
             raise HTTPException(409, {"code": "project_agent_not_ready"})
         if not value["surface"] and agent_id is None:
