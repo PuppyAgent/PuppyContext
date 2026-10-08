@@ -402,6 +402,38 @@ async def test_unknown_tool_is_not_replayed(prepared, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_failed_provider_allocation_resolves_before_recovery(prepared, monkeypatch):
+    case = prepared
+    model = ModelFixture()
+    supervisor = case.supervisor(model=model)
+    supervisor.worker_factory = lambda execution, project: PiWorker(
+        execution, project, provider="e2b"
+    )
+    resolved = []
+
+    async def rejected(worker):
+        raise RuntimeError("Template unavailable before provider allocation")
+
+    async def absent(resource):
+        resolved.append(resource)
+        assert resource["project_id"] == case.project
+        assert resource["allocation_pending"]
+        return []
+
+    monkeypatch.setattr(PiWorker, "create", rejected)
+    monkeypatch.setattr(PiWorker, "resolve_resources", staticmethod(absent))
+    await supervisor.run_claim(case.run)
+    result = case.repo.get(case.run["id"])
+    assert result["state"] == "failed"
+    assert not result["snapshot"]["resource_retained"]
+    assert not case.repo.executions(case.run["id"])
+    assert model.calls == 0
+    assert resolved
+    checkpoint = await case.checkpoints.load(result, result["checkpoint"])
+    assert checkpoint["reason"] == "prepared"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_checkpoint_outage_retains_workspace_until_retry(prepared, monkeypatch):
     case = prepared

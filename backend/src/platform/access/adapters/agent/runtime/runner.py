@@ -212,7 +212,11 @@ class RunSupervisor:
                 continue
             worker = (
                 self.worker
-                if self.worker and self.worker.execution_id == resource["session_id"]
+                if (
+                    self.worker
+                    and self.worker.execution_id == resource["session_id"]
+                    and not self.worker.resource.get("allocation_pending")
+                )
                 else None
             )
             try:
