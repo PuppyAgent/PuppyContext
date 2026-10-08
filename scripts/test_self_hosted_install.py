@@ -20,9 +20,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# Last installer-capable revision before the entrypoint/backend/schema refactor.
-# Pin the source, rather than silently testing today's app against itself.
-UPGRADE_BASE = "c28e38a3e44f1106f58ce6ae6cfdf6255a51f495"
+# Pin the deployed native release for supported in-place application upgrades.
+# Older storage formats require the separately tested operator migration; the
+# legacy variant proves ordinary startup cannot bypass that cutover boundary.
+UPGRADE_BASE = "a5dc0ea53f7a61e6df00d66751884be5ba3f6a14"
+LEGACY_BASE = "c28e38a3e44f1106f58ce6ae6cfdf6255a51f495"
 
 
 def jwt(role, secret):
@@ -44,105 +46,80 @@ def jwt(role, secret):
     return f"{message}.{signature}"
 
 
-def prepare_fixture_cutover(compose, directory):
-    """Rehearse the explicit owner step after stopping the old Compose stack.
-
-    The installer must not manufacture evidence that external writers stopped.
-    This test owns every process and verifies that only DB/Redis remain. Its
-    synthetic fixture has no ambiguous legacy connections to classify.
-    """
-    from entrypoint_source_decisions import freeze
-
-    def call(*args, **kwargs):
-        return subprocess.run(
-            [*compose, *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=600,
-            **kwargs,
-        ).stdout.strip()
-
-    call("up", "--detach", "--wait", "db", "redis")
-    running = call("ps", "--services", "--status", "running").splitlines()
-    if set(running) != {"db", "redis"}:
-        raise RuntimeError("Fixture cutover requires all application producers stopped")
-    queues = {
-        queue: int(call("exec", "-T", "redis", "redis-cli", "ZCARD", queue))
-        for queue in ("arq:queue", "etl", "imports", "synchronize")
-    }
-    in_progress = call(
-        "exec", "-T", "redis", "redis-cli", "--scan", "--pattern", "arq:in-progress:*"
-    )
-    if any(queues.values()) or in_progress:
-        raise RuntimeError("Fixture cutover requires drained queues")
-    backup = directory / "before-entrypoint-cutover.sql"
-    backup.write_text(
-        call("exec", "-T", "db", "pg_dump", "-U", "postgres", "-d", "postgres")
-    )
-    backup.chmod(0o600)  # Synthetic credentials/session rows never become CI artifacts.
-    first = subprocess.run(
-        [*compose, "run", "--rm", "--no-deps", "migrate"],
+def assert_legacy_upgrade_blocked(compose, artifacts):
+    """An old populated format cannot silently cross the operator cutover."""
+    result = subprocess.run(
+        [*compose, "up", "--detach", "--wait", "--wait-timeout", "420"],
         check=False,
-        capture_output=True,
-        text=True,
+        cwd=ROOT,
         timeout=600,
     )
-    if (
-        first.returncode == 0
-        or "20261003230100_contract_final_entrypoint_storage.sql" not in first.stderr
-    ):
-        raise RuntimeError("Unfrozen populated upgrade must stop at its Contract gate")
-
-    class FixtureDatabase:
-        def scalar(self, sql, variables=None):
-            args = [
-                "exec",
-                "-T",
-                "db",
-                "psql",
-                "-U",
-                "postgres",
-                "-d",
-                "postgres",
-                "-X",
-                "-qAt",
-                "-v",
-                "ON_ERROR_STOP=1",
-            ]
-            for key, value in (variables or {}).items():
-                args.extend(["-v", key + "=" + value])
-            return call(*args, input=sql)
-
-    db = FixtureDatabase()
-    if db.scalar("SELECT count(*) FROM connections;") != "0":
-        raise RuntimeError("Fixture requires explicit decisions for legacy connections")
-    freeze(
-        db,
+    if result.returncode == 0:
+        raise RuntimeError(
+            "Legacy storage incorrectly upgraded without an operator cutover"
+        )
+    log = subprocess.check_output(
+        [*compose, "logs", "--no-color", "migrate"], text=True, timeout=30
+    )
+    (artifacts / "legacy-cutover-refusal.log").write_text(log)
+    if "20261003230100_contract_final_entrypoint_storage.sql" not in log:
+        raise RuntimeError("Legacy startup failed outside the intended Contract gate")
+    running = subprocess.check_output(
+        [*compose, "ps", "--status", "running", "--services"],
+        text=True,
+        timeout=30,
+    ).splitlines()
+    if {"api", "web"} & set(running):
+        raise RuntimeError("Application started before legacy data was migrated")
+    proof = subprocess.check_output(
+        [
+            *compose,
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-U",
+            "postgres",
+            "-d",
+            "postgres",
+            "-XAt",
+            "-c",
+            (
+                "SELECT EXISTS(SELECT FROM projects WHERE id='issue049-project') "
+                "AND EXISTS(SELECT FROM github_sync_bindings WHERE id='issue049-binding') "
+                "AND EXISTS(SELECT FROM github_sync_log WHERE id='issue049-log-success') "
+                "AND EXISTS(SELECT FROM entrypoint_cutover_control WHERE NOT writes_frozen) "
+                "AND NOT EXISTS(SELECT FROM supabase_migrations.schema_migrations WHERE version='20261003230100');"
+            ),
+        ],
+        text=True,
+        timeout=30,
+    ).strip()
+    if proof != "t":
+        raise RuntimeError(
+            "Refused cutover changed fixture data or fabricated release evidence"
+        )
+    (artifacts / "result.json").write_text(
         json.dumps(
             {
-                "environment": "owned installation upgrade fixture",
-                "producer_stop_verified": True,
-                "queue_drain_verified": True,
-                "old_consumers_exited": True,
-                "records": [
-                    {
-                        "running_services": running,
-                        "queue_counts": queues,
-                        "in_progress": 0,
-                    }
-                ],
+                "variant": "legacy",
+                "result": "passed",
+                "upgrade_from": LEGACY_BASE,
+                "operator_cutover_required": True,
+                "application_blocked": True,
+                "legacy_records_preserved": True,
             }
-        ).encode(),
-        restore_point_ref=str(backup),
-        approved_by="installation-test-owner",
+        )
+        + "\n"
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--variant", choices=["default", "custom", "upgrade"], default="default"
+        "--variant",
+        choices=["default", "custom", "upgrade", "legacy"],
+        default="default",
     )
     parser.add_argument("--artifacts", type=Path, required=True)
     args = parser.parse_args()
@@ -165,7 +142,7 @@ def main():
             MINIO_CONSOLE_PORT="19001",
             MAIL_PORT="18025",
         )
-        if args.variant in {"custom", "upgrade"}:
+        if args.variant in {"custom", "upgrade", "legacy"}:
             secret = secrets.token_hex(32)
             values.update(
                 JWT_SECRET=secret,
@@ -195,11 +172,16 @@ def main():
             ]
 
         previous_root = ROOT
-        if args.variant == "upgrade":
+        if args.variant in {"upgrade", "legacy"}:
             previous_root = directory / "previous-release"
             previous_root.mkdir()
             archive = subprocess.check_output(
-                ["git", "archive", "--format=tar", UPGRADE_BASE],
+                [
+                    "git",
+                    "archive",
+                    "--format=tar",
+                    LEGACY_BASE if args.variant == "legacy" else UPGRADE_BASE,
+                ],
                 cwd=ROOT,
                 timeout=60,
             )
@@ -226,7 +208,7 @@ def main():
             }
             for phase in ("seed", "verify"):
                 if phase == "verify":
-                    if args.variant == "upgrade":
+                    if args.variant == "legacy":
                         # Populate the old names while the old application is live.
                         # The same database, object bucket, users and sessions survive.
                         run(
@@ -249,10 +231,12 @@ def main():
                     # Preserve volumes, recreate every service, and rerun the
                     # same installer. Auth, DB rows and object bytes must survive.
                     run(*compose, "down")
-                    if args.variant == "upgrade":
+                    if args.variant in {"upgrade", "legacy"}:
                         compose = compose_for(ROOT)
                         run(*compose, "build")
-                        prepare_fixture_cutover(compose, directory)
+                        if args.variant == "legacy":
+                            assert_legacy_upgrade_blocked(compose, args.artifacts)
+                            return
                         run(
                             *compose,
                             "up",
