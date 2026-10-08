@@ -100,3 +100,50 @@ def test_snapshot_decompression_budget_is_not_unbounded():
         with pytest.raises(ValueError, match="byte budget exceeded"):
             snapshot.object(oid)
         assert snapshot._remaining_bytes == 10
+
+
+def test_snapshot_reuses_verified_bytes_but_renews_before_cache_hits():
+    wire, calls, objects, control, backend = fixture()
+    oid, raw = encode_object("blob", b"note")
+    objects[oid] = raw
+    wire["refs"].append(row(b"refs/tags/blob", {"kind": "oid", "oid": oid}, "blob"))
+    with repository_snapshot(control, backend, grant("p"), project_id="p") as snapshot:
+        for _ in range(10):
+            assert snapshot.object(oid) == ("blob", b"note")
+        assert calls.count("get") == 1
+        assert snapshot._remaining_bytes == 8 * 1024**3 - 4
+
+        def denied(*_):
+            raise PermissionError("revoked")
+
+        control.renew = denied
+        snapshot._next_renewal = 0
+        with pytest.raises(PermissionError, match="revoked"):
+            snapshot.object(oid)
+    assert not snapshot._objects
+    with pytest.raises(RuntimeError, match="closed"):
+        snapshot.object(oid)
+
+
+def test_snapshot_cache_is_bounded_and_never_shared_between_reads():
+    wire, calls, objects, control, backend = fixture()
+    first, first_raw = encode_object("blob", b"one")
+    second, second_raw = encode_object("blob", b"two")
+    objects.update({first: first_raw, second: second_raw})
+    wire["refs"].extend([
+        row(b"refs/tags/one", {"kind": "oid", "oid": first}, "blob"),
+        row(b"refs/tags/two", {"kind": "oid", "oid": second}, "blob"),
+    ])
+    with repository_snapshot(control, backend, grant("p"), project_id="p") as snapshot:
+        snapshot._cache_limit = 3
+        for oid in (first, second, first):
+            snapshot.object(oid)
+            assert snapshot._cache_bytes <= 3
+        assert calls.count("get") == 3
+    # An independent pin must obtain fresh durable bytes, even for the same OID.
+    objects[first] = encode_object("blob", b"corrupt")[1]
+    with (
+        repository_snapshot(control, backend, grant("p"), project_id="p") as snapshot,
+        pytest.raises(ValueError, match="hash mismatch"),
+    ):
+        snapshot.object(first)

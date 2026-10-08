@@ -71,9 +71,10 @@ def test_http_probe_cannot_target_hosted_database(runner):
         runner.rest_matrix({"API_URL": "https://hosted.example.test"}, before=False)
 
 
-def test_backend_imports_work_without_pytest_module_cache(runner):
+@pytest.mark.parametrize("consumer_name", ["backend_consumers", "current_authorization_consumers"])
+def test_backend_imports_work_without_pytest_module_cache(runner, consumer_name):
     source = ast.parse(Path(runner.__file__).read_text())
-    consumer = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "backend_consumers")
+    consumer = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == consumer_name)
     imports = ast.Module(body=[node for node in consumer.body if isinstance(node, (ast.Import, ast.ImportFrom))], type_ignores=[])
     result = subprocess.run([sys.executable, "-c", ast.unparse(imports)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr

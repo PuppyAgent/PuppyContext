@@ -60,6 +60,25 @@ A read captures refs, generation and object format under a renewable read pin.
 It can access only objects reachable through that captured view. Private archive
 roots are retained by GC but do not enlarge user read/fetch authority.
 
+Product reads obtain repository identity, refs and pin from one admitted read
+operation, without a preceding repository snapshot query. Human authorization
+facts use one joined database read; list authorization uses deduplicated batches
+of at most 100 projects. Policy evaluation remains in `platform/authorization`.
+
+Verified object bytes are reusable only within the live read snapshot, bounded
+by 8 MiB and 1,024 entries. Every cache hit still checks pin liveness and captured
+reachability; closing the snapshot clears its cache. An object read reuses its
+location lookup, including a missing result, for that attempt. Batch reads reuse
+the batch lookup instead of querying missing locations again per object. A
+missing loose object can still refresh placement to handle concurrent packing.
+Publication verification continues to require durable storage reads.
+
+`tests/repository_hosting/integration/test_read_request_budgets.py` measures
+actual PostgreSQL/PostgREST and object-storage requests using owned fixtures.
+It covers ordinary reads, repeated reads in a single pin, batch boundaries,
+authorization revocation and the populated authorization migration. These
+contracts run alongside the Agent runtime budgets in CI.
+
 A Product write supplies the exact starting ref/HEAD/tree, request UUID and input
 digest. Its journal records attempts/results. Replaying a completed request
 returns its original result; changing its input is rejected. A concurrent ref or

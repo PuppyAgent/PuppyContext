@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import time
 import uuid
+from collections import OrderedDict
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -98,6 +99,11 @@ class RepositorySnapshot:
         self._closed = False
         self._remaining_bytes = max_bytes
         self._verified_sizes = {}
+        # Only verified bytes read during this pin are reusable. No global cache
+        # or location snapshot is required, and publication still reads durably.
+        self._objects = OrderedDict()
+        self._cache_bytes = 0
+        self._cache_limit = min(max_bytes, 8 * 1024**2)
 
     def to_wire(self) -> dict:
         return deepcopy(self._wire)
@@ -114,6 +120,9 @@ class RepositorySnapshot:
         self.check_live()
         if oid not in self._permitted:
             raise PermissionError("object is not reachable from the captured refs")
+        if oid in self._objects:
+            self._objects.move_to_end(oid)
+            return self._objects[oid]
         budget = self._verified_sizes.get(oid, self._remaining_bytes)
         kind, body = decode_object(self.backend.get_durable(oid), max_bytes=budget)
         if hash_object(kind, body, object_format=self.object_format) != oid:
@@ -132,9 +141,19 @@ class RepositorySnapshot:
         if oid not in self._verified_sizes:
             self._remaining_bytes -= len(body)
             self._verified_sizes[oid] = len(body)
+        if len(body) <= self._cache_limit:
+            while self._objects and (
+                self._cache_bytes + len(body) > self._cache_limit or len(self._objects) >= 1024
+            ):
+                _, (_, removed) = self._objects.popitem(last=False)
+                self._cache_bytes -= len(removed)
+            self._objects[oid] = (kind, body)
+            self._cache_bytes += len(body)
         return kind, body
 
-    def revision(self, selector: bytes = b"HEAD", *, allow_absent: bool = False) -> RepositoryRevision:
+    def revision(
+        self, selector: bytes = b"HEAD", *, allow_absent: bool = False
+    ) -> RepositoryRevision:
         self.check_live()
         validate_ref_name(selector)
         state = self.refs.get(selector, RefState())
@@ -167,6 +186,8 @@ class RepositorySnapshot:
         if self._closed:
             return
         self._closed = True
+        self._objects.clear()
+        self._cache_bytes = 0
         try:
             self.control.release(self.project_id, self.actor, self.pin)
         except Exception:
@@ -184,8 +205,15 @@ def repository_snapshot(control, backend, grant, *, project_id, max_bytes=8 * 10
     pin = str(uuid.uuid4())
     wire = control.begin_read(project_id, actor, pin)
     try:
-        snapshot = RepositorySnapshot(control, backend, project_id=project_id, actor=actor, pin=pin,
-                                      wire=wire, max_bytes=max_bytes)
+        snapshot = RepositorySnapshot(
+            control,
+            backend,
+            project_id=project_id,
+            actor=actor,
+            pin=pin,
+            wire=wire,
+            max_bytes=max_bytes,
+        )
     except Exception:
         try:
             control.release(project_id, actor, pin)

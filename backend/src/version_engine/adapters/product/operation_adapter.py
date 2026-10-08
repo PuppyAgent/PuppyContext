@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from src.platform.authorization.models import ProjectAction
 from src.version_engine.domain.intents import ProjectWriteState
 from src.version_engine.read.native_tree_reader import NativeTreeReader
-from src.version_engine.read.repository_snapshot import repository_snapshot
 from src.version_engine.write_engine.errors import NativeRevisionConflictError
 from src.version_engine.write_engine.ref_transaction import admitted_actor
 
@@ -92,14 +91,7 @@ class ProductOperationAdapter:
     @contextmanager
     def open_read(self, project_id, grant, *, selector=b"HEAD", bulk=False):
         admitted_actor(grant, project_id, write=False)
-        service = self._repos.get_native_service(project_id)
-        if service is None:
-            raise RuntimeError("repository migration required")
-        with repository_snapshot(
-            service.control, service.backend, grant, project_id=project_id
-        ) as snapshot:
-            if snapshot.object_format != service.object_format:
-                raise ValueError("repository object format mismatch")
+        with self._repos.open_native_read(project_id, grant) as snapshot:
             from src.version_engine.domain.errors import (
                 NativeObjectNotFoundError,
                 ObjectNotFoundError,
