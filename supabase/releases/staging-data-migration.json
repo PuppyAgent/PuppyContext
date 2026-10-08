@@ -1,5 +1,5 @@
 {
-  "migration_id": "20261008_qubits_agent_project",
+  "migration_id": "20261008_qubits_agent_current_tree",
   "repair_migration_id": "",
   "execution_mode": "operator_local"
 }
