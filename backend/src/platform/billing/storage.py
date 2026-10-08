@@ -112,6 +112,11 @@ def logical_verified_tree_bytes(manifest: ClosureManifest, tree_oid: str) -> int
     still count twice. Only current-tree edges participate, never commit history
     or external gitlinks. The manifest must come from physical closure proof.
     """
+    if manifest.resolve is not None:
+        root = manifest.object(tree_oid)
+        if root.kind != "tree" or type(root.logical_bytes) is not int:
+            raise ValueError("logical billing requires a verified tree summary")
+        return root.logical_bytes
     records = manifest.objects
     if tree_oid not in records or records[tree_oid].kind != "tree":
         raise ValueError("logical billing requires a verified tree")

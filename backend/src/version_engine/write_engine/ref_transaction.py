@@ -13,6 +13,7 @@ import base64
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from copy import copy
 from dataclasses import dataclass
 
 from src.platform.authorization.models import ProjectAction, ProjectGrant, RuntimeGrant
@@ -139,6 +140,7 @@ class RefTransactionService:
         billing: RepositoryBilling | None = None,
         policy: RepositoryFilePolicy | None = None,
         progress: Callable[[], None] | None = None,
+        proof_factory=None,
     ):
         bound_project = getattr(backend, "publication_project_id", None)
         if bound_project is not None and bound_project != project_id:
@@ -150,6 +152,7 @@ class RefTransactionService:
         if policy is not None and (policy.control is not control or billing is None):
             raise ValueError("file policy requires matching control and billing admission")
         self.progress = progress or checkpoint
+        self.proof_factory = proof_factory
         self.policy = policy
         self.billing = billing
         self.capacity = capacity
@@ -175,6 +178,38 @@ class RefTransactionService:
         read_snapshot=None,
         prepare_includes_empty_tree: bool = False,
     ) -> dict:
+        # A service can serve overlapping requests. A verifier's proof cache
+        # belongs to exactly one actor/pin and must never escape that operation.
+        operation = copy(self)
+        operation.verifier = copy(self.verifier)
+        operation.verifier.proofs = None
+        return operation._submit(
+            grant,
+            request_key=request_key,
+            generation=generation,
+            edits=edits,
+            roots=roots,
+            prepare=prepare,
+            message=message,
+            publication_id=publication_id,
+            read_snapshot=read_snapshot,
+            prepare_includes_empty_tree=prepare_includes_empty_tree,
+        )
+
+    def _submit(
+        self,
+        grant,
+        *,
+        request_key,
+        generation,
+        edits,
+        roots,
+        prepare,
+        message,
+        publication_id,
+        read_snapshot,
+        prepare_includes_empty_tree,
+    ):
         # Recovering the original result is a read, not a new publication.
         # The guarded control rechecks current facts and the original digest.
         actor = admitted_actor(grant, self.project_id, write=False)
@@ -215,10 +250,16 @@ class RefTransactionService:
         args = (self.project_id, actor, request_key, generation, updates, pin, message)
         # Replay still calls apply: only the SQL request digest can prove that
         # this is the original request, including a previously rejected batch.
-        context = (self.control.publication_context(self.project_id, actor, request_key)
-                   if self.capacity is not None and self.billing is not None and self.policy is not None
-                   else None)
-        prior = context["result"] if context is not None else self.control.result(self.project_id, actor, request_key)
+        context = (
+            self.control.publication_context(self.project_id, actor, request_key)
+            if self.capacity is not None and self.billing is not None and self.policy is not None
+            else None
+        )
+        prior = (
+            context["result"]
+            if context is not None
+            else self.control.result(self.project_id, actor, request_key)
+        )
         if prior is not None:
             if self.policy is not None:
                 return self.policy.apply(*args)
@@ -227,7 +268,9 @@ class RefTransactionService:
             )
         self.progress()
         admitted_actor(grant, self.project_id, write=True)
-        snapshot = context["repository"] if context is not None else self.control.snapshot(self.project_id)
+        snapshot = (
+            context["repository"] if context is not None else self.control.snapshot(self.project_id)
+        )
         if (
             not snapshot
             or snapshot["authority"] != "native"
@@ -243,11 +286,17 @@ class RefTransactionService:
         else:
             if self.capacity is not None:
                 self.capacity.check(self.project_id)
-            billing_context = self.billing.check(self.project_id) if self.billing is not None else None
+            billing_context = (
+                self.billing.check(self.project_id) if self.billing is not None else None
+            )
             policy_context = self.policy.check(self.project_id) if self.policy is not None else None
         manifest = None
         if pin is not None:
             admitted_pin = self.control.begin(self.project_id, actor, pin, generation, roots)
+            if self.proof_factory is not None:
+                self.verifier.proofs = self.proof_factory(
+                    self.control, self.project_id, actor, pin, self.object_format
+                )
             next_renewal = time.monotonic() + 30
 
             def renew():
@@ -277,6 +326,8 @@ class RefTransactionService:
                     if not prepare_includes_empty_tree:
                         self.backend.put_durable(empty_oid, empty_loose)
                     manifest = self.verifier.verify(roots, progress=renew)
+                    if self.verifier.proofs is not None:
+                        self.verifier.proofs.persist(manifest)
                     if self.capacity is not None:
                         self.capacity.seal(self.project_id, actor, pin, manifest)
                     else:
@@ -289,9 +340,13 @@ class RefTransactionService:
             manifest = self.verifier.verify(roots, progress=renew)
         self.progress()
         if self.billing is not None:
-            usage = self.billing.measure(self, grant, edits, billing_context, manifest, snapshot=read_snapshot)
+            usage = self.billing.measure(
+                self, grant, edits, billing_context, manifest, snapshot=read_snapshot
+            )
             if self.policy is not None:
-                proof = self.policy.verify(self, grant, edits, roots, policy_context, manifest, snapshot=read_snapshot)
+                proof = self.policy.verify(
+                    self, grant, edits, roots, policy_context, manifest, snapshot=read_snapshot
+                )
                 self.progress()
                 result = self.policy.apply(*args, usage=usage, policy=proof)
             else:

@@ -117,6 +117,9 @@ class FakeSupabaseTables:
 
     def rpc(self, name, args):
         # These are legacy layout component tests, not native admission proof.
+        if name == "invalidate_version_object_proofs":
+            assert args["p_project_id"] == PROJECT and args["p_oids"]
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=0))
         assert name == "authorize_version_object_deletion"
         assert args == {"p_project_id": PROJECT, "p_gc_token": None}
         return SimpleNamespace(execute=lambda: SimpleNamespace(data=True))

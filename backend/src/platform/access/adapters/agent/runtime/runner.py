@@ -34,6 +34,7 @@ class RunSupervisor:
         worker_factory,
         worker_lifecycle: WorkerLifecycle,
         bound_tools=None,
+        workspace=None,
     ):
         self.repo, self.admission, self.publication = repository, admission, publication
         self.inference, self.billing = inference, billing
@@ -41,6 +42,7 @@ class RunSupervisor:
         self.recovery = Recovery()
         self.worker_factory, self.bound_tools = worker_factory, bound_tools
         self.worker_lifecycle = worker_lifecycle
+        self.workspace = workspace
         self.lock = asyncio.Lock()
         self.worker = None
         self.models = {}
@@ -412,8 +414,12 @@ class RunSupervisor:
             billing=billing_id,
             resource=self.worker.resource,
         )
-        with database_stage("sandbox_create"):
-            resource = await self.worker.create()
+        with database_stage("sandbox_acquire"):
+            resource = (
+                await self.workspace.acquire(self.run, self.value, self.worker)
+                if self.workspace
+                else await self.worker.create()
+            )
         await self.write("resource", {}, resource=resource)
         definitions = (
             await asyncio.to_thread(self.bound_tools.definitions, self.run)
@@ -619,7 +625,7 @@ class RunSupervisor:
     async def publish(self, grant):
         with database_stage("publication"):
             result = await self.publication.publish(self.run, self.value, grant, self.worker)
-        self.run = {**self.run, "publication": result}
+        await self.write("publication", result, publication=result)
         await self.finish(
             "succeeded" if result["status"] in {"committed", "no_changes"} else "conflict",
             "completed",
@@ -632,7 +638,15 @@ class RunSupervisor:
         if not self.finished:
             await self.write("heartbeat")
         completed_execution = self.finished and not retain_resource and self.worker is not None
-        if not retain_resource:
+        workspace_released = False
+        if self.workspace and self.workspace.row and self.worker:
+            with database_stage("sandbox_release"):
+                if state == "succeeded" and not retain_resource:
+                    await self.workspace.pause(self.run, self.worker)
+                else:
+                    await self.workspace.dispose(self.run, self.worker, retain=retain_resource)
+            workspace_released = not retain_resource
+        if not retain_resource and not workspace_released:
             executions = (
                 [
                     {
@@ -660,6 +674,8 @@ class RunSupervisor:
                     await asyncio.to_thread(self.repo.cleaned, execution["id"])
         if self.run["billing_run_id"] and not retain_resource:
             await self.billing.finish_session(self.run["billing_run_id"])
+        if self.workspace and self.workspace.row is None and not retain_resource:
+            await asyncio.to_thread(self.repo.workspace_recovered, self.run)
         snapshot = {**self.run["snapshot"], "code": code, "resource_retained": retain_resource}
         async with self.lock:
             self.run = await asyncio.to_thread(
@@ -668,5 +684,5 @@ class RunSupervisor:
                 state=state,
                 code=code,
                 snapshot=snapshot,
-                cleaned=bool(completed_execution),
+                cleaned=bool(completed_execution or workspace_released),
             )

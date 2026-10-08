@@ -4,6 +4,43 @@ from .queries import RunQueries
 
 
 class RunRepository(RunQueries):
+    def workspace_acquire(self, run, binding):
+        return self.rpc(
+            "workspace_acquire",
+            run=run["id"],
+            execution=run["execution_id"],
+            fence=run["fence"],
+            binding=binding,
+        )
+
+    def workspace_transition(self, run, workspace, state, resource=None):
+        return self.rpc(
+            "workspace_transition",
+            run=run["id"],
+            execution=run["execution_id"],
+            fence=run["fence"],
+            generation=workspace["generation"],
+            version=workspace["version"],
+            state=state,
+            resource=resource,
+        )
+
+    def workspace_due(self, limit=20):
+        return self.rpc("workspace_due", limit=limit)
+
+    def workspace_retired(self, workspace):
+        return self.rpc(
+            "workspace_retired",
+            session=workspace["session_id"],
+            generation=workspace["generation"],
+            operation=workspace["operation_id"],
+        )
+
+    def workspace_recovered(self, run):
+        return self.rpc(
+            "workspace_recovered", run=run["id"], execution=run["execution_id"], fence=run["fence"]
+        )
+
     def settle_model(self, run, *, checkpoint):
         return self.rpc(
             "settle_model",

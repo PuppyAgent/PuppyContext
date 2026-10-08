@@ -58,7 +58,7 @@ async function prepareWorkspace(value) {
     lastSnapshot=config.restore;
   }
   if (config.resume) return {};
-  return relay.run(()=>prepare(ROOT,config,relay.url,{reuse:Boolean(config.restore)}));
+  return relay.run(()=>prepare(ROOT,config,relay.url,{reuse:Boolean(config.restore || config.reuse)}));
 }
 function start(value) {
   if (worker) throw new Error('Worker already started');
@@ -82,7 +82,8 @@ control.dispatch(async frame=>{
   if (frame.type === 'control') {
     try {
       let result;
-      if (frame.action === 'prepare') result=await prepareWorkspace(frame.value);
+      if (frame.action === 'capabilities') result={workspace_lifecycle:1};
+      else if (frame.action === 'prepare') result=await prepareWorkspace(frame.value);
       else if (frame.action === 'snapshot') result=await snapshot();
       else if (frame.action === 'inspect') result=await inspect(ROOT,frame.value);
       else if (frame.action === 'freeze') {
@@ -96,8 +97,12 @@ control.dispatch(async frame=>{
         if (!stopped) throw new Error('Worker must stop before publication');
         result=await relay.run(()=>push(ROOT,config,relay.url,frame.value.candidate));
       } else if (frame.action === 'stop') { stopped=true; await processes('SIGKILL'); result={}; }
+      else if (frame.action === 'park') {
+        stopped=true; await processes('SIGKILL'); worker=null; relay?.close(); result={};
+      }
       else throw new Error('Unknown control operation');
       control.send({type:'control_result',id:frame.id,result});
+      if (frame.action === 'park') setImmediate(()=>process.exit(0));
     } catch (error) { control.send({type:'control_result',id:frame.id,error:error.message}); }
   } else if (frame.type === 'start') start(frame.config);
   else if (worker && (frame.type !== 'reply' || childIds.has(frame.id))) {

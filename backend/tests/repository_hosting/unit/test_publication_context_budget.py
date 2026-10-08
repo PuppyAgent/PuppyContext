@@ -18,6 +18,7 @@ def test_final_capacity_batch_and_seal_are_one_operation(count):
     }
     manifest = SimpleNamespace(
         objects=objects,
+        new_objects=None,
         digest="d" * 64,
         object_format="sha1",
         roots={"a" * 40: "commit"},

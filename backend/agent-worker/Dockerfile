@@ -10,4 +10,4 @@ RUN mkdir -p /workspace /home/node/.pi && chown node:node /workspace /home/node/
 USER root
 WORKDIR /workspace
 ENV HOME=/home/node NODE_ENV=production
-ENTRYPOINT ["node", "/opt/puppyone-agent/controller.mjs"]
+ENTRYPOINT ["sleep", "infinity"]

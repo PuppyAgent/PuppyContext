@@ -14,6 +14,7 @@ from src.platform.access.adapters.agent.runtime.models import SubmitRun
 from src.platform.access.adapters.agent.runtime.publication import Publication
 from src.platform.access.adapters.agent.runtime.repository import RunRepository
 from src.platform.access.adapters.agent.runtime.runner import RunSupervisor
+from src.platform.access.adapters.agent.runtime.workspace import SessionWorkspace
 from src.platform.access.adapters.agent.service import AgentService
 from src.platform.billing.runtime import get_runtime_metering_service
 from src.platform.managed_ai.contracts import InferenceDone, InferenceRun, ModelChunk
@@ -229,6 +230,7 @@ async def prepared(services, postgres, submitted, request):
             checkpoints=value.checkpoints,
             worker_factory=worker_factory,
             worker_lifecycle=PiWorker,
+            workspace=SessionWorkspace(repo),
         )
 
     value.supervisor = supervisor
@@ -236,6 +238,19 @@ async def prepared(services, postgres, submitted, request):
         yield value
     finally:
         # Multiple turns/sessions can allocate workers in a single test.
+        workspaces = (
+            client.table("agent_session_workspaces")
+            .select("resource")
+            .eq("project_id", project)
+            .execute()
+            .data
+        )
+        for workspace in workspaces:
+            if workspace["resource"]:
+                await PiWorker.cleanup(workspace["resource"])
+        postgres.sql(
+            f"UPDATE agent_session_workspaces SET state='retired',retire_after=NULL WHERE project_id='{project}'"
+        )
         rows = client.table("agent_runs").select("id").eq("project_id", project).execute().data
         for row in rows:
             for execution in repo.executions(row["id"]):
@@ -520,19 +535,19 @@ async def test_active_run_failures_settle_and_cleanup(prepared, cause):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
-async def test_cleanup_failure_retries_confirmed_publication(prepared, monkeypatch):
+async def test_pause_failure_retries_confirmed_publication(prepared, monkeypatch):
     case = prepared
-    stop = PiWorker.stop
+    pause = PiWorker.pause
 
     async def unavailable(self):
         raise ConnectionError("Injected cleanup outage")
 
-    monkeypatch.setattr(PiWorker, "stop", unavailable)
+    monkeypatch.setattr(PiWorker, "pause", unavailable)
     first = case.supervisor()
     with pytest.raises(ConnectionError):
         await approve_to_completion(case, asyncio.create_task(first.run_claim(case.run)))
     assert case.repo.get(case.run["id"])["publication"]["status"] == "committed"
-    monkeypatch.setattr(PiWorker, "stop", stop)
+    monkeypatch.setattr(PiWorker, "pause", pause)
     case.postgres.sql(
         f"UPDATE agent_runs SET lease_until=now()-interval '1 second' WHERE id='{case.run['id']}'"
     )
@@ -605,8 +620,31 @@ async def next_run(case, *, session_id=None):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
-async def test_native_multiple_writing_turns_preserve_files_modes_and_history(prepared):
+async def test_native_multiple_writing_turns_preserve_files_modes_and_history(
+    prepared, monkeypatch
+):
     case = prepared
+    create, pause, resume = PiWorker.create, PiWorker.pause, PiWorker.resume
+    lifecycle = {"create": [], "pause": [], "resume": []}
+
+    async def created(worker):
+        result = await create(worker)
+        lifecycle["create"].append(result["resource_id"])
+        return result
+
+    async def paused(worker):
+        await pause(worker)
+        lifecycle["pause"].append(worker.resource["resource_id"])
+
+    async def resumed(worker, resource):
+        result = await resume(worker, resource)
+        lifecycle["resume"].append(result["resource_id"])
+        assert worker.restore_point is None
+        return result
+
+    monkeypatch.setattr(PiWorker, "create", created)
+    monkeypatch.setattr(PiWorker, "pause", paused)
+    monkeypatch.setattr(PiWorker, "resume", resumed)
     await native_write(case, "draft.md", b"original human draft")
     await native_write(case, "obsolete.md", b"delete me")
     first_model = BashModel(
@@ -674,6 +712,9 @@ async def test_native_multiple_writing_turns_preserve_files_modes_and_history(pr
     assert third["publication"]["status"] == "no_changes"
     final = await case.checkpoints.load(third, third["checkpoint"])
     assert final["workspace"]["tip"] == second_tip
+    assert len(lifecycle["create"]) == 1
+    assert lifecycle["pause"] == lifecycle["create"] * 3
+    assert lifecycle["resume"] == lifecycle["create"] * 2
 
 
 @pytest.mark.asyncio

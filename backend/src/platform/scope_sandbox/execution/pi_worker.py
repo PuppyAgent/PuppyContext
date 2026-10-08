@@ -30,6 +30,10 @@ class PiWorker:
             else "docker"
         )
         self.image = image or settings.CLOUD_AGENT_IMAGE
+        self.artifact = settings.CLOUD_AGENT_E2B_TEMPLATE if self.provider == "e2b" else self.image
+        self.reused = False
+        self.parked = False
+        self.timeout_renewal = time.monotonic()
         self.queue = asyncio.Queue(maxsize=32)
         self.buffer = ""
         self.process = None
@@ -81,6 +85,8 @@ class PiWorker:
                 raise
             if not state["Running"]:
                 raise WorkerLost("Sandbox tmpfs no longer exists")
+            if state.get("Paused"):
+                await worker._docker("unpause", resource["resource_id"])
         elif resource["provider"] == "e2b":
             from e2b import AsyncSandbox
             from e2b.exceptions import NotFoundException
@@ -139,6 +145,8 @@ class PiWorker:
                 "-i",
                 inspected["Id"],
             )
+            await self._docker("start", self.resource["resource_id"])
+            self.attached = True
         elif self.provider == "e2b":
             from e2b import AsyncSandbox
 
@@ -156,6 +164,7 @@ class PiWorker:
                     else settings.CLOUD_AGENT_E2B_TEMPLATE
                 ),
                 timeout=settings.RUNTIME_AGENT_TIMEOUT_SECONDS,
+                lifecycle={"on_timeout": "pause", "auto_resume": False},
                 allow_internet_access=False,
                 metadata={"agent_execution_id": self.execution_id, "project_id": self.project_id},
                 api_key=settings.E2B_API_KEY,
@@ -172,18 +181,96 @@ class PiWorker:
             raise ValueError("Unsupported Pi sandbox provider")
         self.resource["allocation_pending"] = False
         now = time.time()
-        self.store.put(
-            ExecutionSession(
-                self.execution_id,
-                self.provider,
-                self.resource["resource_id"],
-                False,
-                now,
-                now,
-                project_id=self.project_id,
+        if not self.resource.get("workspace_id"):
+            self.store.put(
+                ExecutionSession(
+                    self.execution_id,
+                    self.provider,
+                    self.resource["resource_id"],
+                    False,
+                    now,
+                    now,
+                    project_id=self.project_id,
+                )
             )
-        )
         return dict(self.resource)
+
+    async def resume(self, resource):
+        fresh_resource, fresh_execution = dict(self.resource), self.execution_id
+        try:
+            return await self._resume_resource(resource)
+        except WorkerLost:
+            # A cold replacement must have a NEW provider identity. A delayed
+            # cleanup of the missing generation must never kill its replacement.
+            self.resource, self.execution_id = fresh_resource, fresh_execution
+            self.sandbox, self.attached, self.reused = None, False, False
+            raise
+
+    async def _resume_resource(self, resource):
+        if (
+            resource.get("project_id") != self.project_id
+            or resource.get("provider") != self.provider
+        ):
+            raise PermissionError("Workspace resource binding mismatch")
+        self.resource = dict(resource)
+        self.execution_id = resource["session_id"]
+        self.restore_point = None
+        if self.provider == "docker":
+            try:
+                found = json.loads(
+                    await self._docker("container", "inspect", resource["resource_id"])
+                )[0]
+            except RuntimeError as exc:
+                if "No such container" in str(exc) or "No such object" in str(exc):
+                    raise WorkerLost("Workspace was reclaimed") from exc
+                raise
+            artifact = json.loads(await self._docker("image", "inspect", self.image))[0]["Id"]
+            if found["Image"] != artifact or not found["State"]["Running"]:
+                raise WorkerLost("Workspace artifact or filesystem unavailable")
+            if found["State"].get("Paused"):
+                await self._docker("unpause", resource["resource_id"])
+            self.attached = True
+        else:
+            from e2b import AsyncSandbox
+            from e2b.exceptions import NotFoundException
+
+            if resource.get("template") != settings.CLOUD_AGENT_E2B_TEMPLATE:
+                raise WorkerLost("Workspace artifact changed")
+            try:
+                self.sandbox = await AsyncSandbox.connect(
+                    resource["resource_id"],
+                    timeout=settings.RUNTIME_AGENT_TIMEOUT_SECONDS,
+                    api_key=settings.E2B_API_KEY,
+                )
+            except NotFoundException as exc:
+                raise WorkerLost("Workspace was reclaimed") from exc
+        self.reused = True
+        return dict(self.resource)
+
+    async def pause(self):
+        # End the run's processes/relay, then park the SAME compute resource.
+        # Docker PID 1 is a persistent supervisor, not this control connection.
+        self.reconnecting = True
+        try:
+            if not self.parked:
+                await self.control("park")
+                self.parked = True
+            if self.provider == "docker":
+                await self.process.wait()
+                state = json.loads(
+                    await self._docker("container", "inspect", self.resource["resource_id"])
+                )[0]["State"]
+                if not state.get("Paused"):
+                    await self._docker("pause", self.resource["resource_id"])
+            else:
+                await self.sandbox.pause()
+            for task in (self.reader, self.stderr_reader):
+                if task:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+        finally:
+            self.reconnecting = False
 
     async def _output(self, chunk):
         self.buffer += chunk
@@ -223,6 +310,7 @@ class PiWorker:
             await self.send({"type": "reply", "id": frame["id"], **result})
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).exception("agent_git_exchange_failed")
             with suppress(Exception):
                 await self.send({"type": "reply", "id": frame["id"], "error": type(exc).__name__})
@@ -315,6 +403,9 @@ class PiWorker:
 
     async def start(self, config):
         await self._open_control()
+        capabilities = await self.control("capabilities")
+        if capabilities.get("workspace_lifecycle") != 1:
+            raise RuntimeError("Sandbox artifact does not support Session workspace lifecycle")
         workspace = config["workspace"]
         await self.control(
             "prepare",
@@ -325,6 +416,7 @@ class PiWorker:
                 if self.restore_point and self.provider == "docker"
                 else None,
                 "resume": bool(config.get("resume_workspace")),
+                "reuse": self.reused,
             },
         )
         if config.get("resume_workspace") and self.restore_point:
@@ -348,6 +440,11 @@ class PiWorker:
         return await self.queue.get()
 
     async def touch(self):
+        if self.resource.get("workspace_id"):
+            if self.provider == "e2b" and self.sandbox and time.monotonic() >= self.timeout_renewal:
+                await self.sandbox.set_timeout(settings.RUNTIME_AGENT_TIMEOUT_SECONDS)
+                self.timeout_renewal = time.monotonic() + settings.RUNTIME_AGENT_TIMEOUT_SECONDS / 2
+            return
         session = self.store.get(self.execution_id)
         if session:
             session.last_activity = time.time()

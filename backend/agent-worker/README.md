@@ -10,10 +10,10 @@ scheduled execution; `POST /agents` and the old runtime DTO are removed.
 Build from the repository root:
 
 ```sh
-docker build -t puppyone-cloud-agent:workspace-v2 backend/agent-worker
+docker build -t puppyone-cloud-agent:workspace-v3 backend/agent-worker
 ```
 
-Apply the `20261006060000`, `20261006060100` and `20261008010000` migrations through the existing
+Apply the complete ordered `supabase/migrations` release through the existing
 database release workflow. The API and supervisor share Supabase, S3, managed
 inference and runtime billing configuration. In `backend/`, start:
 
@@ -49,7 +49,7 @@ resolves and records its immutable image ID before allocating each execution.
 For a native full Project, admission fixes the repository generation, selected
 branch and base OID. The sandbox uses stock Git `init` + `fetch` + `checkout` for
 the initial working copy. Fetch transfers full reachable history; subsequent
-turns restore the session's provider snapshot and fast-forward from the same
+turns resume the same Session sandbox and fast-forward from the same
 Git service. No backend checkout, file inventory or Git bundle is produced.
 
 A root-owned controller launches Pi and tools as uid 1000. The sandbox has no
@@ -74,8 +74,24 @@ Docker recovery uses a root-private named volume with immutable snapshot
 directories; unchanged files share hardlinks. It survives container deletion,
 not loss of the Docker data disk. E2B uses native durable snapshots and reconnects
 the command stream with sequence deduplication. Recovery restarts the controller
-and model under a new execution fence. The current lifecycle recreates compute
-from a retained filesystem; it does not promise a warm running VM across turns.
+and model under a new execution fence after faults. Normal successive turns
+preserve the sandbox, `.git`, index and worktree without snapshot restoration.
+
+Session ownership is durable in `agent_session_workspaces`, separate from the
+Run execution lease. After confirmed publication/no changes, the controller
+stops its processes and Git relay, then Docker pauses the persistent container
+or E2B pauses the VM. New admitted work explicitly resumes that same resource.
+The worker independently reclaims clean workspaces after six hours without an
+active/queued Run. Claims are indexed, bounded and fenced; lost deletion replies
+are retried against the original resource identity. An absent or incompatible
+resource is retired before allocating a new identity. Provider timeouts are not
+treated as confirmed absence. Explicit Session/Project deletion preserves an
+independent cleanup record until provider deletion is confirmed.
+
+The worker requires the Session workspace and incremental object-proof schema
+before activation. Build and deploy the matching controller artifact; drain
+older workers before changing the protocol/template. SQL and artifact readiness
+are release prerequisites, not runtime fallbacks to the earlier lifecycle.
 
 Full native Project views are supported. Restricted views reject before fetching
 broader history. The selected branch must have a UTF-8 name; detached HEAD rejects.
@@ -232,7 +248,10 @@ The regression suite checks these persistence guarantees:
 
 | Scenario | Required outcome |
 | --- | --- |
-| Three consecutive turns on SHA-1 and SHA-256 repositories | Each writing turn starts from the prior cloud commit; original parents survive; an unchanged turn creates no commit. |
+| Three consecutive turns on SHA-1 and SHA-256 repositories | One sandbox allocation, two same-ID resumptions and three pauses; original parents survive; an unchanged turn creates no commit. |
+| Six-hour boundary, queued work, provider loss and late cleanup ACK | Only eligible resources are retired; reconstruction has a new identity and preserves canonical Git history. |
+| Another writer changes the cloud while paused | Wakeup incrementally fetches and fast-forwards without replacing the sandbox. |
+| Small push over long retained history | Durable proofs bound verification to new objects/dependencies; no per-history object downloads or S3 LIST. |
 | Rename/delete, Unicode paths, binary attachments, executable modes and ignored scratch files | Published bytes and modes match Git; deletions persist; ignored files remain in recovery without entering the cloud tree. |
 | Two Agents publish from the same base | Exactly one succeeds; the other reports a conflict and retains its own commit and files. |
 | Cloud HEAD changes or the captured branch is deleted | Publication cannot switch targets or recreate the deleted branch. |

@@ -85,7 +85,9 @@ class NativeGitRepository:
             read.backend = read.backend.pinned_reader(read)
             if read.object_format != self.format:
                 raise ValueError("repository object format mismatch")
-            reader = PublishedObjectReader(read, self.control)
+            reader = PublishedObjectReader(
+                read, self.control, proof_factory=self.service.proof_factory
+            )
             # Reject unreadable wants before HTTP headers are sent. No blob is
             # downloaded here, including a raw-OID partial-clone lazy fetch.
             reader.authorize([*request.wants, *request.shallow])
@@ -110,7 +112,9 @@ class NativeGitRepository:
             ) as snapshot:
                 self.check_generation(snapshot.generation)
                 snapshot.backend = snapshot.backend.pinned_reader(snapshot)
-                reader = PublishedObjectReader(snapshot, self.control)
+                reader = PublishedObjectReader(
+                    snapshot, self.control, proof_factory=self.service.proof_factory
+                )
                 if publication is not None and snapshot.generation != publication.base.generation:
                     raise PermissionError("Run repository generation changed")
                 with IncomingPack(reader) as incoming:
@@ -203,7 +207,9 @@ class NativeGitRepository:
                         def prepare(pending=pending):
                             # The canonical empty tree shares the incoming batch;
                             # it must not create a second physical lease/reservation.
-                            empty_oid, empty_loose = encode_object("tree", b"", object_format=self.format)
+                            empty_oid, empty_loose = encode_object(
+                                "tree", b"", object_format=self.format
+                            )
                             batch, size = {empty_oid: empty_loose}, len(empty_loose)
                             for oid in pending:
                                 checkpoint()

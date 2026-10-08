@@ -54,7 +54,7 @@ jobs:
           uv sync --locked
       - name: Build offline Pi tools and owned object storage
         run: |
-          docker build -t puppyone-cloud-agent:workspace-v2 backend/agent-worker
+          docker build -t puppyone-cloud-agent:workspace-v3 backend/agent-worker
           docker build --target build -t puppyone-entrypoint-minio-build:local -f docker/Dockerfile.minio .
           docker pull postgrest/postgrest:v14.13
       - name: Verify actual HTTP budgets, authority, replies and Git recovery

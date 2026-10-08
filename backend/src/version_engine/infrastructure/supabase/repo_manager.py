@@ -100,7 +100,10 @@ class VersionRepoManager:
         This is not cached authority. Read pins and final SQL publication still
         validate current generation, permissions, lease, policy and CAS.
         """
-        if metadata.get("project_id") != project_id or metadata.get("object_format") not in {"sha1", "sha256"}:
+        if metadata.get("project_id") != project_id or metadata.get("object_format") not in {
+            "sha1",
+            "sha256",
+        }:
             raise ValueError("repository metadata binding mismatch")
         from src.platform.project.write_lease import active_project_write_lease
         from src.version_engine.infrastructure.supabase.billing_repository import RepositoryBilling
@@ -110,6 +113,7 @@ class VersionRepoManager:
         from src.version_engine.infrastructure.supabase.file_policy_repository import (
             RepositoryFilePolicy,
         )
+        from src.version_engine.infrastructure.supabase.object_proofs import ObjectProofRepository
         from src.version_engine.infrastructure.supabase.ref_authority_repository import (
             AdmittedRefAuthorityRepository,
         )
@@ -129,6 +133,7 @@ class VersionRepoManager:
             capacity=RepositoryCapacity(control),
             billing=RepositoryBilling(control),
             policy=RepositoryFilePolicy(control),
+            proof_factory=ObjectProofRepository,
         )
 
     @contextmanager
@@ -143,7 +148,9 @@ class VersionRepoManager:
         )
         from src.version_engine.read.repository_snapshot import repository_snapshot
 
-        control = AdmittedRefAuthorityRepository(self._supabase.client, lease_provider=lambda _: None)
+        control = AdmittedRefAuthorityRepository(
+            self._supabase.client, lease_provider=lambda _: None
+        )
         backend = S3StorageBackend(self._s3, project_id, supabase=self._supabase)
         with repository_snapshot(control, backend, grant, project_id=project_id) as snapshot:
             yield snapshot

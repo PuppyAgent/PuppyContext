@@ -2,6 +2,7 @@
 
 import asyncio
 import concurrent.futures
+import json
 from uuid import uuid4
 
 import pytest
@@ -30,7 +31,7 @@ def assert_run_budget(supervisor, report, fixed):
     heartbeats = report["stages"].get("heartbeat", 0)
     assert report["operations"].get("POST rpc/agent_run_renew", 0) == heartbeats, report
     assert heartbeats <= int(supervisor.elapsed_seconds / 5), report
-    assert report["attempts"] <= fixed + heartbeats, report
+    assert report["attempts"] <= fixed + heartbeats, json.dumps(report, indent=2)
 
 
 @pytest.mark.asyncio
@@ -473,7 +474,11 @@ async def test_real_pi_answers_file_question_using_offline_find_and_read(
     assert counts["prepare"] == counts["snapshot"] == counts["finalize"] == 1
     assert counts["push"] == 0
     report = supervisor.metrics.report()
-    assert_run_budget(supervisor, report, 20)
+    # Cold Session ownership adds one claim, four persisted transitions and a
+    # publication confirmation before pause. The whole operation remains bounded.
+    assert report["operations"].get("POST rpc/agent_run_workspace_acquire") == 1
+    assert report["operations"].get("POST rpc/agent_run_workspace_transition") == 4
+    assert_run_budget(supervisor, report, 26)
     assert report["max_inflight"] <= 2, report
     assert report["operations"].get("POST rpc/get_version_pinned_object_locations") == 1
     (tmp_path / "read-tool-performance.json").write_text(
@@ -688,11 +693,16 @@ async def test_writing_run_uses_one_push_and_bounded_object_reservations(
     def count_s3(**kw):
         s3_calls[kw["event_name"]] += 1
 
-    storage.client.meta.events.register("before-send.s3", count_s3)
+    # Mutation I/O deliberately uses a separate no-retry SDK client. Count
+    # physical attempts on BOTH clients, including PUT and upload verification.
+    s3_clients = {storage.client, storage.for_single_attempt_io().client}
+    for client in s3_clients:
+        client.meta.events.register("before-send.s3", count_s3)
     command = "\n".join(f"printf 'note {i}' > note-{i}.md" for i in range(count))
     supervisor = c.supervisor(model=BashModel(command))
     result = await approve_to_completion(c, asyncio.create_task(supervisor.run_claim(c.run)))
-    storage.client.meta.events.unregister("before-send.s3", count_s3)
+    for client in s3_clients:
+        client.meta.events.unregister("before-send.s3", count_s3)
     assert result["state"] == "succeeded", result
     assert commands["finalize"] == commands["push"] == 1, commands
     assert commands["snapshot"] == 3, commands  # prepared, mutation, exact commit
@@ -707,9 +717,28 @@ async def test_writing_run_uses_one_push_and_bounded_object_reservations(
     # Empty tree shares the incoming batch; closure reconciliation is in seal.
     assert report["operations"].get("POST rpc/reserve_version_object_capacity") == 1, report
     assert report["operations"].get("POST rpc/seal_version_capacity_batch") == 1, report
-    assert_run_budget(supervisor, report, 35)
+    # Fixed lifecycle persistence (6) plus bounded proof lookups/registration
+    # (4). The same budget covers one file and sixty files in one batch.
+    assert report["operations"].get("POST rpc/agent_run_workspace_acquire") == 1
+    assert report["operations"].get("POST rpc/agent_run_workspace_transition") == 4
+    assert report["operations"].get("POST rpc/get_version_object_proofs") == 3
+    assert report["operations"].get("POST rpc/register_version_object_proofs") == 1
+    assert_run_budget(supervisor, report, 45)
     assert report["operations"].get("GET version_object_locations", 0) <= 3, report
     assert report["max_inflight"] <= 10, report
+    assert s3_calls["before-send.s3.PutObject"] == 1, s3_calls
+    assert sum(s3_calls.values()) <= 14, s3_calls
+    assert not any("ListObjects" in name for name in s3_calls), s3_calls
+    print(
+        {
+            "files": count,
+            "database_requests": report["attempts"],
+            "s3_requests": dict(s3_calls),
+            "git_http": dict(http),
+            "provider_commands": dict(commands),
+            "elapsed_seconds": supervisor.elapsed_seconds,
+        }
+    )
     assert all(
         "git" not in tool["result"]["checkpoint"]["state"] for tool in c.repo.tools(c.run["id"])
     )
