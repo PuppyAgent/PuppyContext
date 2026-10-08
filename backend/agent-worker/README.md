@@ -60,7 +60,8 @@ That adapter uses the same `NativeGitRepository` and ref transaction service
 as public `/git/{project}.git`. It owns the Git protocol; Agent only supplies
 an admitted project, original base, candidate and fenced run identity.
 
-Read tools reuse the existing provider recovery point. Mutating tools, including
+Read tools reuse the existing provider recovery point. Detached tool writers are
+terminated before confirming a mutation boundary. Mutating tools, including
 failed shell commands, save a provider snapshot before acknowledging the tool
 receipt. Conversation checkpoints contain bounded Pi entries and opaque recovery
 references in PostgreSQL, never project files or pack data. On successful model
@@ -253,3 +254,9 @@ stock Git. The model response source is deterministic. E2B acceptance is an
 explicit opt-in test against a template built from the same committed artifact;
 Docker results alone do not establish hosted provider behavior. No test runs
 an inventory or migration against existing customer projects.
+
+To run the explicit E2B acceptance suite, set `E2B_API_KEY`,
+`CLOUD_AGENT_E2B_TEMPLATE` to the test artifact, and `CLOUD_AGENT_TEST_E2B=1`,
+then run `uv run pytest tests/agent/runtime/test_e2b_workspace.py -q`. This creates
+and deletes test sandboxes/snapshots; the Git test uses an owned local database
+and object service through the private relay, not a hosted customer project.

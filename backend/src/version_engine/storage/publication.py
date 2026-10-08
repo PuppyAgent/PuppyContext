@@ -57,8 +57,12 @@ class ClosureManifest:
 
 class ClosureVerifier:
     def __init__(
-        self, backend: StorageBackend, *, object_format: str = "sha1",
-        max_objects: int = 1_000_000, max_bytes: int = 8 * 1024**3,
+        self,
+        backend: StorageBackend,
+        *,
+        object_format: str = "sha1",
+        max_objects: int = 1_000_000,
+        max_bytes: int = 8 * 1024**3,
     ):
         self.backend = backend
         self.object_format = object_format
@@ -67,18 +71,31 @@ class ClosureVerifier:
         self.max_bytes = max_bytes
 
     def verify(
-        self, roots: Mapping[str, str | None], *, progress: Callable[[], None] | None = None,
+        self,
+        roots: Mapping[str, str | None],
+        *,
+        progress: Callable[[], None] | None = None,
         on_object: Callable[[str, bytes], None] | None = None,
     ) -> ClosureManifest:
         if not roots:
             raise ClosureVerificationError("empty publication closure")
+        factory = getattr(self.backend, "durable_readback", None)
+        reader = factory() if callable(factory) else self.backend
+        prefetch = getattr(reader, "prefetch_durable", None)
         records: dict[str, VerifiedObject] = {}
         stack = list(roots.items())
         total_bytes = 0
         while stack:
+            if callable(prefetch):
+                # Bound metadata only. Bytes are read and verified one object at a
+                # time, so a batch of large blobs cannot amplify memory use.
+                prefetch(oid for oid, _kind in reversed(stack[-100:]) if oid not in records)
             oid, expected = stack.pop()
-            if (len(oid) != self.width or not set(oid) <= set("0123456789abcdef")
-                    or oid == "0" * self.width):
+            if (
+                len(oid) != self.width
+                or not set(oid) <= set("0123456789abcdef")
+                or oid == "0" * self.width
+            ):
                 raise ClosureVerificationError("invalid closure object id")
             if oid in records:
                 if expected is not None and records[oid].kind != expected:
@@ -89,7 +106,7 @@ class ClosureVerifier:
             if progress is not None:
                 progress()
             try:
-                loose = self.backend.get_durable(oid)
+                loose = reader.get_durable(oid)
                 kind, body = decode_object(loose, max_bytes=self.max_bytes - total_bytes)
                 if expected is not None and kind != expected:
                     raise ValueError("closure object type mismatch")
@@ -105,12 +122,23 @@ class ClosureVerifier:
                 on_object(oid, loose)
             stack.extend(edges)
         roots = {oid: records[oid].kind for oid in roots}
-        encoded = json.dumps({
-            "version": 1, "object_format": self.object_format, "roots": dict(roots),
-            "objects": [(oid, record.kind, record.size, record.body_sha256)
-                        for oid, record in sorted(records.items())],
-        }, sort_keys=True, separators=(",", ":")).encode("ascii")
+        encoded = json.dumps(
+            {
+                "version": 1,
+                "object_format": self.object_format,
+                "roots": dict(roots),
+                "objects": [
+                    (oid, record.kind, record.size, record.body_sha256)
+                    for oid, record in sorted(records.items())
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
         return ClosureManifest(
-            self.object_format, MappingProxyType(dict(roots)), MappingProxyType(records),
-            hashlib.sha256(encoded).hexdigest(), total_bytes,
+            self.object_format,
+            MappingProxyType(dict(roots)),
+            MappingProxyType(records),
+            hashlib.sha256(encoded).hexdigest(),
+            total_bytes,
         )

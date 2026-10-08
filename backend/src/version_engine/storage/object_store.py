@@ -6,7 +6,7 @@ import abc
 import asyncio
 import os
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from src.version_engine.domain.errors import ObjectNotFoundError
@@ -32,9 +32,18 @@ class StorageBackend(abc.ABC):
         """Explicit physical read capability; unknown/caching backends fail closed."""
         raise NotImplementedError("backend does not provide durable object readback")
 
+    def durable_readback(self):
+        """Fresh proof attempt; optional bounded metadata batching, never a warm byte cache."""
+        return self
+
     def put_durable(self, h: str, loose_bytes: bytes) -> None:
         """Write-through; caching backends must override to bypass staging."""
         self.put(h, loose_bytes)
+
+    def put_many_durable(self, objects: dict[str, bytes]) -> None:
+        """Bounded write-through batch; network backends override with bulk I/O."""
+        for oid, data in objects.items():
+            self.put_durable(oid, data)
 
     @abc.abstractmethod
     def get(self, h: str) -> bytes:
@@ -86,10 +95,8 @@ class FileSystemBackend(StorageBackend):
                 tmp.write(loose_bytes)
             os.replace(tmp_name, path)
         finally:
-            try:
+            with suppress(FileNotFoundError):
                 os.unlink(tmp_name)
-            except FileNotFoundError:
-                pass
 
     def get_durable(self, h: str) -> bytes:
         return self.get(h)
@@ -133,11 +140,16 @@ class ObjectStore:
     """High-level store for Git loose objects."""
 
     def __init__(
-        self, objects_dir: Path, backend: StorageBackend | None = None,
-        *, object_format: str = "sha1",
+        self,
+        objects_dir: Path,
+        backend: StorageBackend | None = None,
+        *,
+        object_format: str = "sha1",
     ):
         self._empty_tree_id, self._empty_tree_loose = encode_object(
-            "tree", EMPTY_TREE_CONTENT, object_format=object_format,
+            "tree",
+            EMPTY_TREE_CONTENT,
+            object_format=object_format,
         )
         self._object_format = object_format
         self.dir = objects_dir
@@ -168,12 +180,17 @@ class ObjectStore:
         if sha1 == self._empty_tree_id:
             return "tree", EMPTY_TREE_CONTENT
         return self._decode_verified(
-            sha1, self._backend.get(sha1), object_format=self.object_format,
+            sha1,
+            self._backend.get(sha1),
+            object_format=self.object_format,
         )
 
     @staticmethod
     def _decode_verified(
-        sha1: str, loose: bytes, *, object_format: str = "sha1",
+        sha1: str,
+        loose: bytes,
+        *,
+        object_format: str = "sha1",
     ) -> tuple[str, bytes]:
         try:
             obj_type, content = decode_object(loose)

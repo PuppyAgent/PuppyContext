@@ -1,7 +1,6 @@
 """Real pinned Pi + Docker. The model is a deterministic protocol fixture."""
 
 import asyncio
-import base64
 import json
 from uuid import uuid4
 
@@ -9,6 +8,7 @@ import pytest
 
 from src.platform.scope_sandbox.execution.pi_worker import PiWorker
 from src.platform.scope_sandbox.execution.store import InMemoryExecutionSessionStore
+from tests.agent.runtime.workspace_assertions import recovery_file
 
 pytestmark = pytest.mark.integration
 
@@ -20,7 +20,12 @@ def config(**updates):
         "context_window": 131072,
         "readonly": False,
         "prompt": "Complete the requested file task.",
-        "files": {"hello.txt": base64.b64encode(b"hello").decode()},
+        "workspace": {
+            "object_format": "sha1",
+            "target_ref": "refs/heads/main",
+            "base_oid": None,
+            "readonly": False,
+        },
         **updates,
     }
 
@@ -82,7 +87,9 @@ async def test_real_pi_file_tool_and_checkpoint():
                     assert frame["name"] == "write"
                     await worker.send({"type": "reply", "id": frame["id"], "allow": True})
                 elif frame["type"] == "tool_end":
-                    assert base64.b64decode(frame["files"]["result.txt"]) == b"saved"
+                    assert "files" not in frame and "git" not in frame
+                    recovery = await worker.snapshot()
+                    assert recovery_file({"recovery": recovery}, "result.txt") == b"saved"
                     await worker.send({"type": "reply", "id": frame["id"]})
                 elif frame["type"] == "finished":
                     assert not frame.get("error"), frame
@@ -91,7 +98,7 @@ async def test_real_pi_file_tool_and_checkpoint():
                     pytest.fail(str(frame))
         assert {"ready", "tool_start", "tool_end", "text", "finished"} <= set(frames)
         assert any(e.get("message", {}).get("role") == "toolResult" for e in checkpoint["entries"])
-        assert base64.b64decode(checkpoint["files"]["result.txt"]) == b"saved"
+        assert "files" not in checkpoint and "git" not in checkpoint
     finally:
         await worker.stop()
 
@@ -157,7 +164,7 @@ async def test_real_pi_isolation(tool, arguments, expected):
 
 
 @pytest.mark.asyncio
-async def test_capture_freezes_tools_before_cleanup():
+async def test_provider_snapshot_preserves_partial_tool_write_before_cleanup():
     worker = PiWorker(
         str(uuid4()), "fixture", store=InMemoryExecutionSessionStore(), provider="docker"
     )
@@ -178,11 +185,11 @@ async def test_capture_freezes_tools_before_cleanup():
                 elif frame["type"] == "tool_start":
                     await worker.send({"type": "reply", "id": frame["id"], "allow": True})
                     await asyncio.sleep(1)
-                    files = await worker.capture()
-                    assert "partial.txt" in files, files
-                    assert base64.b64decode(files["partial.txt"]) == b"started\n"
-                    # Already-paused capture is idempotent during a recovery retry.
-                    assert await worker.capture() == files
+                    await worker.control("stop")
+                    snapshot = await worker.snapshot()
+                    assert recovery_file({"recovery": snapshot}, "partial.txt") == b"started\n"
+                    later = await worker.snapshot()
+                    assert recovery_file({"recovery": later}, "partial.txt") == b"started\n"
                     break
                 elif frame["type"] in {"failed", "disconnected"}:
                     pytest.fail(str(frame))
@@ -191,10 +198,10 @@ async def test_capture_freezes_tools_before_cleanup():
 
 
 @pytest.mark.asyncio
-async def test_full_pi_branches_compaction_restore_from_object_storage(services, submitted):
+async def test_full_pi_branches_compaction_restore_from_manifest(submitted):
     from src.platform.access.adapters.agent.runtime.checkpoints import Checkpoints
 
-    checkpoint_store = Checkpoints(services[1])
+    checkpoint_store = Checkpoints()
     run = submitted[1]
     stamp = "2026-10-06T00:00:00.000Z"
 
@@ -238,11 +245,10 @@ async def test_full_pi_branches_compaction_restore_from_object_storage(services,
         entry("branch", "compact", "branch_summary", fromId="unused", summary="BRANCH_MEMORY"),
     ]
     saved = {
-        "version": 1,
+        "version": 2,
         "pi_version": "0.85.1",
         "entries": entries,
         "leaf_id": "branch",
-        "files": {},
     }
     for _iteration in range(2):
         worker = PiWorker(

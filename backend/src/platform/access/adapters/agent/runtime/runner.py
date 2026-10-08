@@ -8,14 +8,15 @@ from uuid import uuid4
 
 from src.config import settings
 from src.infra.supabase.instrumentation import DatabaseTrace, database_stage, database_trace
-from src.platform.access.adapters.agent.runtime.checkpoints import Checkpoints, validate_files
+from src.platform.access.adapters.agent.runtime.checkpoints import Checkpoints
 from src.platform.access.adapters.agent.runtime.heartbeat import EndRun, ExecutionLease
 from src.platform.access.adapters.agent.runtime.models import TERMINAL
 from src.platform.access.adapters.agent.runtime.ports import RunStore
 from src.platform.access.adapters.agent.runtime.publication import PublicationRejected
+from src.platform.access.adapters.agent.runtime.recovery import Recovery
 from src.platform.managed_ai.contracts import InferenceFailed, ModelChunk
 from src.platform.managed_ai.schemas import CompletionRequest
-from src.platform.scope_sandbox.execution.pi_worker import PiWorker, WorkerLost
+from src.platform.scope_sandbox.execution.worker_port import WorkerLifecycle, WorkerLost
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +31,16 @@ class RunSupervisor:
         billing,
         *,
         checkpoints=None,
-        worker_factory=PiWorker,
+        worker_factory,
+        worker_lifecycle: WorkerLifecycle,
         bound_tools=None,
     ):
         self.repo, self.admission, self.publication = repository, admission, publication
         self.inference, self.billing = inference, billing
         self.checkpoints = checkpoints or Checkpoints()
+        self.recovery = Recovery()
         self.worker_factory, self.bound_tools = worker_factory, bound_tools
+        self.worker_lifecycle = worker_lifecycle
         self.lock = asyncio.Lock()
         self.worker = None
         self.models = {}
@@ -222,19 +226,31 @@ class RunSupervisor:
             try:
                 if self.value is None:
                     raise ValueError("Missing initial recovery checkpoint")
-                worker = worker or await PiWorker.attach(resource, self.run["project_id"])
+                worker = worker or await self.worker_lifecycle.attach(
+                    resource, self.run["project_id"]
+                )
                 if self.value.get("reason") != "settled":
-                    if "git" in self.value:
-                        workspace = await worker.capture(workspace=True)
-                    else:
-                        workspace = {"files": await worker.capture()}
-                    await self.save({**self.value, **workspace}, "interrupted")
+                    await worker.control("stop")
+                    workspace = self.value["workspace"]
+                    # Recover a commit created before the manifest ACK was lost.
+                    # Damaged metadata must not prevent preservation of the files.
+                    with suppress(Exception):
+                        actual = await worker.control("inspect", workspace)
+                        workspace = {
+                            **workspace,
+                            **actual,
+                            "changed": actual["tip"] != workspace["base_oid"],
+                        }
+                    recovery = await worker.snapshot()
+                    await self.save(
+                        {**self.value, "workspace": workspace, "recovery": recovery}, "interrupted"
+                    )
             except WorkerLost:
                 await self.write("recovery", {"code": "unconfirmed_workspace_lost"})
             except Exception:
                 saved = False
                 if worker:
-                    await asyncio.to_thread(worker.store.delete, resource["session_id"])
+                    await worker.retain()
                 logger.exception(
                     "cloud_agent_recovery_material_retained", extra={"run_id": self.run["id"]}
                 )
@@ -280,13 +296,13 @@ class RunSupervisor:
                 # With no executing tool, the last checkpoint/receipt is the
                 # complete acknowledged state. Quiesce the old process before
                 # cleanup; a late file mutation cannot join the new execution.
-                await PiWorker.cleanup(execution["resource"])
+                await self.worker_lifecycle.cleanup(execution["resource"])
                 await asyncio.to_thread(self.repo.cleaned, execution["id"])
         resume = bool(self.run["checkpoint"])
         if resume:
             self.value = await self.checkpoints.load(self.run, self.run["checkpoint"])
-            # A completed receipt may have committed just before its checkpoint
-            # manifest update. Its immutable object includes the resulting files.
+            # A completed receipt may have committed just before the current
+            # manifest update. Its provider reference includes resulting files.
             present = {
                 e.get("message", {}).get("toolCallId") for e in self.value.get("entries") or []
             }
@@ -294,8 +310,7 @@ class RunSupervisor:
                 if tool["state"] == "completed" and tool["call_id"] not in present:
                     self.value = await self.checkpoints.load(self.run, tool["result"]["checkpoint"])
             if self.value["reason"] == "settled":
-                await self.publish(grant)
-                return
+                self.value["agent_settled"] = True
             if self.value["reason"] == "model_failed":
                 raise EndRun("failed", "model_failed")
             # A model stream can die after partial UI text but before its Pi
@@ -325,7 +340,9 @@ class RunSupervisor:
                 ).get("status") not in {"committed", "no_changes"}:
                     raise EndRun("failed", "previous_run_requires_resolution")
                 old = await self.checkpoints.load(previous, previous["checkpoint"])
-                self.value.update(entries=old["entries"], leaf_id=old["leaf_id"])
+                self.value.update(
+                    entries=old["entries"], leaf_id=old["leaf_id"], recovery=old.get("recovery")
+                )
             self.value["run_entry_start"] = len(self.value.get("entries") or [])
             await self.save(self.value, "prepared")
         if self.run["billing_run_id"]:
@@ -346,6 +363,19 @@ class RunSupervisor:
             )
         await self.write("state", {"state": "running"}, state="running", billing_run_id=billing_id)
         self.worker = self.worker_factory(self.run["execution_id"], self.run["project_id"])
+        self.worker.restore_point = self.value.get("recovery")
+
+        async def git_exchange(frame):
+            current_grant = await self.check()
+            stage = (
+                "git_receive_http"
+                if "git-receive-pack" in frame.get("path", "")
+                else "git_fetch_http"
+            )
+            with database_stage(stage):
+                return await self.publication.exchange(self.run, self.value, current_grant, frame)
+
+        self.worker.git_handler = git_exchange
         # Provider identity intent is durable before allocation (Docker's name is
         # deterministic; E2B also carries the execution identity in metadata).
         await self.write("resource", {}, resource=self.worker.resource)
@@ -361,11 +391,9 @@ class RunSupervisor:
         await self.worker.start(
             {
                 **self.run["policy"],
-                **{
-                    key: self.value[key]
-                    for key in ("version", "pi_version", "entries", "leaf_id", "files")
-                },
-                **{key: self.value[key] for key in ("git", "modes") if key in self.value},
+                **{key: self.value[key] for key in ("version", "pi_version", "entries", "leaf_id")},
+                "workspace": self.value["workspace"],
+                "resume_workspace": resume and bool(self.value.get("recovery")),
                 "prompt": self.run["prompt"],
                 "finalize_only": self.value.get("agent_settled", False),
                 "resume": resume and self.value["reason"] != "prepared",
@@ -390,13 +418,9 @@ class RunSupervisor:
                     await self.flush_text()
             elif kind == "checkpoint":
                 supplied = frame["checkpoint"]
-                if "git" in self.value and not isinstance(supplied.get("git"), dict):
-                    raise ValueError("Sandbox artifact did not checkpoint Git state")
                 value = {
-                    key: supplied[key]
-                    for key in ("version", "pi_version", "entries", "leaf_id", "files")
+                    key: supplied[key] for key in ("version", "pi_version", "entries", "leaf_id")
                 }
-                value.update({key: supplied[key] for key in ("git", "modes") if key in supplied})
                 reason = "agent_settled" if frame["reason"] == "settled" else frame["reason"]
                 if reason == "agent_settled":
                     value["agent_settled"] = True
@@ -422,16 +446,8 @@ class RunSupervisor:
                 self.finished = True
                 await self.check()
                 with database_stage("sandbox_capture_commit"):
-                    if "git" in self.value:
-                        workspace = await self.worker.capture(
-                            workspace=True,
-                            commit=None
-                            if self.run["policy"]["readonly"]
-                            else "Agent run " + self.run["id"],
-                        )
-                    else:
-                        workspace = {"files": await self.worker.capture()}
-                await self.save({**self.value, **workspace}, "settled")
+                    self.value = await self.recovery.finalize(self.worker, self.value, self.run)
+                await self.save(self.value, "settled")
                 return
             elif kind in {"failed", "disconnected"}:
                 raise EndRun("failed", "worker_disconnected")
@@ -443,8 +459,9 @@ class RunSupervisor:
                     self.worker_started_at = None
                 if frame.get("pi_version") != "0.85.1" or frame.get("node_version") != "v22.22.3":
                     raise ValueError("Unexpected worker artifact")
-                if "git" in self.value and frame.get("workspace_version") != 1:
-                    raise ValueError("Sandbox artifact does not support Git workspaces")
+                if frame.get("workspace_version") != 2:
+                    raise ValueError("Sandbox artifact does not support provider workspaces")
+                self.value["recovery"] = self.worker.recovery
                 await self.write(
                     "ready", {key: frame[key] for key in ("pi_version", "node_version")}
                 )
@@ -534,11 +551,7 @@ class RunSupervisor:
         started = self.tool_started_at.pop(frame["call_id"], None)
         if started is not None and self.metrics:
             self.metrics.duration("sandbox_tools", time.monotonic() - started)
-        if "git" in self.value and not isinstance(frame.get("git"), dict):
-            raise ValueError("Missing tool Git checkpoint")
-        validate_files(frame["files"])
-        value = {**self.value, "files": frame["files"], "reason": "after_tool"}
-        value.update({key: frame[key] for key in ("git", "modes") if key in frame})
+        value = await self.recovery.after_tool(self.worker, self.value, frame)
         manifest = await self.checkpoints.save(self.run, value)
         await asyncio.to_thread(
             self.repo.tool,
@@ -572,7 +585,7 @@ class RunSupervisor:
     async def publish(self, grant):
         await self.write("state", {"state": "publishing"}, state="publishing")
         with database_stage("publication"):
-            result = await self.publication.publish(self.run, self.value, grant)
+            result = await self.publication.publish(self.run, self.value, grant, self.worker)
         await self.write("publication", result, publication=result)
         await self.finish(
             "succeeded" if result["status"] in {"committed", "no_changes"} else "conflict",
@@ -609,7 +622,7 @@ class RunSupervisor:
                         ):
                             await self.worker.stop()
                         else:
-                            await PiWorker.cleanup(execution["resource"])
+                            await self.worker_lifecycle.cleanup(execution["resource"])
                 if not completed_execution:
                     await asyncio.to_thread(self.repo.cleaned, execution["id"])
         if self.run["billing_run_id"] and not retain_resource:

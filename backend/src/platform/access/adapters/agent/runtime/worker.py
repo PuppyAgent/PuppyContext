@@ -12,6 +12,8 @@ from src.platform.access.adapters.agent.runtime.tools import BoundTools
 from src.platform.billing.gateway import get_billing_gateway
 from src.platform.billing.runtime import get_runtime_metering_service
 from src.platform.managed_ai.dependencies import get_inference_service, get_provider_registry
+from src.platform.scope_sandbox.execution.pi_worker import PiWorker
+from src.version_engine.adapters.git.run_transport import RunGitTransport
 from src.version_engine.bootstrap.dependencies import build_worker_version_engine_container
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,8 @@ async def serve():
 
     repository = RunRepository()
     admission = Admission(repository)
-    publication = Publication(build_worker_version_engine_container(probe=True))
+    engine = build_worker_version_engine_container(probe=True)
+    publication = Publication(RunGitTransport(engine.repo_manager))
     inference = get_inference_service(get_billing_gateway(), get_provider_registry())
     billing = get_runtime_metering_service()
     bound_tools = BoundTools(admission)
@@ -32,7 +35,14 @@ async def serve():
     async def supervise(run):
         try:
             await RunSupervisor(
-                repository, admission, publication, inference, billing, bound_tools=bound_tools
+                repository,
+                admission,
+                publication,
+                inference,
+                billing,
+                bound_tools=bound_tools,
+                worker_factory=PiWorker,
+                worker_lifecycle=PiWorker,
             ).run_claim(run)
         except asyncio.CancelledError:
             raise

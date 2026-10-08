@@ -74,6 +74,7 @@ class NativeGitRepository:
         )
         read = context.__enter__()
         try:
+            read.backend = read.backend.pinned_reader(read)
             if read.object_format != self.format:
                 raise ValueError("repository object format mismatch")
             reader = PublishedObjectReader(read, self.control)
@@ -89,15 +90,20 @@ class NativeGitRepository:
         with request_path.open("rb") as handle:
             return receive_commands(handle, self.format)
 
-    def receive(self, grant, request_path: Path):
+    def receive(self, grant, request_path: Path, *, publication=None):
         admitted_actor(grant, self.project_id, write=True)
         outcomes = {}
         with request_path.open("rb") as handle:
             edits, capabilities = receive_commands(handle, self.format)
+            if publication is not None:
+                publication.validate(edits)
             with repository_snapshot(
                 self.control, self.service.backend, grant, project_id=self.project_id
             ) as snapshot:
+                snapshot.backend = snapshot.backend.pinned_reader(snapshot)
                 reader = PublishedObjectReader(snapshot, self.control)
+                if publication is not None and snapshot.generation != publication.base.generation:
+                    raise PermissionError("Run repository generation changed")
                 with IncomingPack(reader) as incoming:
                     try:
                         incoming.read(handle)
@@ -140,6 +146,30 @@ class NativeGitRepository:
                                     stack.extend(
                                         object_edges(kind, body, object_format=self.format)
                                     )
+                            if publication is not None and publication.base.expected.oid:
+                                ancestry, visited = [edit.new.oid], set()
+                                ancestor = publication.base.expected.oid
+                                while ancestry and ancestor not in visited:
+                                    parent = ancestry.pop()
+                                    if parent in visited:
+                                        continue
+                                    visited.add(parent)
+                                    if parent == ancestor:
+                                        break
+                                    kind, body = incoming.get(parent)
+                                    if kind != "commit":
+                                        raise ValueError("Run ancestry is not a commit")
+                                    ancestry.extend(
+                                        oid
+                                        for oid, kind in object_edges(
+                                            kind, body, object_format=self.format
+                                        )
+                                        if kind == "commit"
+                                    )
+                                if ancestor not in visited:
+                                    raise PermissionError(
+                                        "Run candidate does not descend from its base"
+                                    )
                             closures[edit.name] = closure
                             accepted.append(edit)
                         except (ValueError, KeyError, PermissionError) as exc:
@@ -162,6 +192,7 @@ class NativeGitRepository:
                         pending = set().union(*(closures[edit.name] for edit in batch)) - uploaded
 
                         def prepare(pending=pending):
+                            batch, size = {}, 0
                             for oid in pending:
                                 checkpoint()
                                 snapshot.check_live()
@@ -172,16 +203,29 @@ class NativeGitRepository:
                                 actual, loose = encode_object(kind, body, object_format=self.format)
                                 if actual != oid:
                                     raise ValueError("incoming object hash mismatch")
-                                self.service.backend.put_durable(oid, loose)
-                                uploaded.add(oid)
+                                if batch and (len(batch) >= 100 or size + len(loose) > 8 * 1024**2):
+                                    self.service.backend.put_many_durable(batch)
+                                    uploaded.update(batch)
+                                    batch, size = {}, 0
+                                batch[oid] = loose
+                                size += len(loose)
+                            if batch:
+                                self.service.backend.put_many_durable(batch)
+                                uploaded.update(batch)
 
-                        request_key = str(uuid.uuid4())
+                        request_key = (
+                            publication.request_key
+                            if publication is not None
+                            else str(uuid.uuid4())
+                        )
                         try:
                             result = self.service.submit(
                                 grant,
                                 request_key=request_key,
                                 generation=snapshot.generation,
-                                edits=batch,
+                                edits=publication.base.edits(publication.candidate)
+                                if publication is not None
+                                else batch,
                                 roots=desired,
                                 prepare=prepare,
                                 message="git push",

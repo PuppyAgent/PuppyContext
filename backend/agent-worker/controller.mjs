@@ -11,12 +11,13 @@ const exec = promisify(execFile);
 const control = channel();
 let worker, relay, config, lastSnapshot, stopped = false;
 const childIds = new Set();
-async function processes(signal) {
+async function processes(signal, keepWorker = false) {
   // Include detached descendants, not just the original process group.
   for (let attempt=0; attempt<8; attempt++) {
     let found = false;
     for (const name of await readdir('/proc')) {
       if (!/^\d+$/.test(name)) continue;
+      if (keepWorker && Number(name) === worker?.pid) continue;
       try {
         const status = await readFile(`/proc/${name}/status`,'utf8');
         if (!/^Uid:\s+1000\s/m.test(status) || /^State:\s+[Zt]\b/m.test(status)) continue;
@@ -36,6 +37,9 @@ async function directories() {
 async function snapshot() {
   await processes('SIGSTOP');
   try {
+    // A completed tool may have forked detached writers. They must not modify
+    // files after its acknowledged boundary or during subsequent read tools.
+    await processes('SIGKILL',true);
     const id=randomUUID(); const destination=`/recovery/${id}`;
     await mkdir(destination);
     await exec('rsync',['-a',...(lastSnapshot ? [`--link-dest=/recovery/${lastSnapshot}`] : []),
@@ -81,7 +85,9 @@ control.dispatch(async frame=>{
       if (frame.action === 'prepare') result=await prepareWorkspace(frame.value);
       else if (frame.action === 'snapshot') result=await snapshot();
       else if (frame.action === 'inspect') result=await inspect(ROOT,frame.value);
-      else if (frame.action === 'freeze') { await processes('SIGSTOP'); result={}; }
+      else if (frame.action === 'freeze') {
+        await processes('SIGSTOP'); await processes('SIGKILL',true); result={};
+      }
       else if (frame.action === 'thaw') { if (!stopped) await processes('SIGCONT'); result={}; }
       else if (frame.action === 'finalize') {
         stopped=true; await processes('SIGKILL'); worker=null;

@@ -54,7 +54,7 @@ jobs:
           uv sync --locked
       - name: Build offline Pi tools and owned object storage
         run: |
-          docker build -t puppyone-cloud-agent:data-access-v1 backend/agent-worker
+          docker build -t puppyone-cloud-agent:workspace-v2 backend/agent-worker
           docker build --target build -t puppyone-entrypoint-minio-build:local -f docker/Dockerfile.minio .
           docker pull postgrest/postgrest:v14.13
       - name: Verify actual HTTP budgets, authority, replies and Git recovery
@@ -69,7 +69,7 @@ jobs:
             --ignore=tests/agent/runtime/test_desktop_integration.py \
             --hosting-live --hosting-s3 \
             -q --junitxml=.agent-test-results/junit.xml --basetemp=.agent-test-results/cases
-          node --test agent-worker/git-workspace.test.mjs
+          node --test agent-worker/git.test.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -5,6 +5,16 @@ from typing import Any, Protocol
 Row = dict[str, Any]
 
 
+class GitTransport(Protocol):
+    """Run-bound smart HTTP and metadata; no file/object storage capability."""
+
+    def describe(self, project: str, grant: Any) -> Row: ...
+    def result(self, project: str, grant: Any, request_key: str) -> Row | None: ...
+    async def exchange(
+        self, project: str, grant: Any, frame: Row, *, publication: Any = None
+    ) -> Row: ...
+
+
 class RenewalPort(Protocol):
     def renew_execution(self, run: Row) -> Row: ...
 

@@ -7,18 +7,16 @@ expose the same framed channel. This module does not own Agent run state.
 import asyncio
 import codecs
 import json
-import shlex
 import time
 from contextlib import suppress
+from uuid import uuid4
 
 from src.config import settings
+from src.infra.supabase.instrumentation import database_stage
 from src.platform.scope_sandbox.execution.store import ExecutionSession, durable_execution_store
+from src.platform.scope_sandbox.execution.worker_port import WorkerDisconnected, WorkerLost
 
 MAX_FRAME = 192 * 1024 * 1024
-
-
-class WorkerLost(RuntimeError):
-    """Provider no longer has an unconfirmed filesystem to preserve."""
 
 
 class PiWorker:
@@ -47,6 +45,14 @@ class PiWorker:
             "allocation_pending": True,
         }
         self.send_lock = asyncio.Lock()
+        self.controls = {}
+        self.git_handler = None
+        self.git_tasks = set()
+        self.recovery = None
+        self.restore_point = None
+        self.reconnecting = False
+        self.output_sequence = 0
+        self.resource["recovery_volume"] = "puppyone-agent-recovery-" + execution_id
 
     async def _docker(self, *args):
         proc = await asyncio.create_subprocess_exec(
@@ -63,7 +69,19 @@ class PiWorker:
     async def attach(cls, resource, project_id):
         worker = cls(resource["session_id"], project_id, provider=resource["provider"])
         worker.resource = dict(resource)
-        if resource["provider"] == "e2b":
+        worker.attached = True
+        if resource["provider"] == "docker":
+            try:
+                state = json.loads(
+                    await worker._docker("container", "inspect", resource["resource_id"])
+                )[0]["State"]
+            except RuntimeError as exc:
+                if "No such container:" in str(exc) or "No such object:" in str(exc):
+                    raise WorkerLost("Sandbox no longer exists") from exc
+                raise
+            if not state["Running"]:
+                raise WorkerLost("Sandbox tmpfs no longer exists")
+        elif resource["provider"] == "e2b":
             from e2b import AsyncSandbox
             from e2b.exceptions import NotFoundException
 
@@ -77,12 +95,23 @@ class PiWorker:
                 )
             except NotFoundException as exc:
                 raise WorkerLost("Sandbox expired before unconfirmed files were saved") from exc
+        await worker._open_control()
         return worker
 
     async def create(self):
+        if self.restore_point:
+            if (
+                self.restore_point["project_id"] != self.project_id
+                or self.restore_point["provider"] != self.provider
+            ):
+                raise PermissionError("Recovery workspace binding mismatch")
+            if self.provider == "docker":
+                self.resource["recovery_volume"] = self.restore_point["volume"]
         if self.provider == "docker":
             # Resolve the configured immutable artifact before creating a resource.
             inspected = json.loads(await self._docker("image", "inspect", self.image))[0]
+            if self.restore_point and self.restore_point.get("artifact") != inspected["Id"]:
+                raise ValueError("Recovery worker artifact mismatch")
             self.resource["image_id"] = inspected["Id"]
             await self._docker(
                 "create",
@@ -91,12 +120,20 @@ class PiWorker:
                 "--network=none",
                 "--read-only",
                 "--cap-drop=ALL",
+                "--cap-add=SETUID",
+                "--cap-add=SETGID",
+                "--cap-add=KILL",
+                "--cap-add=CHOWN",
+                "--cap-add=DAC_OVERRIDE",
+                "--cap-add=FOWNER",
                 "--security-opt=no-new-privileges",
                 "--pids-limit=128",
                 "--memory=768m",
                 "--cpus=1",
-                "--user=1000:1000",
+                "--user=0:0",
                 "--tmpfs=/workspace:rw,nosuid,nodev,size=256m,uid=1000,gid=1000",
+                "--mount",
+                "type=volume,source=" + self.resource["recovery_volume"] + ",target=/recovery",
                 "--tmpfs=/tmp:rw,nosuid,nodev,size=128m,uid=1000,gid=1000",
                 "--tmpfs=/home/node:rw,nosuid,nodev,size=8m,uid=1000,gid=1000",
                 "-i",
@@ -107,13 +144,28 @@ class PiWorker:
 
             if not settings.CLOUD_AGENT_E2B_TEMPLATE:
                 raise RuntimeError("A pinned CLOUD_AGENT_E2B_TEMPLATE is required")
+            if (
+                self.restore_point
+                and self.restore_point.get("artifact") != settings.CLOUD_AGENT_E2B_TEMPLATE
+            ):
+                raise ValueError("Recovery worker artifact mismatch")
             self.sandbox = await AsyncSandbox.create(
-                template=settings.CLOUD_AGENT_E2B_TEMPLATE,
+                template=(
+                    self.restore_point["id"]
+                    if self.restore_point
+                    else settings.CLOUD_AGENT_E2B_TEMPLATE
+                ),
                 timeout=settings.RUNTIME_AGENT_TIMEOUT_SECONDS,
                 allow_internet_access=False,
                 metadata={"agent_execution_id": self.execution_id, "project_id": self.project_id},
                 api_key=settings.E2B_API_KEY,
             )
+            if self.restore_point:
+                await self.sandbox.commands.run(
+                    "pkill -KILL -u 1000 || true; pkill -KILL -f '^node /opt/puppyone-agent/controller.mjs$' || true",
+                    user="root",
+                    timeout=30,
+                )
             self.resource["resource_id"] = self.sandbox.sandbox_id
             self.resource["template"] = settings.CLOUD_AGENT_E2B_TEMPLATE
         else:
@@ -140,15 +192,84 @@ class PiWorker:
         while "\n" in self.buffer:
             line, self.buffer = self.buffer.split("\n", 1)
             if line:
-                await self.queue.put(json.loads(line))
+                frame = json.loads(line)
+                sequence = frame.get("sequence", 0)
+                if type(sequence) is not int or sequence < 1:
+                    raise RuntimeError(
+                        "Unsupported sandbox control protocol; rebuild worker artifact"
+                    )
+                if sequence <= self.output_sequence:
+                    continue
+                self.output_sequence = sequence
+                if frame.get("type") == "control_result":
+                    future = self.controls.pop(frame["id"], None)
+                    if future and not future.done():
+                        if frame.get("error"):
+                            future.set_exception(RuntimeError(frame["error"]))
+                        else:
+                            future.set_result(frame["result"])
+                elif frame.get("type") == "git_http":
+                    task = asyncio.create_task(self._git_exchange(frame))
+                    self.git_tasks.add(task)
+                    task.add_done_callback(self.git_tasks.discard)
+                else:
+                    await self.queue.put(frame)
 
-    async def start(self, config):
+    async def _git_exchange(self, frame):
+        try:
+            if self.git_handler is None:
+                raise PermissionError("No admitted Git transport")
+            result = await self.git_handler(frame)
+            await self.send({"type": "reply", "id": frame["id"], **result})
+        except Exception as exc:
+            with suppress(Exception):
+                await self.send({"type": "reply", "id": frame["id"], "error": type(exc).__name__})
+
+    async def _disconnected(self):
+        if self.reconnecting:
+            return
+        for future in self.controls.values():
+            if not future.done():
+                future.set_exception(WorkerDisconnected("Sandbox control connection closed"))
+        await self.queue.put({"type": "disconnected"})
+
+    async def control(self, action, value=None):
+        phase = {"prepare": "git_prepare", "finalize": "git_commit", "push": "git_push"}.get(
+            action, "sandbox_control"
+        )
+        with database_stage(phase):
+            return await self._control(action, value)
+
+    async def _control(self, action, value):
+        if self.reader and self.reader.done() and not self.reconnecting:
+            raise WorkerDisconnected("Sandbox control connection closed")
+        identity = str(uuid4())
+        future = asyncio.get_running_loop().create_future()
+        self.controls[identity] = future
+        try:
+            await self.send({"type": "control", "id": identity, "action": action, "value": value})
+            async with asyncio.timeout(180):
+                return await future
+        finally:
+            self.controls.pop(identity, None)
+
+    async def _open_control(self):
         if self.provider == "docker":
+            command = (
+                [
+                    "docker",
+                    "exec",
+                    "-i",
+                    "--user=0:0",
+                    self.resource["resource_id"],
+                    "node",
+                    "/opt/puppyone-agent/controller.mjs",
+                ]
+                if getattr(self, "attached", False)
+                else ["docker", "start", "-ai", self.resource["resource_id"]]
+            )
             self.process = await asyncio.create_subprocess_exec(
-                "docker",
-                "start",
-                "-ai",
-                self.resource["resource_id"],
+                *command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -160,9 +281,10 @@ class PiWorker:
                     while chunk := await self.process.stdout.read(65536):
                         await self._output(decoder.decode(chunk))
                     await self._output(decoder.decode(b"", final=True))
-                    await self.queue.put({"type": "disconnected"})
+                    await self._disconnected()
                 except Exception as exc:
                     await self.queue.put({"type": "failed", "error": type(exc).__name__})
+                    await self._disconnected()
 
             async def drain_stderr():
                 while await self.process.stderr.read(65536):
@@ -172,9 +294,9 @@ class PiWorker:
             self.stderr_reader = asyncio.create_task(drain_stderr())
         else:
             self.handle = await self.sandbox.commands.run(
-                "node /opt/puppyone-agent/worker.mjs",
+                "node /opt/puppyone-agent/controller.mjs",
                 cwd="/workspace",
-                user="node",
+                user="root",
                 stdin=True,
                 background=True,
                 timeout=0,
@@ -185,9 +307,28 @@ class PiWorker:
                 try:
                     await self.handle.wait()
                 finally:
-                    await self.queue.put({"type": "disconnected"})
+                    await self._disconnected()
 
             self.reader = asyncio.create_task(wait())
+
+    async def start(self, config):
+        await self._open_control()
+        workspace = config["workspace"]
+        await self.control(
+            "prepare",
+            {
+                **workspace,
+                "project_id": self.project_id,
+                "restore": self.restore_point["id"]
+                if self.restore_point and self.provider == "docker"
+                else None,
+                "resume": bool(config.get("resume_workspace")),
+            },
+        )
+        if config.get("resume_workspace") and self.restore_point:
+            self.recovery = self.restore_point
+        else:
+            self.recovery = await self.snapshot()
         await self.send({"type": "start", "config": config})
 
     async def send(self, value):
@@ -211,6 +352,10 @@ class PiWorker:
             self.store.put(session)
 
     async def stop(self):
+        tasks = tuple(self.git_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await self.cleanup(self.resource, store=self.store)
         for task in (self.reader, self.stderr_reader):
             if task:
@@ -220,67 +365,56 @@ class PiWorker:
         if self.process:
             await self.process.wait()
 
-    async def capture(self, *, workspace=False, commit=None):
-        """Freeze all tool processes, read the actual mounted filesystem, then
-        leave it frozen until its immutable checkpoint permits cleanup.
+    async def snapshot(self):
+        """Provider-owned recovery. No file bytes or Git objects cross this API."""
+        with database_stage("provider_snapshot"):
+            return await self._snapshot()
 
-        Docker's archive API cannot read tmpfs contents. A trusted image helper
-        reads them inside the mount namespace; no archive is extracted on host.
-        """
-        command = ["node", "/opt/puppyone-agent/capture.mjs"]
-        if commit is not None:
-            command += ["--commit", commit]
-        if workspace:
-            command.append("--workspace")
+    async def _snapshot(self):
         if self.provider == "docker":
-            try:
-                state = json.loads(
-                    await self._docker(
-                        "inspect", "--format", "{{json .State}}", self.resource["resource_id"]
-                    )
-                )
-            except RuntimeError as exc:
-                if "No such" in str(exc):
-                    raise WorkerLost("Sandbox resource no longer exists") from exc
-                raise
-            if not state["Running"]:
-                raise WorkerLost("Sandbox exited before unconfirmed files were saved")
-            await self._docker("kill", "--signal=STOP", self.resource["resource_id"])
-            proc = await asyncio.create_subprocess_exec(
-                "docker",
-                "exec",
-                "--user=1000:1000",
-                self.resource["resource_id"],
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            output = bytearray()
-            while chunk := await proc.stdout.read(65536):
-                output.extend(chunk)
-                if len(output) > MAX_FRAME:
-                    proc.kill()
-                    await proc.wait()
-                    raise ValueError("Recovery output exceeds limit")
-            _, error = await proc.communicate()
-            if proc.returncode:
-                raise RuntimeError(
-                    "Cannot capture interrupted workspace: " + error.decode(errors="replace")[:300]
-                )
+            value = await self.control("snapshot")
+            result = {
+                "provider": "docker",
+                "id": value["id"],
+                "volume": self.resource["recovery_volume"],
+                "project_id": self.project_id,
+                "artifact": self.resource["image_id"],
+            }
         else:
-            result = await self.sandbox.commands.run(shlex.join(command), user="node", timeout=120)
-            if result.exit_code:
-                raise RuntimeError("Cannot capture interrupted workspace")
-            output = result.stdout
-        value = json.loads(output)
-        if workspace and (not isinstance(value, dict) or not isinstance(value.get("git"), dict)):
-            raise ValueError("Sandbox artifact did not return Git recovery state")
-        from src.platform.access.adapters.agent.runtime.checkpoints import (
-            validate_files,
-            validate_workspace,
-        )
+            await self.control("freeze")
+            self.reconnecting = True
+            try:
+                snapshot = await self.sandbox.create_snapshot()
+                result = {
+                    "provider": "e2b",
+                    "id": snapshot.snapshot_id,
+                    "project_id": self.project_id,
+                    "artifact": self.resource["template"],
+                }
+                self.reader.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await self.reader
+                self.buffer = ""
+                self.handle = await self.sandbox.commands.connect(
+                    self.handle.pid, timeout=0, on_stdout=self._output
+                )
 
-        return validate_workspace(value) if workspace else validate_files(value)
+                async def wait():
+                    try:
+                        await self.handle.wait()
+                    finally:
+                        await self._disconnected()
+
+                self.reader = asyncio.create_task(wait())
+            finally:
+                self.reconnecting = False
+                await self.control("thaw")
+        self.recovery = result
+        return dict(result)
+
+    async def retain(self):
+        """Transfer resource deletion from the idle reaper to the durable run owner."""
+        await asyncio.to_thread(self.store.delete, self.execution_id)
 
     @staticmethod
     async def resolve_resources(resource):

@@ -216,12 +216,20 @@ class CachedStorageBackend(StorageBackend):
     def pinned_reader(self, snapshot):
         return self._inner.pinned_reader(snapshot)
 
+    def durable_readback(self):
+        return self._inner.durable_readback()
+
     def get_durable(self, h: str) -> bytes:
         return self._inner.get_durable(h)
 
     def put_durable(self, h: str, loose_bytes: bytes) -> None:
         self._inner.put_durable(h, loose_bytes)
         self._remember_cached(h, loose_bytes)
+
+    def put_many_durable(self, objects: dict[str, bytes]) -> None:
+        self._inner.put_many_durable(objects)
+        for oid, data in objects.items():
+            self._remember_cached(oid, data)
 
     def _cache_key(self, h: str):
         return (self._cache_namespace, h)
@@ -514,11 +522,19 @@ class S3StorageBackend(StorageBackend):
         if snapshot.project_id != self.publication_project_id:
             raise StorageWriteError("pinned reader Project mismatch")
         snapshot.check_live()
-        rows = snapshot.control.call("get_version_pinned_object_locations",
-                                     p_project_id=snapshot.project_id,
-                                     p_actor=snapshot.actor, p_pin_id=snapshot.pin)
-        reader = S3StorageBackend(self._s3, self._project_id, supabase=self._supabase,
-                                 io_strategy=self._io_strategy, require_immutable_chunks=True)
+        rows = snapshot.control.call(
+            "get_version_pinned_object_locations",
+            p_project_id=snapshot.project_id,
+            p_actor=snapshot.actor,
+            p_pin_id=snapshot.pin,
+        )
+        reader = S3StorageBackend(
+            self._s3,
+            self._project_id,
+            supabase=self._supabase,
+            io_strategy=self._io_strategy,
+            require_immutable_chunks=True,
+        )
         locations = {}
         for row in rows:
             location = ObjectLocation(row["pack_key"], row["offset_bytes"], row["size_bytes"])
@@ -526,6 +542,9 @@ class S3StorageBackend(StorageBackend):
             locations[row["object_id"]] = location
         reader._pinned_locations = locations
         return PinnedObjectReader(reader, snapshot)
+
+    def durable_readback(self):
+        return _S3DurableReadback(self)
 
     def get_durable(self, h: str) -> bytes:
         # A location cached before compaction/deletion is not current proof.
@@ -648,6 +667,12 @@ class S3StorageBackend(StorageBackend):
         except Exception as e:
             log_error(f"[VersionS3] Failed to put {h}: {e}")
             raise StorageWriteError(f"failed to write object {h} to S3: {e}") from e
+
+    def put_many_durable(self, objects: dict[str, bytes]) -> None:
+        # The ordinary batch implementation reserves/settles capacity and awaits
+        # every physical/index write. Do not stage, bypass admission or skip proof.
+        if objects:
+            _run_async(self.async_put_many(objects, concurrency=8))
 
     def exists(self, h: str) -> bool:
         if self._lookup_object_location(h) is not None:
@@ -1161,7 +1186,9 @@ class S3StorageBackend(StorageBackend):
         elif self._supabase is not None:
             remaining = [h for h in unique if locations[h] is None]
             if remaining:
-                locations.update(await asyncio.to_thread(self._lookup_many_object_locations, remaining))
+                locations.update(
+                    await asyncio.to_thread(self._lookup_many_object_locations, remaining)
+                )
 
         sem = asyncio.Semaphore(concurrency)
         results: dict[str, bytes] = {}
@@ -1859,3 +1886,41 @@ def _hash_from_loose_key(key: str, prefix: str) -> str | None:
     if len(parts) == 2 and len(parts[0]) == 2 and len(parts[1]) == 38:
         return parts[0] + parts[1]
     return None
+
+
+class _S3DurableReadback:
+    """One closure proof's bounded location window, with fresh physical reads.
+
+    Callers retain the publication pin. No object bytes or metadata from an older
+    proof/cache are reused. Consume locations once; never load the project index.
+    """
+
+    def __init__(self, backend):
+        self.reader = S3StorageBackend(
+            backend._s3,
+            backend._project_id,
+            supabase=backend._supabase,
+            io_strategy=backend._io_strategy,
+            require_immutable_chunks=True,
+        )
+        self.pending = {}
+
+    def prefetch_durable(self, hashes):
+        available = 100 - len(self.pending)
+        wanted = list(dict.fromkeys(h for h in hashes if h not in self.pending))[:available]
+        if not wanted:
+            return
+        locations = self.reader._lookup_many_object_locations(wanted)
+        for location in locations.values():
+            key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
+            if not key.startswith(self.reader._bundle_prefix + "/"):
+                raise StorageWriteError(
+                    "publication object location outside canonical Project namespace"
+                )
+        self.pending.update((oid, locations.get(oid)) for oid in wanted)
+        self.reader._location_cache.clear()
+
+    def get_durable(self, oid):
+        if oid not in self.pending:
+            return self.reader.get_durable(oid)
+        return self.reader._get_with_location(oid, self.pending.pop(oid))
