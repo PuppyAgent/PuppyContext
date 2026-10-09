@@ -199,6 +199,12 @@ Missing activation configuration must fail explicitly; it must not silently
 fall back to independent application deployment. Repository implementation and
 actual environment activation are separately verified deliverables.
 
+`pull_request_target` admission uses the target branch's trusted workflow, not
+the proposed replacement. A gate change must first reach that protected target
+through its existing owner-controlled admission procedure before it can govern
+subsequent promotions. This one-time gate handover never requires applying the
+candidate database migrations before merge.
+
 ## Verification contract
 
 Tests cover an empty installation; the deployed old version with real fixture

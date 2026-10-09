@@ -185,7 +185,7 @@ backend/
 
 ### Database Tables
 
-All tables use plural snake_case names. The "unified access" architecture serves agents, MCP endpoints, sandbox endpoints, and Git-remote/CLI credentials through `access_surfaces`, differentiated by `kind` and targeted by `(project_id, nullable scope_id)`. NULL means the Project-owned root; a non-NULL value references a true non-empty-path row in `repository_scopes`. Every machine secret lives hash-only in `access_surface_credentials` and is revealed only on issuance. Provider config must never contain credentials. External source relationships live in `synchronize_bindings`, and executions in `synchronize_runs`. Database Import configurations live independently in `import_database_sources`. Populated upgrades require the reviewed Expand/data release before the gated Contract/application release.
+All tables use plural snake_case names. The "unified access" architecture serves agents, MCP endpoints, sandbox endpoints, and Git-remote/CLI credentials through `access_surfaces`, differentiated by `kind` and targeted by `(project_id, nullable scope_id)`. NULL means the Project-owned root; a non-NULL value references a true non-empty-path row in `repository_scopes`. Every machine secret lives hash-only in `access_surface_credentials` and is revealed only on issuance. Provider config must never contain credentials. External source relationships live in `synchronize_bindings`, and executions in `synchronize_runs`. Database Import configurations live independently in `import_database_sources`. Populated upgrades execute reviewed Expand/data phases before gated Contract/application phases in one coordinated release.
 
 | Table | Repository | Description |
 |-------|-----------|-------------|
