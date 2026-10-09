@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from src.infra.data_migrations.release.backup import wait_until_ready
 from src.infra.data_migrations.release.engine import Release
 from src.infra.data_migrations.release.hosted import ROLES, Hosted
 from src.infra.data_migrations.release.plan import Phase, ReleasePlan
@@ -25,6 +26,21 @@ PLAN = ReleasePlan(
     "checksum",
     frozenset({"1", "2"}),
 )
+
+
+def test_restore_waits_past_the_temporary_init_server(monkeypatch, tmp_path):
+    sleeps = []
+
+    def readiness(command, **kwargs):
+        # The Unix socket accepts connections throughout initialization, but
+        # that server will be stopped before the final TCP server starts.
+        final_server = "-h" in command and command[command.index("-h") + 1] == "127.0.0.1"
+        return SimpleNamespace(returncode=0 if not final_server or len(sleeps) >= 2 else 1)
+
+    monkeypatch.setattr("src.infra.data_migrations.release.backup.subprocess.run", readiness)
+    monkeypatch.setattr("src.infra.data_migrations.release.backup.time.sleep", sleeps.append)
+    wait_until_ready("owned-restore", tmp_path)
+    assert len(sleeps) == 2
 
 
 class Target:

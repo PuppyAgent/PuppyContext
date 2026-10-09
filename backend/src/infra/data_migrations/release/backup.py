@@ -15,6 +15,26 @@ from ..database import PsqlClient
 POSTGRES_IMAGE = "supabase/postgres:17.6.1.064"
 
 
+def wait_until_ready(container: str, directory: Path) -> None:
+    # The image first runs an init-only server on the Unix socket, then stops
+    # it. Only the final server listens on TCP. Restoring to the first server
+    # races that shutdown and can lose the newly created restore database.
+    for _ in range(90):
+        ready = subprocess.run(
+            ["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "supabase_admin"],
+            capture_output=True,
+            timeout=10,
+        )
+        if ready.returncode == 0:
+            return
+        time.sleep(1)
+    diagnostic = directory / "restore-startup.log"
+    diagnostic.touch(mode=0o600, exist_ok=True)
+    logs = subprocess.run(["docker", "logs", container], capture_output=True, timeout=10)
+    diagnostic.write_bytes(logs.stdout + logs.stderr)
+    raise RuntimeError("Backup verification database did not start")
+
+
 def create_backup(db: PsqlClient, directory: Path) -> dict:
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = directory / ("before-upgrade-" + secrets.token_hex(8) + ".dump")
@@ -89,21 +109,7 @@ def create_backup(db: PsqlClient, directory: Path) -> dict:
         timeout=180,
     )
     try:
-        for _ in range(90):
-            ready = subprocess.run(
-                ["docker", "exec", container, "pg_isready", "-U", "supabase_admin"],
-                capture_output=True,
-            )
-            if ready.returncode == 0:
-                break
-            time.sleep(1)
-        else:
-            diagnostic = directory / "restore-startup.log"
-            diagnostic.touch(mode=0o600, exist_ok=True)
-            diagnostic.write_bytes(
-                subprocess.run(["docker", "logs", container], capture_output=True).stderr
-            )
-            raise RuntimeError("Backup verification database did not start")
+        wait_until_ready(container, directory)
         subprocess.run(
             [
                 "docker",

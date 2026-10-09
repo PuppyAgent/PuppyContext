@@ -243,6 +243,8 @@ def main():
                         sys.path.insert(0, str(ROOT / "backend"))
                         from urllib.parse import quote
 
+                        from testing import release_fixtures
+
                         from src.infra.data_migrations.database import PsqlClient
                         from src.infra.data_migrations.release.docker import Docker
                         from src.infra.data_migrations.release.engine import Release
@@ -250,7 +252,6 @@ def main():
                         from src.infra.data_migrations.release.target import (
                             DatabaseTarget,
                         )
-                        from testing import release_fixtures
 
                         # Expose only this owned object service on a free loopback port.
                         with socket.socket() as listener:
