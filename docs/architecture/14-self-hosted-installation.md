@@ -76,9 +76,13 @@ Imperative callers must not invoke a dependency factory with unresolved
 
 - Fresh local install: from `docker/`, copy `.env.example` to `.env`, then run
   `docker compose up --build -d --wait`.
-- Existing B1 installation: back up database and object storage; stop application
+- Existing native-format B1 installation: back up database and object storage; stop application
   writers, rebuild at the new release and run the same installer. SQL history
   prevents already-applied changes from being rerun. Never use `down -v` here.
+- Legacy entrypoint or repository storage: complete the explicit phased data
+  cutover before starting the final application. B1 history alone does not prove
+  that application data has the current representation. Missing freeze or data
+  receipts must stop startup while preserving the original data.
 - Pre-B1: follow the phased public archive upgrade before B1 admission. The
   installer deliberately does not guess missing historical data transformations.
 - PostgreSQL 15: use a reviewed dump/restore or supported major-upgrade process
@@ -113,6 +117,7 @@ cd ..
 python3 scripts/test_self_hosted_install.py --variant default --artifacts /tmp/puppyone-install-default
 python3 scripts/test_self_hosted_install.py --variant custom --artifacts /tmp/puppyone-install-custom
 python3 scripts/test_self_hosted_install.py --variant upgrade --artifacts /tmp/puppyone-install-upgrade
+python3 scripts/test_self_hosted_install.py --variant legacy --artifacts /tmp/puppyone-install-legacy
 ```
 
 Run variants sequentially on one host (they use the same isolated ports). Each
@@ -120,10 +125,14 @@ run creates a random Compose project and deletes only that project's test
 volumes. Never point the test at an existing installation. The custom variant
 rotates JWT/API/DB/storage credentials and changes the bucket. The tests use no
 production credentials, Pay checkout, existing login session or LLM API.
-The upgrade variant first builds the pinned pre-refactor revision `c28e38a3`,
-creates real accounts and files, and populates the old storage names. It then
-upgrades the same volumes to the candidate release and verifies session cookies,
-refresh tokens, file bytes, permissions, and old/new PostgREST storage clients.
+The upgrade variant first builds the pinned native-format Qubits revision
+`a5dc0ea5`, creates real accounts and files, then upgrades the same volumes to
+the candidate release. It verifies session cookies, refresh tokens, file bytes,
+permissions and confinement of internal tables. The legacy variant starts from
+`c28e38a3` with synthetic old-format data and verifies that missing explicit
+cutover prerequisites block the new API and frontend without deleting data or
+recording the failed migration as applied. Tests never manufacture hosted
+cutover evidence or restore retired storage interfaces.
 
 PRs publish `Installation validation result`; all main pushes and version tags
 run the installation matrix again. Main also runs database rebuild/upgrade and

@@ -216,12 +216,20 @@ class CachedStorageBackend(StorageBackend):
     def pinned_reader(self, snapshot):
         return self._inner.pinned_reader(snapshot)
 
+    def durable_readback(self):
+        return self._inner.durable_readback()
+
     def get_durable(self, h: str) -> bytes:
         return self._inner.get_durable(h)
 
     def put_durable(self, h: str, loose_bytes: bytes) -> None:
         self._inner.put_durable(h, loose_bytes)
         self._remember_cached(h, loose_bytes)
+
+    def put_many_durable(self, objects: dict[str, bytes]) -> None:
+        self._inner.put_many_durable(objects)
+        for oid, data in objects.items():
+            self._remember_cached(oid, data)
 
     def _cache_key(self, h: str):
         return (self._cache_namespace, h)
@@ -514,11 +522,19 @@ class S3StorageBackend(StorageBackend):
         if snapshot.project_id != self.publication_project_id:
             raise StorageWriteError("pinned reader Project mismatch")
         snapshot.check_live()
-        rows = snapshot.control.call("get_version_pinned_object_locations",
-                                     p_project_id=snapshot.project_id,
-                                     p_actor=snapshot.actor, p_pin_id=snapshot.pin)
-        reader = S3StorageBackend(self._s3, self._project_id, supabase=self._supabase,
-                                 io_strategy=self._io_strategy, require_immutable_chunks=True)
+        rows = snapshot.control.call(
+            "get_version_pinned_object_locations",
+            p_project_id=snapshot.project_id,
+            p_actor=snapshot.actor,
+            p_pin_id=snapshot.pin,
+        )
+        reader = S3StorageBackend(
+            self._s3,
+            self._project_id,
+            supabase=self._supabase,
+            io_strategy=self._io_strategy,
+            require_immutable_chunks=True,
+        )
         locations = {}
         for row in rows:
             location = ObjectLocation(row["pack_key"], row["offset_bytes"], row["size_bytes"])
@@ -526,6 +542,9 @@ class S3StorageBackend(StorageBackend):
             locations[row["object_id"]] = location
         reader._pinned_locations = locations
         return PinnedObjectReader(reader, snapshot)
+
+    def durable_readback(self):
+        return _S3DurableReadback(self)
 
     def get_durable(self, h: str) -> bytes:
         # A location cached before compaction/deletion is not current proof.
@@ -648,6 +667,12 @@ class S3StorageBackend(StorageBackend):
         except Exception as e:
             log_error(f"[VersionS3] Failed to put {h}: {e}")
             raise StorageWriteError(f"failed to write object {h} to S3: {e}") from e
+
+    def put_many_durable(self, objects: dict[str, bytes]) -> None:
+        # The ordinary batch implementation reserves/settles capacity and awaits
+        # every physical/index write. Do not stage, bypass admission or skip proof.
+        if objects:
+            _run_async(self.async_put_many(objects, concurrency=8))
 
     def exists(self, h: str) -> bool:
         if self._lookup_object_location(h) is not None:
@@ -865,6 +890,7 @@ class S3StorageBackend(StorageBackend):
         return False
 
     def _delete_loose(self, h: str) -> bool:
+        self.invalidate_proofs([h])
         deleted = True
         try:
             _run_async(self._physical_s3().delete_file(self._key_for(h)))
@@ -878,6 +904,7 @@ class S3StorageBackend(StorageBackend):
         return deleted
 
     def _delete_chunked(self, h: str, location: ObjectLocation) -> bool:
+        self.invalidate_proofs([h])
         manifest_key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
         keys = self._chunked_keys_for(h, manifest_key, location.size_bytes)
         deleted_any = False
@@ -988,6 +1015,7 @@ class S3StorageBackend(StorageBackend):
         if not any(pack_key.startswith(prefix + "/") for prefix in prefixes):
             raise StorageWriteError("bundle deletion is outside its Project namespace")
         self._authorize_deletion()
+        self.invalidate_proofs(members)
         try:
             _run_async(self._physical_s3().delete_file(pack_key))
         except Exception as exc:
@@ -1021,6 +1049,19 @@ class S3StorageBackend(StorageBackend):
             if len(rows) < page:
                 return ids
             start += page
+
+    def invalidate_proofs(self, object_ids: list[str]) -> None:
+        """Invalidate ancestors BEFORE deleting bytes; uncertain I/O stays unsafe."""
+        if self._supabase is None:
+            return
+        for offset in range(0, len(object_ids), 200):
+            self._supabase.client.rpc(
+                "invalidate_version_object_proofs",
+                {
+                    "p_project_id": self._project_id,
+                    "p_oids": object_ids[offset : offset + 200],
+                },
+            ).execute()
 
     def _collect_capacity(self, object_ids: list[str]) -> None:
         context = collection_context.get()
@@ -1161,7 +1202,9 @@ class S3StorageBackend(StorageBackend):
         elif self._supabase is not None:
             remaining = [h for h in unique if locations[h] is None]
             if remaining:
-                locations.update(await asyncio.to_thread(self._lookup_many_object_locations, remaining))
+                locations.update(
+                    await asyncio.to_thread(self._lookup_many_object_locations, remaining)
+                )
 
         sem = asyncio.Semaphore(concurrency)
         results: dict[str, bytes] = {}
@@ -1829,6 +1872,10 @@ class S3StorageBackend(StorageBackend):
             _verify_loose_hash(h, data)
             return "ok"
         except StorageWriteError:
+            # A known-bad object is no longer a trusted closure boundary,
+            # including when this audit is read-only. Fail closed if fencing
+            # the dependent proofs fails; never delete first.
+            await asyncio.to_thread(self.invalidate_proofs, [h])
             if not heal:
                 return "corrupt"
             try:
@@ -1859,3 +1906,89 @@ def _hash_from_loose_key(key: str, prefix: str) -> str | None:
     if len(parts) == 2 and len(parts[0]) == 2 and len(parts[1]) == 38:
         return parts[0] + parts[1]
     return None
+
+
+class _S3DurableReadback:
+    """One closure proof's bounded location window, with fresh physical reads.
+
+    Callers retain the publication pin. No object bytes or metadata from an older
+    proof/cache are reused. Consume locations once; never load the project index.
+    """
+
+    def __init__(self, backend):
+        self.reader = S3StorageBackend(
+            backend._s3,
+            backend._project_id,
+            supabase=backend._supabase,
+            io_strategy=backend._io_strategy,
+            require_immutable_chunks=True,
+        )
+        self.pending = {}
+        self.verified_bytes = {}
+        self.buffered_bytes = 0
+
+    def prefetch_durable(self, hashes):
+        available = 100 - len(self.pending)
+        wanted = list(dict.fromkeys(h for h in hashes if h not in self.pending))[:available]
+        if not wanted:
+            return
+        locations = self.reader._lookup_many_object_locations(wanted)
+        for location in locations.values():
+            key = location.pack_key.removeprefix(_CHUNKED_PACK_PREFIX)
+            if not key.startswith(self.reader._bundle_prefix + "/"):
+                raise StorageWriteError(
+                    "publication object location outside canonical Project namespace"
+                )
+        self.pending.update((oid, locations.get(oid)) for oid in wanted)
+        self.reader._location_cache.clear()
+        # Fresh physical readback, scoped to this proof. Adjacent small objects
+        # in one immutable container share a range GET; no whole-project cache.
+        groups = {}
+        for oid in wanted:
+            location = locations.get(oid)
+            if location is not None and not location.pack_key.startswith(_CHUNKED_PACK_PREFIX):
+                self.reader._validate_location(location)
+                groups.setdefault(location.pack_key, []).append((oid, location))
+        ranges = []
+        for key, entries in groups.items():
+            members, required = [], 0
+            for oid, location in sorted(entries, key=lambda item: item[1].offset_bytes):
+                end = location.offset_bytes + location.size_bytes
+                if members and end - members[0][1].offset_bytes > min(
+                    2 * (required + location.size_bytes), 8 * 1024**2
+                ):
+                    ranges.append((key, members))
+                    members, required = [], 0
+                members.append((oid, location))
+                required += location.size_bytes
+            if members:
+                ranges.append((key, members))
+        for key, members in ranges:
+            start = min(location.offset_bytes for _, location in members)
+            end = max(location.offset_bytes + location.size_bytes for _, location in members)
+            required = sum(location.size_bytes for _, location in members)
+            if len(members) < 2 or end - start > min(
+                2 * required, 8 * 1024**2 - self.buffered_bytes
+            ):
+                continue
+            data, _ = _run_async(
+                self.reader._s3.download_file_range(key, start=start, limit=end - start)
+            )
+            if len(data) != end - start:
+                raise StorageWriteError("incomplete publication container readback")
+            for oid, location in members:
+                offset = location.offset_bytes - start
+                loose = data[offset : offset + location.size_bytes]
+                _verify_loose_hash(oid, loose)
+                self.verified_bytes[oid] = loose
+                self.buffered_bytes += len(loose)
+
+    def get_durable(self, oid):
+        if oid in self.verified_bytes:
+            data = self.verified_bytes.pop(oid)
+            self.buffered_bytes -= len(data)
+            self.pending.pop(oid, None)
+            return data
+        if oid not in self.pending:
+            return self.reader.get_durable(oid)
+        return self.reader._get_with_location(oid, self.pending.pop(oid))

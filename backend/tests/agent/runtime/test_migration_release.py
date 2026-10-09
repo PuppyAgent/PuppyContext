@@ -10,6 +10,30 @@ from tests.agent.runtime.conftest import ROOT, Database
 pytestmark = pytest.mark.integration
 
 
+@pytest.mark.parametrize("fault", [None, "missing_command", "disabled_guard", "proof_bypass"])
+def test_hosted_release_gate_checks_workspace_and_proof_contracts(postgres, fault):
+    """The same read-only SQL used by CD rejects partial/insecure installs."""
+    mutations = {
+        "missing_command": "ALTER FUNCTION agent_run_workspace_due(integer) RENAME TO missing_workspace_due",
+        "disabled_guard": "ALTER TABLE version_ref_transactions DISABLE TRIGGER version_publish_object_proofs",
+        "proof_bypass": "GRANT INSERT ON version_object_proofs TO service_role",
+    }
+    expected = {
+        "missing_command": "CLOUD_AGENT_FUNCTION_MISSING",
+        "disabled_guard": "CLOUD_AGENT_PUBLICATION_GUARD_MISSING",
+        "proof_bypass": "CLOUD_AGENT_PROOF_DIRECT_ACCESS",
+    }
+    sql = (ROOT / "supabase/tests/_support/cloud_agent_contracts.inc").read_text()
+    if fault is None:
+        postgres.sql(sql)
+    else:
+        # The failed psql session rolls this fixture mutation back on exit.
+        sql = sql.replace("BEGIN READ ONLY;", "BEGIN; " + mutations[fault] + ";")
+        with pytest.raises(RuntimeError, match=expected[fault]):
+            postgres.sql(sql)
+        postgres.sql((ROOT / "supabase/tests/_support/cloud_agent_contracts.inc").read_text())
+
+
 def test_additive_migration_preserves_existing_agents_and_pre_activation_rollback(
     postgres, submitted
 ):
@@ -36,6 +60,7 @@ def test_additive_migration_preserves_existing_agents_and_pre_activation_rollbac
         for migration in migrations:
             if (
                 migration not in agent
+                and migration.name < "20261009000000"
                 and migration.name != "20261008010000_bound_agent_data_operations.sql"
             ):
                 scratch.sql(module.product_migration_sql(migration))
@@ -121,5 +146,17 @@ def test_additive_migration_preserves_existing_agents_and_pre_activation_rollbac
         assert context["surface"]["config"] == before["config"]
         assert context["facts"]["project_role"] == "admin"
         assert context["revision"]["project"] == project
+        # Additive operation transactions preserve all populated records, and
+        # a rolled-back installation exposes no half-installed command API.
+        for migration in migrations:
+            if migration.name < "20261009000000":
+                continue
+            scratch.sql(migration.read_text().replace("COMMIT;", "ROLLBACK;"))
+            scratch.sql(migration.read_text())
+            assert scratch.row(f"SELECT * FROM agent_runs WHERE id='{old['id']}'") == receipt
+            assert (
+                scratch.row(f"SELECT config FROM access_surfaces WHERE id='{agent_id}'") == before
+            )
+            assert scratch.sql("SELECT jsonb_agg(m ORDER BY id) FROM chat_messages m") == messages
     finally:
         postgres.sql(f"DROP DATABASE {database} WITH (FORCE)")

@@ -2,6 +2,7 @@
 
 import asyncio
 import concurrent.futures
+import json
 from uuid import uuid4
 
 import pytest
@@ -22,6 +23,15 @@ def measured(name, call):
     with database_trace(trace):
         value = call()
     return value, trace.report()
+
+
+def assert_run_budget(supervisor, report, fixed):
+    # Slow hosts may cross a real five-second heartbeat. Keep every attempt in
+    # the report; only actual timed heartbeats have a duration-derived allowance.
+    heartbeats = report["stages"].get("heartbeat", 0)
+    assert report["operations"].get("POST rpc/agent_run_renew", 0) == heartbeats, report
+    assert heartbeats <= int(supervisor.elapsed_seconds / 5), report
+    assert report["attempts"] <= fixed + heartbeats, json.dumps(report, indent=2)
 
 
 @pytest.mark.asyncio
@@ -223,8 +233,6 @@ async def test_real_pi_fragmented_reply_and_control_budget(prepared, tmp_path):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("count", [1, 100])
 async def test_workspace_metadata_queries_do_not_scale_per_file(prepared, count, tmp_path):
-    import base64
-
     from src.platform.project.write_lease import ProjectWriteLease
 
     c = prepared
@@ -233,11 +241,10 @@ async def test_workspace_metadata_queries_do_not_scale_per_file(prepared, count,
         await c.ops.bulk_write(c.project, files, who="user:" + c.user, source_channel="access_git")
     grant = c.admission.load(c.user, c.project, c.agent).grant
     value, report = measured("workspace", lambda: c.publication.capture(c.run, grant))
-    assert {name: base64.b64decode(data) for name, data in value["files"].items()} == files
-    assert value["git"]["tip"] and value["git"]["bundle"]
-    assert report["attempts"] <= 4, report
-    assert report["operations"].get("POST rpc/get_version_pinned_object_locations") == 1
-    assert not any("version_object_locations" in name for name in report["operations"])
+    assert "files" not in value and "git" not in value
+    assert value["workspace"]["base_oid"]
+    assert report["attempts"] == 1, report
+    assert report["operations"] == {"POST rpc/get_admitted_version_repository_snapshot": 1}
     import json
 
     (tmp_path / "workspace-performance.json").write_text(
@@ -412,8 +419,14 @@ class FileQuestionModel(ModelFixture):
 
 
 @pytest.mark.asyncio
-async def test_real_pi_answers_file_question_using_offline_find_and_read(prepared):
+async def test_real_pi_answers_file_question_using_offline_find_and_read(
+    prepared, services, monkeypatch, tmp_path
+):
+    import json
+    from collections import Counter
+
     from src.platform.project.write_lease import ProjectWriteLease
+    from src.platform.scope_sandbox.execution.pi_worker import PiWorker
 
     c = prepared
     files = {"alpha.md": b"first knowledge note", "beta.md": b"second", "gamma.md": b"third"}
@@ -421,7 +434,35 @@ async def test_real_pi_answers_file_question_using_offline_find_and_read(prepare
         await c.ops.bulk_write(c.project, files, who="user:" + c.user, source_channel="access_git")
     model = FileQuestionModel()
     supervisor = c.supervisor(model=model)
+    counts, during_tools = Counter(), []
+    control = PiWorker.control
+
+    async def counted(worker, action, value=None):
+        counts[action] += 1
+        return await control(worker, action, value)
+
+    monkeypatch.setattr(PiWorker, "control", counted)
+    storage = services[1]
+    s3_calls = []
+
+    def listener(**kw):
+        s3_calls.append(kw["event_name"])
+
+    storage.client.meta.events.register("before-send.s3", listener)
+    tool_start, tool_end = supervisor.tool_start, supervisor.tool_end
+
+    async def started(frame):
+        during_tools.append(len(s3_calls))
+        return await tool_start(frame)
+
+    async def ended(frame):
+        assert len(s3_calls) == during_tools[-1], s3_calls
+        return await tool_end(frame)
+
+    monkeypatch.setattr(supervisor, "tool_start", started)
+    monkeypatch.setattr(supervisor, "tool_end", ended)
     await supervisor.run_claim(c.run)
+    storage.client.meta.events.unregister("before-send.s3", listener)
     result = c.service.snapshot(c.user, c.run["id"])
     assert result["state"] == "succeeded", result
     assert result["snapshot"]["text"] == model.expected
@@ -430,6 +471,27 @@ async def test_real_pi_answers_file_question_using_offline_find_and_read(prepare
     assert {tool["name"] for tool in tools} == {"find", "read"}
     assert all(tool["state"] == "completed" for tool in tools)
     assert result["publication"]["status"] == "no_changes"
+    assert counts["prepare"] == counts["snapshot"] == counts["finalize"] == 1
+    assert counts["push"] == 0
+    report = supervisor.metrics.report()
+    # Cold Session ownership adds one claim, four persisted transitions and a
+    # publication confirmation before pause. The whole operation remains bounded.
+    assert report["operations"].get("POST rpc/agent_run_workspace_acquire") == 1
+    assert report["operations"].get("POST rpc/agent_run_workspace_transition") == 4
+    assert_run_budget(supervisor, report, 26)
+    assert report["max_inflight"] <= 2, report
+    assert report["operations"].get("POST rpc/get_version_pinned_object_locations") == 1
+    (tmp_path / "read-tool-performance.json").write_text(
+        json.dumps(
+            {
+                **report,
+                "provider_commands": dict(counts),
+                "s3_requests": len(s3_calls),
+                "elapsed_seconds": supervisor.elapsed_seconds,
+            },
+            indent=2,
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -599,3 +661,130 @@ async def test_billing_revocation_during_model_wait_is_still_supervised(prepared
     assert started.is_set()
     assert current["state"] == "failed"
     assert current["snapshot"]["code"] == "runtime_credit_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [1, 60])
+async def test_writing_run_uses_one_push_and_bounded_object_reservations(
+    prepared, services, monkeypatch, tmp_path, count
+):
+    import json
+    from collections import Counter
+
+    from src.platform.scope_sandbox.execution.pi_worker import PiWorker
+    from tests.agent.runtime.test_supervisor import BashModel, approve_to_completion
+
+    c = prepared
+    commands, http = Counter(), Counter()
+    control, exchange = PiWorker.control, c.publication.exchange
+
+    async def counted(worker, action, value=None):
+        commands[action] += 1
+        return await control(worker, action, value)
+
+    async def relayed(run, checkpoint, grant, frame):
+        http[frame["method"] + " " + frame["path"].split(".git/")[1]] += 1
+        return await exchange(run, checkpoint, grant, frame)
+
+    monkeypatch.setattr(PiWorker, "control", counted)
+    monkeypatch.setattr(c.publication, "exchange", relayed)
+    storage, s3_calls = services[1], Counter()
+
+    def count_s3(**kw):
+        s3_calls[kw["event_name"]] += 1
+
+    # Mutation I/O deliberately uses a separate no-retry SDK client. Count
+    # physical attempts on BOTH clients, including PUT and upload verification.
+    s3_clients = {storage.client, storage.for_single_attempt_io().client}
+    for client in s3_clients:
+        client.meta.events.register("before-send.s3", count_s3)
+    command = "\n".join(f"printf 'note {i}' > note-{i}.md" for i in range(count))
+    supervisor = c.supervisor(model=BashModel(command))
+    result = await approve_to_completion(c, asyncio.create_task(supervisor.run_claim(c.run)))
+    for client in s3_clients:
+        client.meta.events.unregister("before-send.s3", count_s3)
+    assert result["state"] == "succeeded", result
+    assert commands["finalize"] == commands["push"] == 1, commands
+    assert commands["snapshot"] == 3, commands  # prepared, mutation, exact commit
+    assert http["POST git-receive-pack"] == 1, http
+    # Read the published state independently of the execution trace. Every file
+    # must be present with exact bytes; counts alone cannot establish success.
+    grant = c.admission.load(c.user, c.project, c.agent).grant
+    with c.ops.open_read(c.project, grant) as reader:
+        for index in range(count):
+            assert reader.read_file(c.project, f"note-{index}.md") == f"note {index}".encode()
+    report = supervisor.metrics.report()
+    # Empty tree shares the incoming batch; closure reconciliation is in seal.
+    assert report["operations"].get("POST rpc/reserve_version_object_capacity") == 1, report
+    assert report["operations"].get("POST rpc/seal_version_capacity_batch") == 1, report
+    # Fixed lifecycle persistence (6) plus bounded proof lookups/registration
+    # (4). The same budget covers one file and sixty files in one batch.
+    assert report["operations"].get("POST rpc/agent_run_workspace_acquire") == 1
+    assert report["operations"].get("POST rpc/agent_run_workspace_transition") == 4
+    assert report["operations"].get("POST rpc/get_version_object_proofs") == 3
+    assert report["operations"].get("POST rpc/register_version_object_proofs") == 1
+    assert_run_budget(supervisor, report, 45)
+    assert report["operations"].get("GET version_object_locations", 0) <= 3, report
+    assert report["max_inflight"] <= 10, report
+    assert s3_calls["before-send.s3.PutObject"] == 1, s3_calls
+    assert sum(s3_calls.values()) <= 14, s3_calls
+    assert not any("ListObjects" in name for name in s3_calls), s3_calls
+    print(
+        {
+            "files": count,
+            "database_requests": report["attempts"],
+            "s3_requests": dict(s3_calls),
+            "git_http": dict(http),
+            "provider_commands": dict(commands),
+            "elapsed_seconds": supervisor.elapsed_seconds,
+        }
+    )
+    assert all(
+        "git" not in tool["result"]["checkpoint"]["state"] for tool in c.repo.tools(c.run["id"])
+    )
+    (tmp_path / "write-performance.json").write_text(
+        json.dumps(
+            {
+                **report,
+                "provider_commands": dict(commands),
+                "git_http": dict(http),
+                "s3_requests": dict(s3_calls),
+                "files": count,
+                "elapsed_seconds": supervisor.elapsed_seconds,
+            },
+            indent=2,
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_atomic_command_adapters_each_use_one_real_database_attempt(prepared):
+    c = prepared
+    manifest = await c.checkpoints.save(c.run, {"entries": [], "recovery": None})
+    frame = {"call_id": "command-budget", "name": "read", "input": {"path": "note.md"}}
+    operations = [
+        (
+            "start_execution",
+            lambda: c.repo.start_execution(c.run, checkpoint=manifest, billing=None, resource={}),
+        ),
+        (
+            "begin_model",
+            lambda: c.repo.begin_model(c.run, request=str(uuid4()), checkpoint=manifest, limit=2),
+        ),
+        (
+            "begin_tool",
+            lambda: c.repo.begin_tool(c.run, frame, checkpoint=manifest, mutation=False),
+        ),
+        (
+            "complete_tool",
+            lambda: c.repo.complete_tool(
+                c.run, frame, checkpoint=manifest, result={"pi_result": {}, "checkpoint": manifest}
+            ),
+        ),
+        ("settle_model", lambda: c.repo.settle_model(c.run, checkpoint=manifest)),
+    ]
+    for name, call in operations:
+        result, report = measured(name, call)
+        assert report["operations"] == {"POST rpc/agent_run_" + name: 1}, report
+        assert report["failures"] == 0 and report["max_inflight"] == 1
+        assert result["run"]["id"] == c.run["id"]

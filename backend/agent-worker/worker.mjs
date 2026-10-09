@@ -3,7 +3,6 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { captureGit, knowledgeFiles, restoreFiles, restoreGit } from './git-workspace.mjs';
 import path from 'node:path';
 import {
   createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager,
@@ -44,15 +43,15 @@ async function safePath(value, allowMissing = false) {
   return target;
 }
 
-async function workspace() {
-  return { ...await knowledgeFiles(root), ...(config.git ? { git: await captureGit(root) } : {}) };
+function conversation() {
+  // All session entries, not just rendered messages: retains compactions and branches.
+  const value = { version: 1, pi_version: VERSION, entries: [manager.getHeader(), ...manager.getEntries()],
+    leaf_id: manager.getLeafId() };
+  return value;
 }
 
 async function checkpoint(reason) {
-  // All session entries, not just rendered messages: retains compactions and branches.
-  const value = { version: 1, pi_version: VERSION, entries: [manager.getHeader(), ...manager.getEntries()],
-    leaf_id: manager.getLeafId(), ...await workspace() };
-  await request('checkpoint', { reason, checkpoint: value });
+  await request('checkpoint', { reason, checkpoint: conversation() });
 }
 
 function wrap(definition) {
@@ -61,15 +60,14 @@ function wrap(definition) {
     if (stopped) throw new Error('Run stopped');
     if ('path' in input) await safePath(input.path, ['write', 'edit'].includes(definition.name));
     if (['find', 'grep', 'ls'].includes(definition.name)) await safePath(input.path || '.');
-    await checkpoint('before_tool');
-    const admission = await request('tool_start', { call_id: id, name: definition.name, input });
+    const admission = await request('tool_start', { call_id: id, name: definition.name, input, checkpoint: conversation() });
     if (admission.result) return admission.result;
     if (!admission.allow) throw new Error('Tool execution denied');
     let result;
     try { result = await execute(id, input, signal, update, context); }
     catch (error) { result = { content: [{ type: 'text', text: String(error.message) }], isError: true }; }
-    // Receipt + modified files become durable before Pi is allowed to continue.
-    await request('tool_end', { call_id: id, name: definition.name, input, result, ...await workspace() });
+    // The supervisor links the receipt to a provider recovery point before ACK.
+    await request('tool_end', { call_id: id, name: definition.name, input, result, mutated: !['read', 'ls', 'find', 'grep'].includes(definition.name) });
     return result;
   }};
 }
@@ -77,12 +75,10 @@ function wrap(definition) {
 async function start(value) {
   config = value;
   if (VERSION !== '0.85.1' || process.version !== 'v22.22.3') throw new Error('Worker version mismatch');
-  if (config.git) await restoreGit(root, config.git);
-  await restoreFiles(root, config.files || {}, config.modes || {});
   manager = SessionManager.inMemory(root, undefined, config.entries);
   if (config.leaf_id) manager.branch(config.leaf_id);
   if (config.finalize_only) {
-    send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 1 });
+    send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 2, operation_version: 1 });
     send({ type: 'finished', stopped: false, error: null });
     return;
   }
@@ -96,12 +92,11 @@ async function start(value) {
       }
       const completion = JSON.parse(body);
       if (completion.model !== config.model) throw new Error('Model outside run policy');
-      await checkpoint('before_model');
       const id = randomUUID();
       models.set(id, res);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.on('close', () => { if (models.delete(id)) send({ type: 'model_cancel', id }); });
-      send({ type: 'model_request', id, request: completion });
+      send({ type: 'model_request', id, request: completion, checkpoint: conversation() });
     } catch (error) { res.writeHead(400).end(JSON.stringify({ error: { message: error.message } })); }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -130,8 +125,7 @@ async function start(value) {
     createBashToolDefinition(root, { exposeSessionEnvironment: false }));
   const custom = (config.tools || []).map(tool => ({ ...tool, label: tool.name,
     execute: async (id, input) => {
-      await checkpoint('before_tool');
-      const result = await request('bound_tool', { call_id: id, name: tool.name, input });
+      const result = await request('bound_tool', { call_id: id, name: tool.name, input, checkpoint: conversation() });
       if (result.error) throw new Error(result.error);
       return result.result;
     } }));
@@ -147,7 +141,7 @@ async function start(value) {
       send({ type: 'text', delta: event.assistantMessageEvent.delta });
   });
   session.agent.toolExecution = 'sequential';
-  send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 1 });
+  send({ type: 'ready', pi_version: VERSION, node_version: process.version, workspace_version: 2, operation_version: 1 });
   try {
     if (config.resume) {
       // Reconcile completed/approved calls explicitly. Agent.continue() needs

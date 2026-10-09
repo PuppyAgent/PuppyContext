@@ -265,3 +265,28 @@ def services(control_api, object_endpoint, monkeypatch):
     storage.client.create_bucket(Bucket=storage.bucket_name)
     container = build_version_engine_container(s3=storage, supabase=SupabaseClient(), probe=True)
     return control_api, storage, container
+
+
+@pytest.fixture(autouse=True)
+async def owned_worker_resources(monkeypatch):
+    """Only discard recovery volumes allocated by this isolated test's workers."""
+    from src.platform.scope_sandbox.execution.pi_worker import PiWorker
+
+    allocated = []
+    create = PiWorker.create
+
+    async def tracked(worker):
+        result = await create(worker)
+        allocated.append((dict(worker.resource), worker.store))
+        return result
+
+    monkeypatch.setattr(PiWorker, "create", tracked)
+    yield
+    volumes = set()
+    for resource, store in allocated:
+        if resource["provider"] == "docker":
+            await PiWorker.cleanup(resource, store=store)
+            volumes.add(resource["recovery_volume"])
+    for volume in volumes:
+        result = subprocess.run(["docker", "volume", "rm", volume], capture_output=True, text=True)
+        assert result.returncode == 0 or "no such volume" in result.stderr, result.stderr

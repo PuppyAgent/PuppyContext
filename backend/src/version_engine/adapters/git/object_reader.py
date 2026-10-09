@@ -11,7 +11,7 @@ from .execution import MAX_GRAPH_BYTES, MAX_OBJECT_BYTES, MAX_OBJECTS
 class PublishedObjectReader:
     CACHE_BYTES = 8 * 1024**2
 
-    def __init__(self, snapshot, control):
+    def __init__(self, snapshot, control, *, proof_factory=None):
         self.snapshot, self.control = snapshot, control
         self.format = snapshot.object_format
         self.allowed = dict(snapshot.roots)
@@ -21,6 +21,18 @@ class PublishedObjectReader:
         self.total_bytes = 0
         self.expanded = set()
         self.history_loaded = False
+        self.proofs = (
+            proof_factory(
+                control,
+                snapshot.project_id,
+                snapshot.actor,
+                snapshot.pin,
+                snapshot.object_format,
+                purpose="read",
+            )
+            if proof_factory
+            else None
+        )
 
     def get(self, oid):
         self.snapshot.check_live()
@@ -64,6 +76,13 @@ class PublishedObjectReader:
         The repository read pin remains held through the entire operation.
         """
         pending = set(oids) - self.allowed.keys()
+        if pending and self.proofs is not None:
+            self.proofs.prefetch(pending)
+            for oid in list(pending):
+                record = self.proofs.get(oid)
+                if record is not None:
+                    self.allowed[oid] = record.kind
+                    pending.remove(oid)
         for historical in (False, True):
             if not pending:
                 return

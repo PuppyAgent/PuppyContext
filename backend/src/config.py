@@ -152,7 +152,10 @@ class Settings(BaseSettings):
             if self.APP_ENV in {"staging", "production"}:
                 if not self.PUPPYPAY_BASE_URL.startswith("https://"):
                     raise ValueError("Managed AI requires HTTPS for PuppyPay")
-                if len(self.INTERNAL_API_SECRET) < 32 or self.INTERNAL_API_SECRET == self.PUPPYPAY_INTERNAL_API_SECRET:
+                if (
+                    len(self.INTERNAL_API_SECRET) < 32
+                    or self.INTERNAL_API_SECRET == self.PUPPYPAY_INTERNAL_API_SECRET
+                ):
                     raise ValueError("Managed AI requires distinct service credentials")
         return self
 
@@ -413,7 +416,7 @@ class Settings(BaseSettings):
     # - "auto": Auto-select (use E2B if E2B_API_KEY is available, otherwise use Docker)
     SANDBOX_TYPE: Literal["e2b", "docker", "auto"] = "auto"
     E2B_API_KEY: str = ""
-    CLOUD_AGENT_IMAGE: str = "puppyone-cloud-agent:data-access-v1"
+    CLOUD_AGENT_IMAGE: str = "puppyone-cloud-agent:workspace-v3"
     CLOUD_AGENT_E2B_TEMPLATE: str = ""
     CLOUD_AGENT_DEFAULT_MODEL: str = ""
     CLOUD_AGENT_MAX_TOKENS: int = Field(default=4096, ge=1, le=32768)

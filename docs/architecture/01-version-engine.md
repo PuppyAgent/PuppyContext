@@ -87,11 +87,56 @@ initiating user's current grant and a durable task/step identity; they do not
 publish as the Project creator by default. Table read-modify-write operations
 carry the revision that supplied their input.
 
+Git workspace preparation reads only admitted refs, format and generation; its
+`GitBranchBase` CAS identity does not require the Product splice base tree.
+Transport service construction can use this operation's format metadata without
+another authority-selection query. Each actual read still obtains admitted
+refs or a live pin, and generation changes reject the bound Git request.
+
+A receive operation lends its live snapshot to billing and file-policy checks.
+`get_version_publication_context` groups initial repository/result/policy reads;
+final publication still checks fresh authority and policy revisions. New objects
+and the canonical empty tree share a bounded batch. The last closure-capacity
+batch and seal form one SQL transaction. Physical I/O leases and durable closure
+verification remain mandatory, independently of query-count optimization.
+
 Physical object publication requires a live admission, verified closure and
 capacity reservation. SQL rechecks current membership or credential status,
 lifecycle, generation, policy, lease and CAS at publication. Logical billing,
 ref changes and audit are coupled to that transaction. A cache or previously
 resolved Python grant cannot substitute for the final check.
+
+### Incremental object verification
+
+Publication validates every new object's bytes, hash, type and references. Its
+graph walk stops at a retained, typed proof in `version_object_proofs`, keyed by
+Project, repository generation and OID. These are durable derived facts, never
+a second object authority or an authorization cache. They become reusable by
+other requests only in the transaction that accepts their publication. An
+unpublished proof belongs only to its issuing pin. Read/publication pins fence
+the repository generation and GC epoch; physical collection and confirmed
+integrity failures invalidate affected proofs and their dependents before
+removing bytes. A known-invalid root is rejected at both sealing and final CAS.
+
+`storage/publication.py` composes the incremental closure;
+`infrastructure/supabase/object_proofs.py` owns bounded, request-scoped lookup
+and registration commands, including negative lookup reuse. Fresh durable
+readback remains mandatory for objects lacking a reusable proof. Bootstrap is
+subject to object/byte budgets; exceeding them fails closed and requires repair.
+Ordinary push neither walks an already verified commit history nor lists S3.
+
+Proofs retain validated edges, sizes and tree aggregates. Logical usage counts
+every path occurrence, while physical capacity counts unique objects. Changed
+trees compose child aggregates; file-limit checks prune subtrees by maximum
+blob size and still honor current policy and grandfathered path multiplicity.
+Historical object bodies are not re-downloaded for these checks. S3 readback
+coalesces nearby ranges in the same immutable container within a byte budget.
+
+The selected ref identifies the latest commit. Old commits and their trees and
+blobs remain immutable in the same object namespace; a new version updates refs,
+not old object bytes. Incremental verification trusts protected, previously
+verified bytes. Independent integrity audits detect silent storage damage; a
+successful small push does not attest to freshly reading all old bytes.
 
 Native initialization enrolls HEAD, capacity and billing before seeding. Hidden
 initializing projects are accessible only through the current initialization

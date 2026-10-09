@@ -12,6 +12,13 @@ class RefAuthorityRepository:
     def call(self, function: str, **parameters):
         return self.client.rpc(function, parameters).execute().data
 
+    def publication_context(self, project_id, actor, request_key):
+        value = self.call("get_version_publication_context", p_project_id=project_id,
+                          p_actor=actor, p_request_key=request_key)
+        if not isinstance(value, dict) or "result" not in value:
+            raise RuntimeError("invalid publication admission context")
+        return value
+
     def snapshot(self, project_id: str) -> dict | None:
         result = self.call("get_version_repository_snapshot", p_project_id=project_id)
         if result is not None and not isinstance(result, dict):

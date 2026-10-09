@@ -27,7 +27,7 @@ def test_merge_validation_cannot_generate_or_replace_the_baseline():
 
 def test_required_installation_summary_cannot_skip_a_failed_variant():
     jobs = workflow("self-hosted-install.yml")["jobs"]
-    assert jobs["install"]["strategy"]["matrix"]["variant"] == ["default", "custom", "upgrade"]
+    assert jobs["install"]["strategy"]["matrix"]["variant"] == ["default", "custom", "upgrade", "legacy"]
     assert "continue-on-error" not in jobs["install"]
     assert jobs["result"]["if"] == "always()"
     assert jobs["result"]["needs"] == "install"

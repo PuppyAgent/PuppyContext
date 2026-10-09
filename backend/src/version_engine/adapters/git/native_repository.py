@@ -30,17 +30,23 @@ class PublicationIndeterminateError(RuntimeError):
 
 
 class NativeGitRepository:
-    def __init__(self, service: RefTransactionService):
+    def __init__(self, service: RefTransactionService, *, expected_generation=None):
+        self.expected_generation = expected_generation
         self.service = service
         self.control = service.control
         self.project_id = service.project_id
         self.format = service.object_format
+
+    def check_generation(self, generation):
+        if self.expected_generation is not None and generation != self.expected_generation:
+            raise PermissionError("Git repository generation changed")
 
     def info_refs(self, grant, service: str, *, protocol=""):
         actor = admitted_actor(grant, self.project_id, write=False)
         if service not in {"git-upload-pack", "git-receive-pack"}:
             raise ValueError("unsupported Git service")
         snapshot = self.control.read_snapshot(self.project_id, actor)
+        self.check_generation(snapshot.get("generation"))
         output = advertisement(snapshot, service, protocol, self.format)
         return Response(
             pkt_line(f"# service={service}\n".encode()) + flush_pkt() + output,
@@ -62,6 +68,7 @@ class NativeGitRepository:
                 raise ValueError("unsupported protocol-v2 command")
             if commands[0] == b"command=ls-refs":
                 snapshot = self.control.read_snapshot(self.project_id, actor)
+                self.check_generation(snapshot.get("generation"))
                 return Response(
                     ls_refs(snapshot, packets, self.format),
                     media_type="application/x-git-upload-pack-result",
@@ -74,9 +81,13 @@ class NativeGitRepository:
         )
         read = context.__enter__()
         try:
+            self.check_generation(read.generation)
+            read.backend = read.backend.pinned_reader(read)
             if read.object_format != self.format:
                 raise ValueError("repository object format mismatch")
-            reader = PublishedObjectReader(read, self.control)
+            reader = PublishedObjectReader(
+                read, self.control, proof_factory=self.service.proof_factory
+            )
             # Reject unreadable wants before HTTP headers are sent. No blob is
             # downloaded here, including a raw-OID partial-clone lazy fetch.
             reader.authorize([*request.wants, *request.shallow])
@@ -89,15 +100,23 @@ class NativeGitRepository:
         with request_path.open("rb") as handle:
             return receive_commands(handle, self.format)
 
-    def receive(self, grant, request_path: Path):
+    def receive(self, grant, request_path: Path, *, publication=None):
         admitted_actor(grant, self.project_id, write=True)
         outcomes = {}
         with request_path.open("rb") as handle:
             edits, capabilities = receive_commands(handle, self.format)
+            if publication is not None:
+                publication.validate(edits)
             with repository_snapshot(
                 self.control, self.service.backend, grant, project_id=self.project_id
             ) as snapshot:
-                reader = PublishedObjectReader(snapshot, self.control)
+                self.check_generation(snapshot.generation)
+                snapshot.backend = snapshot.backend.pinned_reader(snapshot)
+                reader = PublishedObjectReader(
+                    snapshot, self.control, proof_factory=self.service.proof_factory
+                )
+                if publication is not None and snapshot.generation != publication.base.generation:
+                    raise PermissionError("Run repository generation changed")
                 with IncomingPack(reader) as incoming:
                     try:
                         incoming.read(handle)
@@ -140,6 +159,30 @@ class NativeGitRepository:
                                     stack.extend(
                                         object_edges(kind, body, object_format=self.format)
                                     )
+                            if publication is not None and publication.base.expected.oid:
+                                ancestry, visited = [edit.new.oid], set()
+                                ancestor = publication.base.expected.oid
+                                while ancestry and ancestor not in visited:
+                                    parent = ancestry.pop()
+                                    if parent in visited:
+                                        continue
+                                    visited.add(parent)
+                                    if parent == ancestor:
+                                        break
+                                    kind, body = incoming.get(parent)
+                                    if kind != "commit":
+                                        raise ValueError("Run ancestry is not a commit")
+                                    ancestry.extend(
+                                        oid
+                                        for oid, kind in object_edges(
+                                            kind, body, object_format=self.format
+                                        )
+                                        if kind == "commit"
+                                    )
+                                if ancestor not in visited:
+                                    raise PermissionError(
+                                        "Run candidate does not descend from its base"
+                                    )
                             closures[edit.name] = closure
                             accepted.append(edit)
                         except (ValueError, KeyError, PermissionError) as exc:
@@ -162,6 +205,12 @@ class NativeGitRepository:
                         pending = set().union(*(closures[edit.name] for edit in batch)) - uploaded
 
                         def prepare(pending=pending):
+                            # The canonical empty tree shares the incoming batch;
+                            # it must not create a second physical lease/reservation.
+                            empty_oid, empty_loose = encode_object(
+                                "tree", b"", object_format=self.format
+                            )
+                            batch, size = {empty_oid: empty_loose}, len(empty_loose)
                             for oid in pending:
                                 checkpoint()
                                 snapshot.check_live()
@@ -172,19 +221,34 @@ class NativeGitRepository:
                                 actual, loose = encode_object(kind, body, object_format=self.format)
                                 if actual != oid:
                                     raise ValueError("incoming object hash mismatch")
-                                self.service.backend.put_durable(oid, loose)
-                                uploaded.add(oid)
+                                if batch and (len(batch) >= 100 or size + len(loose) > 8 * 1024**2):
+                                    self.service.backend.put_many_durable(batch)
+                                    uploaded.update(batch)
+                                    batch, size = {}, 0
+                                batch[oid] = loose
+                                size += len(loose)
+                            if batch:
+                                self.service.backend.put_many_durable(batch)
+                                uploaded.update(batch)
 
-                        request_key = str(uuid.uuid4())
+                        request_key = (
+                            publication.request_key
+                            if publication is not None
+                            else str(uuid.uuid4())
+                        )
                         try:
                             result = self.service.submit(
                                 grant,
                                 request_key=request_key,
                                 generation=snapshot.generation,
-                                edits=batch,
+                                edits=publication.base.edits(publication.candidate)
+                                if publication is not None
+                                else batch,
                                 roots=desired,
                                 prepare=prepare,
                                 message="git push",
+                                read_snapshot=snapshot,
+                                prepare_includes_empty_tree=True,
                             )
                         except Exception as exc:
                             actor = admitted_actor(grant, self.project_id, write=False)

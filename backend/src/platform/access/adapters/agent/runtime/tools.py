@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from src.infra.search.dependencies import get_search_service
 from src.infra.search.schemas import SearchToolQueryInput
-from src.platform.access.adapters.agent.runtime.publication import allowed
+from src.platform.access.adapters.agent.runtime.workspace import allowed
 from src.tool.dependencies import get_tool_service
 
 
