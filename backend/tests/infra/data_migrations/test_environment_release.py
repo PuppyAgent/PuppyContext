@@ -204,6 +204,7 @@ def test_lost_database_lock_blocks_application_deployment():
     with pytest.raises(RuntimeError, match="lost lock"):
         Release(PLAN, target).run(SOURCE)
     assert "deploy" not in target.events
+    assert not any(event.startswith("failed:") for event in target.events)
     assert not target.accepted
 
 

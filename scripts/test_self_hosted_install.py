@@ -488,6 +488,28 @@ def main():
                 + "\n"
             )
         finally:
+            if args.variant == "release":
+                # Only this owned synthetic fixture may export SQL diagnostics.
+                # Hosted adapters retain the same files privately. Never upload
+                # dumps, session state, environment files or arbitrary logs.
+                diagnostics = {}
+                for name in (
+                    "backups/restore-error.log",
+                    "backups/restore-startup.log",
+                    "schema-error.log",
+                    "schema-drift.log",
+                ):
+                    path = args.artifacts / name
+                    if path.is_file():
+                        detail = path.read_text()
+                        for secret_name in (
+                            "JWT_SECRET", "ANON_KEY", "SERVICE_ROLE_KEY",
+                            "POSTGRES_PASSWORD", "S3_SECRET_KEY",
+                        ):
+                            if secret_value := values.get(secret_name):
+                                detail = detail.replace(secret_value, "[redacted]")
+                        diagnostics[name] = detail
+                (args.artifacts / "diagnostics.json").write_text(json.dumps(diagnostics))
             with (args.artifacts / "compose.log").open("w") as log:
                 subprocess.run(
                     [*compose, "logs", "--no-color", "--tail", "150"],

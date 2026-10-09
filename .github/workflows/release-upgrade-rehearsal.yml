@@ -73,7 +73,7 @@ jobs:
           echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' \
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get -o Acquire::Retries=3 update -qq
-          sudo apt-get install -y -qq postgresql-client-17
+          sudo apt-get install -y -qq postgresql-17 postgresql-client-17
           echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
           python -m pip install 'uv==0.5.11'
           cd backend
@@ -102,6 +102,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release-rehearsal/result.json
             ${{ runner.temp }}/release-rehearsal/release.json
+            ${{ runner.temp }}/release-rehearsal/diagnostics.json
           if-no-files-found: warn
           retention-days: 14
 

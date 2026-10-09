@@ -56,10 +56,13 @@ class Release:
                 pending = [p for p in self.plan.phases if target.pending(p)]
                 if target.requires_quiescence(pending):
                     phase_name = "quiesce"
-                    target.checkpoint(phase_name, target.quiesce())
+                    result = target.quiesce()
                     fence()
+                    target.checkpoint(phase_name, result)
                     phase_name = "backup"
-                    target.checkpoint(phase_name, target.backup())
+                    result = target.backup()
+                    fence()
+                    target.checkpoint(phase_name, result)
                 for phase in self.plan.phases:
                     fence()
                     phase_name = phase.id
@@ -69,6 +72,7 @@ class Release:
                         target.schema(phase)
                     else:
                         target.data(phase)
+                    fence()
                     target.checkpoint(phase.id)
                 phase_name = "database-verification"
                 target.verify_database()
@@ -85,5 +89,12 @@ class Release:
                 target.complete(source)
                 return {"state": "accepted", "source_sha": source, "acceptance": acceptance}
             except Exception as error:
-                target.fail(phase_name, type(error).__name__)
+                # A disconnected owner must not overwrite a successor's journal.
+                # Keep the original exception when the ownership probe also fails.
+                try:
+                    fence()
+                except Exception:
+                    pass
+                else:
+                    target.fail(phase_name, type(error).__name__)
                 raise

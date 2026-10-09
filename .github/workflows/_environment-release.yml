@@ -48,7 +48,8 @@ jobs:
         with:
           script: |
             const required = ['backend-release.yml', 'frontend-build.yml', 'agent-runtime-contracts.yml',
-                              'validate-migrations.yml', 'release-upgrade-rehearsal.yml', 'secret-scanning-gitleaks.yml'];
+                              'validate-migrations.yml', 'release-upgrade-rehearsal.yml',
+                              'self-hosted-install.yml', 'secret-scanning-gitleaks.yml'];
             const deadline = Date.now() + 90 * 60 * 1000;
             while (Date.now() < deadline) {
               let ready = true;
