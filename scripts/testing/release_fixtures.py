@@ -28,7 +28,7 @@ UPDATE public.connections SET last_sync_run_id='release-history' WHERE id='relea
 def decisions(inventory):
     policy = {
         "release-binding": ("synchronize", None),
-        "release-source": ("import", "release-import-source"),
+        "release-source": ("import", "release-source"),
         "release-dual": ("both", "release-import-dual"),
     }
     if {row["legacy_id"] for row in inventory} != set(policy):
@@ -56,7 +56,7 @@ SELECT jsonb_build_object(
     assert actual == {
         "bindings": {"release-binding": "keep-binding", "release-dual": "keep-dual"},
         "sources": {
-            "release-import-source": "keep-source",
+            "release-source": "keep-source",
             "release-import-dual": "keep-dual",
         },
         "history": "keep-history",
