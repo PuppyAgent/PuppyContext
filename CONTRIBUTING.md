@@ -148,15 +148,18 @@ before changing a shared database.
   transactional SQL only.
 - Complex/long/Python/secret-dependent backfills use immutable
   `supabase/data_migrations/<id>` artifacts.
-- One PR owns one phase: Expand, Data, Cutover, or Contract.
+- A PR may contain a complete ordered Expand/Data/Contract release. Each phase
+  has explicit prerequisites in the shared upgrade plan.
 - Refresh the target before merge and review all inherited changes, not just
   the last feature commit. Fill in the PR template's history/dependency and
   populated-upgrade evidence; do not add unrelated historical data audits.
 - Prefer new draft migrations after the current target history. Already-shared
   older migrations require an explicit catch-up plan and matching upgrade
   fixture; `--include-all` alone is not proof of safe ordering.
-- Keep unready cleanup in `contract.pending.sql`. Do not activate Contract or
-  its final-only application until the real target prerequisites are complete.
+- Keep unready cleanup in `contract.pending.sql`. Before merge, prove the full
+  populated upgrade in Docker. After merge, the coordinator establishes the
+  real cutover prerequisites before Contract execution and app deployment;
+  production does not need to have applied the candidate before merge.
 - Never edit a shared/applied migration. Add a forward artifact.
 - Never place “run this Python script next” instructions in schema SQL.
 - Never write to a shared remote database from SQL Editor or a laptop except

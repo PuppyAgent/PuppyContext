@@ -329,7 +329,7 @@ class PsqlClient:
         return PsqlAdvisoryLock(self, migration_id, timeout=timeout)
 
 
-class PsqlAdvisoryLock(AbstractContextManager[None]):
+class PsqlAdvisoryLock(AbstractContextManager):
     """Hold a session advisory lock while application-language work runs."""
 
     def __init__(self, client: PsqlClient, migration_id: str, *, timeout: int) -> None:
@@ -338,7 +338,7 @@ class PsqlAdvisoryLock(AbstractContextManager[None]):
         self.timeout = timeout
         self.process: subprocess.Popen[str] | None = None
 
-    def __enter__(self) -> None:
+    def __enter__(self):
         self.process = subprocess.Popen(
             [
                 self.client.executable,
@@ -379,7 +379,24 @@ class PsqlAdvisoryLock(AbstractContextManager[None]):
         if result != "LOCKED":
             detail = self._terminate()
             raise ExecutionError(detail or "failed to acquire data migration lock")
-        return None
+        return self
+
+    def assert_held(self) -> None:
+        """Probe the original owning session before another release side effect."""
+        if self.process is None or self.process.poll() is not None:
+            raise ExecutionError("Release database lock connection was lost")
+        try:
+            self.process.stdin.write("SELECT 'STILL_LOCKED';\n")
+            self.process.stdin.flush()
+            with selectors.DefaultSelector() as selector:
+                selector.register(self.process.stdout, selectors.EVENT_READ)
+                if (
+                    not selector.select(self.timeout)
+                    or self.process.stdout.readline().strip() != "STILL_LOCKED"
+                ):
+                    raise ExecutionError("Release database lock connection was lost")
+        except (BrokenPipeError, OSError) as error:
+            raise ExecutionError("Release database lock connection was lost") from error
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         if self.process is None:

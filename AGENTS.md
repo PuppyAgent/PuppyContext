@@ -22,11 +22,14 @@
 > merge admission** rules: refresh the target, inspect the entire release diff
 > and applied-version set, explain any older missing migrations, and prove the
 > relevant populated upgrade. `--include-all` is not dependency validation.
-> Keep unready cleanup in `contract.pending.sql`; do not activate final-only
-> application/Contract changes before their real cutover prerequisites exist.
+> Keep unready cleanup in `contract.pending.sql`. Premerge CI proves the whole
+> populated upgrade in disposable Docker. After merge, the shared release
+> coordinator establishes actual cutover prerequisites before executing Contract
+> SQL and deploying the application. Do not require production to apply the
+> candidate migrations before the candidate can merge.
 > Distinguish tested, merged, database-ready, deployed and accepted evidence.
-> The document's enforcement snapshot lists gaps; prose does not configure
-> GitHub branch protection or prove a hosted release.
+> The document's hosted activation contract owns environment setup; prose does
+> not configure GitHub branch protection or prove a hosted release.
 
 ## Current Version Engine contract (2026-10-07)
 

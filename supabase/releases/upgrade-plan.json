@@ -1,0 +1,13 @@
+{
+  "format_version": 1,
+  "phases": [
+    {"id": "entrypoint-expand", "kind": "schema", "value": "20261003220000"},
+    {"id": "entrypoint-identities", "kind": "data", "value": "20260927_entrypoint_storage_backfill", "until_schema": "20261003230000"},
+    {"id": "entrypoint-identity-contract", "kind": "schema", "value": "20261003230000"},
+    {"id": "entrypoint-sources", "kind": "data", "value": "20261003_final_entrypoint_storage", "until_schema": "20261003230100", "prepare": "entrypoint"},
+    {"id": "native-expand", "kind": "schema", "value": "20261008040000"},
+    {"id": "native-inventory", "kind": "data", "value": "20261007_native_repository_inventory"},
+    {"id": "native-recovery", "kind": "data", "value": "20261007_repository_recovery_archive"},
+    {"id": "current-schema", "kind": "schema", "value": "latest"}
+  ]
+}

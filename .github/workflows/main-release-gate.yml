@@ -102,11 +102,7 @@ jobs:
               pull_number: pr.number,
               per_page: 100,
             });
-            const schemaFiles = files.filter(file =>
-              file.filename.startsWith('supabase/migrations/') &&
-              file.filename.endsWith('.sql')
-            );
-            const affectsDatabase = path => /^(supabase\/|backend\/src\/infra\/data_migrations\/|scripts\/(?:database[^/]*|qubits_entrypoint_cutover|entrypoint_source_decisions)\.py$|\.github\/workflows\/(?:_schema-deploy|_data-migration|_operator-data-verify|data-migration|migrate-staging|migrate-production|main-release-gate|validate-migrations|prepare-baseline|entrypoint-cutover)\.yml$)/.test(path);
+            const affectsDatabase = path => /^(supabase\/|backend\/src\/infra\/data_migrations\/|scripts\/(?:database[^/]*|qubits_entrypoint_cutover|entrypoint_source_decisions|test_self_hosted_install)\.py$|\.github\/workflows\/(?:_environment-release|release-upgrade-rehearsal|_schema-deploy|_data-migration|_operator-data-verify|data-migration|migrate-staging|migrate-production|main-release-gate|validate-migrations|prepare-baseline|entrypoint-cutover)\.yml$)/.test(path);
             if (!files.some(file => affectsDatabase(file.filename) || affectsDatabase(file.previous_filename || ''))) {
               core.info('No database release changes; database attestation is not required.');
               return;
@@ -151,92 +147,10 @@ jobs:
               return;
             }
 
-            const contractIds = new Set();
-            for (const file of schemaFiles.filter(file =>
-              ['added', 'renamed'].includes(file.status) &&
-              file.filename.includes('_contract_')
-            )) {
-              const response = await github.rest.repos.getContent({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                path: file.filename,
-                ref: pr.head.sha,
-              });
-              if (Array.isArray(response.data) || !response.data.content) {
-                core.setFailed(`Cannot inspect contract migration ${file.filename}.`);
-                return;
-              }
-              const text = Buffer.from(response.data.content, 'base64').toString('utf8');
-              const match = text.match(
-                /^--\s*requires-data-migration:\s*([0-9]{8,14}_[a-z0-9_]+)\s*$/m
-              );
-              const checksumMatch = text.match(
-                /^--\s*data-migration-checksum:\s*([0-9a-f]{64})\s*$/m
-              );
-              if (!match) {
-                core.setFailed(
-                  `Contract migration ${file.filename} has no requires-data-migration marker.`
-                );
-                return;
-              }
-              if (!checksumMatch) {
-                core.setFailed(
-                  `Contract migration ${file.filename} has no data-migration-checksum marker.`
-                );
-                return;
-              }
-              contractIds.add(match[1]);
-            }
-
-            async function hasSuccessfulVerification({workflow, sha, branch, environment, migrationId}) {
-              const runs = await successfulRuns(workflow, sha, branch);
-              for (const run of runs) {
-                const jobs = await github.paginate(
-                  github.rest.actions.listJobsForWorkflowRun,
-                  {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    run_id: run.id,
-                    per_page: 100,
-                  }
-                );
-                const expected = `verify ${migrationId} on ${environment}`;
-                if (jobs.some(job => job.conclusion === 'success' && job.name.includes(expected))) {
-                  return true;
-                }
-              }
-              return false;
-            }
-
-            for (const migrationId of contractIds) {
-              const stagingVerified = await hasSuccessfulVerification({
-                workflow: 'migrate-staging.yml',
-                sha: pr.head.sha,
-                branch: 'qubits',
-                environment: 'staging',
-                migrationId,
-              });
-              if (!stagingVerified) {
-                core.setFailed(
-                  `Contract ${migrationId} needs a successful staging verify on head SHA ${pr.head.sha}.`
-                );
-                return;
-              }
-
-              const productionVerified = await hasSuccessfulVerification({
-                workflow: 'migrate-production.yml',
-                sha: pr.base.sha,
-                branch: 'main',
-                environment: 'production',
-                migrationId,
-              });
-              if (!productionVerified) {
-                core.setFailed(
-                  `Contract ${migrationId} needs a successful production verify on base SHA ${pr.base.sha}.`
-                );
-                return;
-              }
-            }
+            // Production is changed only AFTER this PR merges. The required
+            // Release upgrade rehearsal check proves the upgrade in Docker.
+            // Production data receipts are checked by the release program
+            // immediately before dependent Contract SQL, never as merge inputs.
 
             core.info(
               `Database release gate passed: schema run ${schemaRuns[0].html_url}`

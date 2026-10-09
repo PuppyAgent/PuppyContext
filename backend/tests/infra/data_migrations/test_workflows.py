@@ -51,7 +51,7 @@ def test_main_promotion_requires_staging_evidence_for_data_only_changes(filename
     assert result["workflows"] == ["migrate-staging.yml"]
 
 
-def _run_database_gate(files):
+def _run_database_gate(files, success=False):
     workflow = yaml.safe_load((WORKFLOWS / "main-release-gate.yml").read_text())
     step = next(
         step
@@ -61,6 +61,7 @@ def _run_database_gate(files):
     # Execute the real workflow script against an API fake: no hosted mutation.
     harness = r"""
       const files = JSON.parse(process.argv[1]);
+      const success = process.argv[2] === "true";
       const result = {failed: [], workflows: []};
       const context = {repo: {owner: 'test', repo: 'test'}, payload: {
         pull_request: {number: 1, head: {ref: 'qubits', sha: 'head'}, base: {sha: 'base'}, labels: []}
@@ -69,7 +70,7 @@ def _run_database_gate(files):
       const github = {rest: {pulls: {listFiles: 'files'}, actions: {listWorkflowRuns: 'runs'}},
         async paginate(method, args) {
           if (method === 'files') return files;
-          result.workflows.push(args.workflow_id); return [];
+          result.workflows.push(args.workflow_id); return success ? [{head_sha: "head", conclusion: "success", event: "push", head_branch: "qubits", status: "completed", html_url: "test"}] : [];
         }};
     """
     harness += (
@@ -78,7 +79,7 @@ def _run_database_gate(files):
         + "\n})().then(() => console.log(JSON.stringify(result)));"
     )
     completed = subprocess.run(
-        ["node", "-e", harness, json.dumps(files)], capture_output=True, text=True, check=True
+        ["node", "-e", harness, json.dumps(files), json.dumps(success)], capture_output=True, text=True, check=True
     )
     return json.loads(completed.stdout)
 
@@ -231,132 +232,36 @@ def test_production_data_work_cannot_run_from_untrusted_ref() -> None:
     dispatcher = (WORKFLOWS / "data-migration.yml").read_text()
     assert '"refs/heads/qubits"' in dispatcher
     assert '"refs/heads/main"' in dispatcher
-    assert "production_staging_evidence" in dispatcher
-    assert "environment: staging" in dispatcher
-    assert "operation: verify" in dispatcher
-    assert "needs.production_staging_evidence.result == 'success'" in dispatcher
+    parsed = yaml.safe_load(dispatcher)
+    trigger = parsed.get("on", parsed.get(True))
+    assert trigger["workflow_dispatch"]["inputs"]["operation"]["options"] == ["plan", "verify"]
+    assert "Use the environment release coordinator for writes" in dispatcher
 
 
-def test_reusable_database_workflows_receive_protected_secrets() -> None:
-    staging = (WORKFLOWS / "migrate-staging.yml").read_text()
-    production = (WORKFLOWS / "migrate-production.yml").read_text()
-    dispatcher = (WORKFLOWS / "data-migration.yml").read_text()
-
-    # GitHub does not pass secrets to reusable workflows automatically. Every
-    # direct caller must cross that boundary explicitly; the called job then
-    # selects the protected staging/production Environment.
-    assert staging.count("secrets: inherit") == 7
-    assert production.count("secrets: inherit") == 10
-    assert dispatcher.count("secrets: inherit") == 3
+def test_release_credentials_remain_on_restricted_private_runners():
+    shared = yaml.safe_load((WORKFLOWS / "_environment-release.yml").read_text())
+    release = shared["jobs"]["release"]
+    assert release["environment"] == "${{ inputs.environment }}"
+    assert "self-hosted" in str(release["runs-on"])
+    command = next(s["run"] for s in release["steps"] if s.get("name") == "Run the shared upgrade and acceptance program")
+    assert "src.infra.data_migrations.release" in command
+    assert "/etc/puppyone/releases/" in command
+    assert "secrets.S3" not in str(shared)
 
 
-def test_staging_release_is_automatic_auditable_and_serial() -> None:
-    staging = (WORKFLOWS / "migrate-staging.yml").read_text()
-    parsed = yaml.safe_load(staging)
-    jobs = parsed["jobs"]
-    release = json.loads(
-        (REPOSITORY / "supabase" / "releases" / "staging-data-migration.json").read_text()
-    )
-
-    assert '"refs/heads/qubits"' in staging
-    assert "github.event_name == 'workflow_dispatch'" not in staging
-    assert "scripts/database_history.py release --environment staging" in staging
-    assert jobs["prepare_schema"]["needs"] == "resolve_data_release"
-    assert jobs["prepare_schema"]["with"]["allow_data_migration_pause"] is True
-    assert jobs["validate_schema_pause"]["needs"] == [
-        "prepare_schema",
-        "resolve_data_release",
-    ]
-    assert jobs["repair_run"]["needs"] == [
-        "validate_schema_pause",
-        "resolve_data_release",
-    ]
-    assert "outputs.repair_migration_id != ''" in jobs["repair_run"]["if"]
-    assert "outputs.execution_mode == 'ci'" in jobs["repair_run"]["if"]
-    assert jobs["data_plan"]["needs"] == [
-        "validate_schema_pause",
-        "repair_run",
-        "resolve_data_release",
-    ]
-    # A staged repair may legitimately be absent (skipped), but its failure
-    # must stop the staged data migration from mutating the environment.
-    assert "needs.repair_run.result == 'success'" in jobs["data_plan"]["if"]
-    assert "needs.repair_run.result == 'skipped'" in jobs["data_plan"]["if"]
-    assert "outputs.execution_mode == 'ci'" in jobs["data_plan"]["if"]
-    assert jobs["data_run"]["needs"] == ["data_plan", "resolve_data_release"]
-    assert "always()" in jobs["data_run"]["if"]
-    assert "needs.data_plan.result == 'success'" in jobs["data_run"]["if"]
-    assert jobs["data_verify"]["needs"] == ["data_run", "resolve_data_release"]
-    assert "always()" in jobs["data_verify"]["if"]
-    assert "needs.data_run.result == 'success'" in jobs["data_verify"]["if"]
-    assert jobs["operator_data_verify"]["with"] == {
-        "environment": "staging",
-        "migration_id": "${{ needs.resolve_data_release.outputs.migration_id }}",
-    }
-    assert "needs.operator_data_verify.result == 'success'" in jobs["deploy_after_data"]["if"]
-    assert jobs["deploy_after_data"]["needs"] == [
-        "data_verify",
-        "operator_data_verify",
-        "resolve_data_release",
-    ]
-    assert staging.count("uses: ./.github/workflows/_schema-deploy.yml") == 2
-    assert staging.count("uses: ./.github/workflows/_data-migration.yml") == 4
-    assert staging.count("uses: ./.github/workflows/_operator-data-verify.yml") == 1
-    for operation in ("plan", "run", "verify"):
-        assert f"operation: {operation}" in staging
-    assert re.fullmatch(r"[0-9A-Za-z_]+", release["migration_id"])
-    assert release["execution_mode"] in {"ci", "operator_local"}
-    assert data_migration_directory(REPOSITORY, release["migration_id"]).is_dir()
-    repair_id = release.get("repair_migration_id")
-    if repair_id:
-        assert re.fullmatch(r"[0-9A-Za-z_]+", repair_id)
-        assert data_migration_directory(REPOSITORY, repair_id).is_dir()
-
-
-def test_production_release_is_automatic_and_requires_qubits_evidence() -> None:
-    production = (WORKFLOWS / "migrate-production.yml").read_text()
-    parsed = yaml.safe_load(production)
-    jobs = parsed["jobs"]
-    release = json.loads(
-        (REPOSITORY / "supabase" / "releases" / "production-data-migration.json").read_text()
-    )
-
-    assert '"refs/heads/main"' in production
-    assert "    paths:" not in production
-    assert "scripts/database_history.py release --environment production" in production
-    assert jobs["prepare_schema"]["with"]["allow_data_migration_pause"] is True
-    assert jobs["staging_data_evidence"]["with"] == {
-        "environment": "staging",
-        "migration_id": "${{ needs.resolve_data_release.outputs.migration_id }}",
-        "operation": "verify",
-    }
-    assert "needs.staging_data_evidence.result == 'success'" in jobs["data_plan"]["if"]
-    assert "outputs.execution_mode == 'ci'" in jobs["data_plan"]["if"]
-    assert jobs["data_plan"]["needs"] == [
-        "validate_schema_pause",
-        "repair_run",
-        "staging_data_evidence",
-        "resolve_data_release",
-    ]
-    assert "always()" in jobs["data_run"]["if"]
-    assert "needs.data_plan.result == 'success'" in jobs["data_run"]["if"]
-    assert "always()" in jobs["data_verify"]["if"]
-    assert "needs.data_run.result == 'success'" in jobs["data_verify"]["if"]
-    assert jobs["staging_operator_evidence"]["with"] == {
-        "environment": "staging",
-        "migration_id": "${{ needs.resolve_data_release.outputs.migration_id }}",
-    }
-    assert jobs["operator_data_verify"]["with"] == {
-        "environment": "production",
-        "migration_id": "${{ needs.resolve_data_release.outputs.migration_id }}",
-    }
-    assert "needs.operator_data_verify.result == 'success'" in jobs["deploy_after_data"]["if"]
-    assert production.count("uses: ./.github/workflows/_schema-deploy.yml") == 2
-    assert production.count("uses: ./.github/workflows/_data-migration.yml") == 6
-    assert production.count("uses: ./.github/workflows/_operator-data-verify.yml") == 2
-    assert re.fullmatch(r"[0-9A-Za-z_]+", release["migration_id"])
-    assert release["execution_mode"] in {"ci", "operator_local"}
-    assert data_migration_directory(REPOSITORY, release["migration_id"]).is_dir()
+@pytest.mark.parametrize("file,branch,environment", [
+    ("migrate-staging.yml", "qubits", "staging"),
+    ("migrate-production.yml", "main", "production"),
+])
+def test_both_environments_use_one_automatic_release_program(file, branch, environment):
+    workflow = yaml.safe_load((WORKFLOWS / file).read_text())
+    trigger = workflow.get("on", workflow.get(True))
+    assert trigger["push"] == {"branches": [branch]}
+    job = workflow["jobs"]["release"]
+    assert job["uses"] == "./.github/workflows/_environment-release.yml"
+    assert job["with"] == {"environment": environment}
+    assert "refs/heads/" + branch in job["if"]
+    assert "puppyone-ai/puppyone-cloud" in job["if"]
 
 
 def test_schema_runner_only_pauses_for_an_explicit_data_migration_guard() -> None:
@@ -489,24 +394,35 @@ def test_workflow_dispatch_values_are_not_interpolated_into_shell() -> None:
     assert '"${{ inputs.environment }}" = ' not in dispatcher
 
 
-def test_main_gate_requires_exact_schema_and_contract_verification() -> None:
+def test_main_gate_does_not_require_production_to_be_migrated_before_merge():
     gate = (WORKFLOWS / "main-release-gate.yml").read_text()
     assert "pr.head.sha" in gate
     assert "latestOwnerReview?.commit_id === pr.head.sha" in gate
-    assert "labeled, unlabeled" in gate
     assert "migrate-staging.yml" in gate
-    assert "migrate-production.yml" in gate
-    assert "requires-data-migration" in gate
-    assert "stagingVerified" in gate
-    assert "productionVerified" in gate
-    assert "pr.base.sha" in gate
-    assert "['added', 'renamed'].includes(file.status)" in gate
+    assert "migrate-production.yml" not in gate
+    assert "productionVerified" not in gate
+    result = _run_database_gate([{"filename": "supabase/migrations/new_contract.sql", "status": "added"}], success=True)
+    assert result["failed"] == []
+    assert result["workflows"] == ["migrate-staging.yml"]
 
 
 def test_every_qubits_head_receives_an_exact_schema_attestation() -> None:
     staging = (WORKFLOWS / "migrate-staging.yml").read_text()
     assert "branches:\n      - qubits" in staging
     assert "    paths:" not in staging
+
+
+def test_every_waited_workflow_runs_on_each_protected_push_without_cancellation():
+    shared = (WORKFLOWS / "_environment-release.yml").read_text()
+    waited = re.findall(r"'([a-z-]+\.yml)'", shared)
+    assert "secret-scanning-gitleaks.yml" in waited
+    assert "release-upgrade-rehearsal.yml" in waited
+    for name in waited:
+        workflow = yaml.safe_load((WORKFLOWS / name).read_text())
+        trigger = workflow.get("on", workflow.get(True))
+        assert set(trigger["push"]["branches"]) == {"main", "qubits"}, name
+        assert "paths" not in trigger["push"] and "paths-ignore" not in trigger["push"], name
+        assert workflow.get("concurrency", {}).get("cancel-in-progress") is not True, name
 
 
 def test_database_workflow_third_party_actions_are_sha_pinned() -> None:

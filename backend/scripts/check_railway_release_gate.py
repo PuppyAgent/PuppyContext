@@ -1,10 +1,4 @@
-"""Validate the repository half of the Qubits Railway database release gate.
-
-Railway's ``Wait for CI`` switch is external state and must be evidenced from
-the dashboard/API. This check prevents repository drift around that setting:
-the complete service-role inventory, source branch, database workflow, and the
-absence of per-service schema mutation all remain reviewable and repeatable.
-"""
+"""Validate the code-owned release contract; platform state is checked at release."""
 
 from __future__ import annotations
 
@@ -12,83 +6,69 @@ import json
 import sys
 from pathlib import Path
 
-REQUIRED_ROLES = {"api", "agent_worker", "upload_worker", "import_worker", "synchronize_worker", "mcp_server"}
+REQUIRED_ROLES = {
+    "api",
+    "agent_worker",
+    "upload_worker",
+    "import_worker",
+    "synchronize_worker",
+    "mcp_server",
+}
 
 
 def validate_contract(repo_root: Path) -> list[str]:
-    errors: list[str] = []
-    manifest_path = repo_root / "backend/deploy/railway-qubits-services.json"
+    errors = []
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return [f"cannot read Railway service manifest: {exc}"]
-
-    if manifest.get("schema_version") != 1:
-        errors.append("Railway service manifest schema_version must be 1")
-    if manifest.get("repository") != "puppyone-ai/puppyone-cloud":
-        errors.append("Railway service manifest must target puppyone-ai/puppyone-cloud")
-    if manifest.get("branch") != "qubits":
-        errors.append("Railway service manifest must target qubits")
-    if manifest.get("root_directory") not in {"backend", "/backend"}:
-        errors.append("Railway services must use backend as Root Directory")
-
-    gate = manifest.get("database_gate") or {}
-    if gate.get("workflow_file") != ".github/workflows/migrate-staging.yml":
-        errors.append("database gate must use migrate-staging.yml")
-    if gate.get("workflow_name") != "Deploy Database to Qubits":
-        errors.append("database gate workflow name drifted")
-    if gate.get("wait_for_ci_required") is not True:
-        errors.append("Wait for CI must remain required")
-
-    services = manifest.get("services")
-    if not isinstance(services, list):
-        errors.append("services must be a list")
-        services = []
-    roles = [item.get("service_role") for item in services if isinstance(item, dict)]
-    if len(roles) != len(set(roles)):
-        errors.append("Railway service roles must be unique")
-    if set(roles) != REQUIRED_ROLES:
-        errors.append(
-            "Railway service inventory must contain exactly: "
-            + ", ".join(sorted(REQUIRED_ROLES))
+        manifest = json.loads(
+            (repo_root / "backend/deploy/railway-release-services.json").read_text()
         )
-    if any(item.get("requires_qubits_schema") is not True for item in services):
-        errors.append("every listed Railway service must require the Qubits schema gate")
-
-    workflow_path = repo_root / str(gate.get("workflow_file", ""))
-    try:
-        workflow = workflow_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        errors.append(f"cannot read database workflow: {exc}")
-        workflow = ""
-    if "name: Deploy Database to Qubits" not in workflow:
-        errors.append("migrate-staging.yml must keep its stable workflow name")
-    if "branches:\n      - qubits" not in workflow:
-        errors.append("migrate-staging.yml must run on every qubits push")
-
-    railway_files = [repo_root / "backend/railway.toml", repo_root / "backend/nixpacks.toml"]
-    deployment_text = "\n".join(path.read_text(encoding="utf-8") for path in railway_files)
-    lowered = deployment_text.lower()
-    if "supabase db push" in lowered:
-        errors.append("Railway build/start config must not run supabase db push")
-    railway_toml = railway_files[0].read_text(encoding="utf-8")
+    except (OSError, ValueError) as error:
+        return [f"Cannot read release inventory: {type(error).__name__}"]
+    if (
+        manifest.get("schema_version") != 2
+        or manifest.get("repository") != "puppyone-ai/puppyone-cloud"
+    ):
+        errors.append("Invalid release inventory identity")
+    if set(manifest.get("services", {})) != REQUIRED_ROLES | {"frontend"}:
+        errors.append("Release inventory must include every worker, API, MCP and frontend")
+    if (
+        manifest.get("deployment_owner") != "environment-release"
+        or manifest.get("independent_autodeploy") is not False
+    ):
+        errors.append("Only the environment coordinator may deploy applications")
+    for environment, branch, workflow in [
+        ("staging", "qubits", "migrate-staging.yml"),
+        ("production", "main", "migrate-production.yml"),
+    ]:
+        if manifest.get("environments", {}).get(environment) != {
+            "branch": branch,
+            "workflow": workflow,
+        }:
+            errors.append("Release environment mapping differs")
+        source = (repo_root / ".github/workflows" / workflow).read_text()
+        if (
+            f"branches:\n      - {branch}" not in source
+            or "uses: ./.github/workflows/_environment-release.yml" not in source
+        ):
+            errors.append(f"{environment} must invoke the shared coordinator on every push")
+    for name in ("railway.toml", "nixpacks.toml"):
+        source = (repo_root / "backend" / name).read_text()
+        if "supabase db push" in source.lower():
+            errors.append("Application build/start must not apply migrations")
+    railway = (repo_root / "backend/railway.toml").read_text()
     for role in REQUIRED_ROLES - {"api"}:
-        if role not in railway_toml:
-            errors.append(f"backend/railway.toml does not route SERVICE_ROLE={role}")
-
+        if role not in railway:
+            errors.append(f"Missing worker start dispatch: {role}")
     return errors
 
 
 def main() -> int:
-    repo_root = Path(__file__).resolve().parents[2]
-    errors = validate_contract(repo_root)
-    if errors:
-        for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-    print("Railway Qubits database release contract is internally consistent.")
-    print("Dashboard Wait for CI state still requires an external release receipt.")
-    return 0
+    errors = validate_contract(Path(__file__).resolve().parents[2])
+    for error in errors:
+        print("ERROR: " + error, file=sys.stderr)
+    if not errors:
+        print("Shared release inventory is consistent. Hosted activation is verified separately.")
+    return bool(errors)
 
 
 if __name__ == "__main__":

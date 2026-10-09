@@ -134,6 +134,14 @@ cutover prerequisites block the new API and frontend without deleting data or
 recording the failed migration as applied. Tests never manufacture hosted
 cutover evidence or restore retired storage interfaces.
 
+The release variant accepts an exact deployed source through `--upgrade-base`.
+It seeds the old application with file data and legacy source/history fixtures,
+then invokes the same ordered release executor as hosted deployment. Real
+process stop, backup restoration, data phases and final application acceptance
+are checked on owned volumes. Repeating the accepted release must be a no-op.
+See [database release governance](13-database-release-governance.md) for this
+premerge rehearsal and the protected postmerge execution boundary.
+
 PRs publish `Installation validation result`; all main pushes and version tags
 run the installation matrix again. Main also runs database rebuild/upgrade and
 B1 equivalence. Failure logs/results are retained without environment/session

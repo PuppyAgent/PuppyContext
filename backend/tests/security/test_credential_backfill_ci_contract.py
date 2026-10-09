@@ -87,7 +87,7 @@ def test_schema_deployment_never_names_application_backfills() -> None:
             f"python3 scripts/database_history.py release --environment {environment}"
         )
         assert "scripts/" not in workflow.replace(metadata_command, "")
-        assert "_schema-deploy.yml" in workflow
+        assert "_environment-release.yml" in workflow
 
     reusable = (REPO_ROOT / ".github/workflows/_schema-deploy.yml").read_text()
     # Connection setup and verified history adoption never execute application
@@ -101,11 +101,15 @@ def test_schema_deployment_never_names_application_backfills() -> None:
 def test_data_workflow_calls_only_the_portable_runner() -> None:
     reusable = (REPO_ROOT / ".github/workflows/_data-migration.yml").read_text()
     assert "puppyone-db plan" in reusable
-    assert "puppyone-db run" in reusable
+    assert "Use the environment release coordinator" not in reusable or "exit 1" in reusable
+    assert "puppyone-db run" not in reusable
     assert "puppyone-db verify" in reusable
     assert "run.py" not in reusable
     assert "20260704_scope_access_key_hash" not in reusable
     assert "20260711_surface_credentials" not in reusable
+    target = (REPO_ROOT / "backend/src/infra/data_migrations/release/target.py").read_text()
+    assert "DataMigrationRunner" in target
+    assert "self.runner.run(phase.value)" in target
 
 
 def test_scope_backfill_only_skips_the_expected_retired_column_error() -> None:

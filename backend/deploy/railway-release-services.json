@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "repository": "puppyone-ai/puppyone-cloud",
+  "deployment_owner": "environment-release",
+  "independent_autodeploy": false,
+  "environments": {
+    "staging": {"branch": "qubits", "workflow": "migrate-staging.yml"},
+    "production": {"branch": "main", "workflow": "migrate-production.yml"}
+  },
+  "services": {
+    "api": {"root_directory": "backend"},
+    "frontend": {"root_directory": "frontend"},
+    "agent_worker": {"root_directory": "backend"},
+    "upload_worker": {"root_directory": "backend"},
+    "import_worker": {"root_directory": "backend"},
+    "synchronize_worker": {"root_directory": "backend"},
+    "mcp_server": {"root_directory": "backend"}
+  }
+}

@@ -74,7 +74,9 @@ jobs:
       - name: Execute and verify data migration
         if: inputs.operation == 'run'
         working-directory: backend
-        run: uv run puppyone-db run "$MIGRATION_ID"
+        run: |
+          echo '::error::Data writes must run through the environment release coordinator'
+          exit 1
 
       - name: Verify existing data migration result
         if: inputs.operation == 'verify'
