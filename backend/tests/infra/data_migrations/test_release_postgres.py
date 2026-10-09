@@ -11,6 +11,7 @@ import pytest
 from src.infra.data_migrations.database import PsqlClient
 from src.infra.data_migrations.errors import ExecutionError, MigrationBusyError
 from src.infra.data_migrations.release.journal import Journal
+from src.infra.data_migrations.release.schema import Schema
 
 ROOT = Path(__file__).resolve().parents[4]
 pytestmark = pytest.mark.integration
@@ -132,14 +133,20 @@ def test_changed_plan_for_same_source_is_rejected(journal):
 def test_database_not_ci_alone_serializes_release(cluster):
     with cluster.advisory_lock("puppyone-environment-release") as first:
         first.assert_held()
-        with pytest.raises(MigrationBusyError), cluster.advisory_lock("puppyone-environment-release"):
+        with (
+            pytest.raises(MigrationBusyError),
+            cluster.advisory_lock("puppyone-environment-release"),
+        ):
             pytest.fail("second release acquired the same database")
     with cluster.advisory_lock("puppyone-environment-release") as next_release:
         next_release.assert_held()
 
 
 def test_lost_lock_is_detected_before_next_release_operation(cluster):
-    with pytest.raises(ExecutionError, match="lock connection was lost"), cluster.advisory_lock("puppyone-environment-release") as guard:
+    with (
+        pytest.raises(ExecutionError, match="lock connection was lost"),
+        cluster.advisory_lock("puppyone-environment-release") as guard,
+    ):
         cluster.scalar(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='release-test' AND pid<>pg_backend_pid()"
         )
@@ -154,3 +161,20 @@ def test_release_receipts_are_not_accessible_to_product_roles(journal):
             value.db.scalar(f"SELECT has_schema_privilege('{role}','puppyone_release','USAGE')")
             == "f"
         )
+
+
+def test_release_contract_probes_can_write_but_leave_no_rows(cluster, tmp_path, monkeypatch):
+    support = tmp_path / "supabase/tests/_support"
+    support.mkdir(parents=True)
+    (tmp_path / "supabase/migrations").mkdir()
+    (support / "schema_contracts.inc").write_text(
+        "BEGIN; CREATE TABLE public.release_probe(id integer); "
+        "INSERT INTO public.release_probe VALUES(1); ROLLBACK;"
+    )
+    for name in ("data_api_containment.inc", "cloud_agent_contracts.inc"):
+        (support / name).write_text("BEGIN READ ONLY; SELECT 1; ROLLBACK;")
+    monkeypatch.setattr(cluster, "applied_schema_versions", lambda: set())
+    schema = Schema(tmp_path, cluster)
+    monkeypatch.setattr(schema, "verify_drift", lambda: None)
+    schema.verify()
+    assert cluster.scalar("SELECT to_regclass('public.release_probe') IS NULL") == "t"

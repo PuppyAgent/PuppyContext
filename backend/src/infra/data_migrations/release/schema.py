@@ -110,7 +110,21 @@ class Schema:
             "data_api_containment.inc",
             "cloud_agent_contracts.inc",
         ):
-            self.db.verify(self.root / "supabase/tests/_support" / name, timeout=120)
+            # These existing contracts own BEGIN/ROLLBACK themselves. The schema
+            # probe intentionally exercises writes and rolls them back; the data
+            # artifact verifier's outer READ ONLY transaction would reject it.
+            self.db.command(
+                [
+                    "-q",
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    "-c",
+                    "SET statement_timeout='120s'; SET lock_timeout='5s';",
+                    "-f",
+                    str(self.root / "supabase/tests/_support" / name),
+                ],
+                timeout=120,
+            )
         self.verify_drift()
 
     def verify_drift(self) -> None:

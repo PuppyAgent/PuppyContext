@@ -1,7 +1,8 @@
 """Railway boundary for an explicitly configured environment and service inventory.
 
 No secret enumeration, automatic service discovery, or latest-branch deployment.
-The coordinator owns deployment; independent GitHub triggers must be disabled.
+The coordinator owns deployment; GitHub autodeploy must be disabled while the
+repository connection remains attached for exact-commit deployments.
 """
 
 from __future__ import annotations
@@ -45,19 +46,24 @@ class Railway:
         for role, service in self.config["services"].items():
             data = self.query(
                 "query($p:String!,$e:String!,$s:String!){"
-                "deploymentTriggers(projectId:$p,environmentId:$e,serviceId:$s){edges{node{id}}}"
-                "serviceInstance(environmentId:$e,serviceId:$s){latestDeployment{id status meta}}}",
+                "serviceInstanceAutoDeployStatus(projectId:$p,environmentId:$e,serviceId:$s){enabled}"
+                "serviceInstance(environmentId:$e,serviceId:$s){source{repo} latestDeployment{id status meta}}}",
                 {
                     "p": self.config["project_id"],
                     "e": self.config["environment_id"],
                     "s": service["id"],
                 },
             )
-            if data["deploymentTriggers"]["edges"]:
+            if data["serviceInstanceAutoDeployStatus"]["enabled"] is not False:
                 raise ValueError(
                     "Independent Railway autodeploy must be disabled before coordinator activation"
                 )
-            deployment = data["serviceInstance"]["latestDeployment"]
+            instance = data["serviceInstance"]
+            if (instance.get("source") or {}).get("repo") != "puppyone-ai/puppyone-cloud":
+                raise ValueError(
+                    "Release service must remain connected to the candidate repository"
+                )
+            deployment = instance["latestDeployment"]
             if deployment and deployment["status"] not in self.STOPPED | {"SUCCESS"}:
                 raise ValueError("An unmanaged deployment is already in progress")
             actual[role] = deployment
@@ -117,28 +123,34 @@ class Railway:
             ):
                 expected[role] = data["id"]
                 continue
-            ok = self.query(
-                "mutation($e:String!,$s:String!,$sha:String!){serviceInstanceDeploy(environmentId:$e,serviceId:$s,commitSha:$sha,latestCommit:false)}",
+            deployment_id = self.query(
+                "mutation($e:String!,$s:String!,$sha:String!){serviceInstanceDeployV2(environmentId:$e,serviceId:$s,commitSha:$sha)}",
                 {"e": self.config["environment_id"], "s": service["id"], "sha": source},
-            )["serviceInstanceDeploy"]
-            if not ok:
+            )["serviceInstanceDeployV2"]
+            if not isinstance(deployment_id, str) or not deployment_id:
                 raise RuntimeError("Railway did not accept the candidate deployment")
+            expected[role] = deployment_id
         deadline = self.clock() + self.config.get("deploy_timeout_seconds", 1800)
         while self.clock() < deadline:
             complete = True
-            for role, service in self.config["services"].items():
+            for deployment_id in expected.values():
                 deployment = self.query(
-                    "query($e:String!,$s:String!){serviceInstance(environmentId:$e,serviceId:$s){latestDeployment{id status meta}}}",
-                    {"e": self.config["environment_id"], "s": service["id"]},
-                )["serviceInstance"]["latestDeployment"]
-                if not deployment or (deployment.get("meta") or {}).get("commitHash") != source:
+                    "query($id:String!){deployment(id:$id){id status meta}}",
+                    {"id": deployment_id},
+                )["deployment"]
+                if not deployment:
                     complete = False
                 elif deployment["status"] in self.STOPPED:
                     raise RuntimeError("Candidate deployment failed")
                 elif deployment["status"] != "SUCCESS":
                     complete = False
-                else:
-                    expected[role] = deployment["id"]
+                elif (
+                    deployment["id"] != deployment_id
+                    or (deployment.get("meta") or {}).get("commitHash") != source
+                ):
+                    raise RuntimeError(
+                        "Candidate deployment source differs from the requested commit"
+                    )
             if complete:
                 return expected
             self.sleep(3)

@@ -35,6 +35,7 @@ class DatabaseTarget:
         return self.journal.begin(source, plan.checksum)
 
     def prepare_build(self, source: str) -> None:
+        print(json.dumps({"release_phase": "build", "state": "running"}), flush=True)
         self.platform.prepare_build(source)
         self.schema_executor.adopt()
 
@@ -67,6 +68,7 @@ class DatabaseTarget:
 
     def checkpoint(self, name: str, result: dict | None = None) -> None:
         self.journal.checkpoint(name, result)
+        print(json.dumps({"release_phase": name, "state": "completed"}), flush=True)
 
     def quiesce(self) -> dict:
         evidence = self.platform.quiesce()
@@ -88,9 +90,11 @@ class DatabaseTarget:
         return evidence
 
     def schema(self, phase: Phase) -> None:
+        print(json.dumps({"release_phase": phase.id, "state": "running"}), flush=True)
         self.schema_executor.apply(phase.value)
 
     def data(self, phase: Phase) -> None:
+        print(json.dumps({"release_phase": phase.id, "state": "running"}), flush=True)
         if (
             phase.value == "20261007_native_repository_inventory"
             and self.environment.get("RELEASE_TARGET") == "docker"
@@ -135,3 +139,7 @@ class DatabaseTarget:
     def fail(self, phase: str, error_type: str) -> None:
         self.journal.checkpoint("failure", {"phase": phase, "error_type": error_type})
         self.journal.finish("failed", phase)
+        print(
+            json.dumps({"release_phase": phase, "state": "failed", "error_type": error_type}),
+            flush=True,
+        )

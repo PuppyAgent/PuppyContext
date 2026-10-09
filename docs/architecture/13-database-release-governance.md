@@ -60,10 +60,13 @@ build, migration, deployment and acceptance. The executor checks the owning
 connection between operations. Immutable data artifacts retain their own
 transaction or advisory locks and restart-safe checkpoints.
 
-Application build/start never performs schema mutation. Railway GitHub
-deployment triggers are disabled for coordinator-owned services. The
+Application build/start never performs schema mutation. Railway's Automatic
+Deployments setting is disabled for coordinator-owned services; their GitHub
+repository connection stays attached. The coordinator checks the provider's
+actual autodeploy status and repository source before migration. The
 coordinator explicitly deploys its immutable commit, checks every service's
 reported commit and health, and never substitutes the latest branch head.
+`serviceInstanceDeployV2` returns the deployment ID that subsequent polling verifies.
 `Wait for CI` alone cannot own a drain/data/Contract sequence.
 
 ## Module and artifact ownership

@@ -298,11 +298,24 @@ def test_railway_never_deploys_latest_branch_instead_of_candidate():
     def handler(request):
         call = json.loads(request.content)
         calls.append(call)
-        if "serviceInstanceDeploy" in call["query"]:
+        if "serviceInstanceDeployV2" in call["query"]:
             assert call["variables"]["sha"] == SOURCE
-            assert "latestCommit:false" in call["query"]
-            return httpx.Response(200, json={"data": {"serviceInstanceDeploy": True}})
-        sha = SOURCE if len(calls) > 2 else "b" * 40
+            assert "commitSha:$sha" in call["query"]
+            return httpx.Response(200, json={"data": {"serviceInstanceDeployV2": "deployment"}})
+        if "deployment(id:" in call["query"]:
+            assert call["variables"] == {"id": "deployment"}
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "deployment": {
+                            "id": "deployment",
+                            "status": "SUCCESS",
+                            "meta": {"commitHash": SOURCE},
+                        }
+                    }
+                },
+            )
         return httpx.Response(
             200,
             json={
@@ -311,7 +324,7 @@ def test_railway_never_deploys_latest_branch_instead_of_candidate():
                         "latestDeployment": {
                             "id": "deployment",
                             "status": "SUCCESS",
-                            "meta": {"commitHash": sha},
+                            "meta": {"commitHash": "b" * 40},
                         }
                     }
                 }
@@ -328,7 +341,7 @@ def test_railway_independent_autodeploy_is_rejected_before_cutover():
             200,
             json={
                 "data": {
-                    "deploymentTriggers": {"edges": [{"node": {"id": "trigger"}}]},
+                    "serviceInstanceAutoDeployStatus": {"enabled": True},
                     "serviceInstance": {"latestDeployment": None},
                 }
             },
@@ -336,6 +349,26 @@ def test_railway_independent_autodeploy_is_rejected_before_cutover():
     )
     with pytest.raises(ValueError, match="autodeploy"):
         client.preflight()
+
+
+@pytest.mark.parametrize("repository", [None, "unrelated/repository", "puppyone-ai/puppyone-cloud"])
+def test_manual_deployment_requires_disabled_autodeploy_and_attached_repository(repository):
+    client = railway(
+        lambda _: httpx.Response(
+            200,
+            json={
+                "data": {
+                    "serviceInstanceAutoDeployStatus": {"enabled": False},
+                    "serviceInstance": {"source": {"repo": repository}, "latestDeployment": None},
+                }
+            },
+        )
+    )
+    if repository == "puppyone-ai/puppyone-cloud":
+        assert client.preflight() == {"api": None}
+    else:
+        with pytest.raises(ValueError, match="repository"):
+            client.preflight()
 
 
 @pytest.mark.parametrize("public_acl,public_policy", [(True, False), (False, True), (False, None)])
