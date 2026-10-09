@@ -245,3 +245,63 @@ def test_revoked_run_cannot_acquire_a_paused_workspace(postgres, owned):
         )["state"]
         == "paused"
     )
+
+
+@pytest.fixture
+def deletion_ready(postgres):
+    # This owned SQL fixture has synthetic provider IDs and no stored objects.
+    # Isolate its installed-inventory precondition from other scratch DB tests.
+    previous = postgres.sql("SELECT inventory_complete FROM project_storage_inventory_state")
+    postgres.sql("UPDATE project_storage_inventory_state SET inventory_complete=true")
+    yield
+    postgres.sql(
+        "UPDATE project_storage_inventory_state SET inventory_complete="
+        + ("true" if previous == "t" else "false")
+    )
+
+
+@pytest.mark.parametrize("commit", [False, True])
+def test_product_deletion_queues_workspace_before_physical_gc(
+    postgres, owned, deletion_ready, commit
+):
+    row = park(postgres, owned)
+    args, _, _ = owned
+    # Exercise the actual product deletion command, which retains the Project
+    # during object-storage quiescence instead of physically deleting its row.
+    postgres.sql(
+        f"BEGIN; SELECT delete_project_control_plane('{row['project_id']}','{args['user']}'); "
+        + ("COMMIT;" if commit else "ROLLBACK;")
+    )
+    project = postgres.row(f"SELECT lifecycle_status FROM projects WHERE id='{row['project_id']}'")
+    assert project["lifecycle_status"] == ("deleting" if commit else "ready")
+    due = postgres.rpc("workspace_due", limit=20)
+    if not commit:
+        assert due == []
+        assert (
+            postgres.row(
+                f"SELECT state FROM agent_session_workspaces WHERE session_id='{row['session_id']}'"
+            )["state"]
+            == "paused"
+        )
+        return
+    assert len(due) == 1 and due[0]["resource"] == row["resource"]
+    # Repeated deletion/status writes must not steal an in-flight cleanup lease.
+    postgres.sql(f"UPDATE projects SET lifecycle_status='deleting' WHERE id='{row['project_id']}'")
+    assert postgres.rpc("workspace_due", limit=20) == []
+    assert postgres.rpc(
+        "workspace_retired",
+        session=row["session_id"],
+        generation=row["generation"],
+        operation=due[0]["operation_id"],
+    )
+
+
+def test_deletion_intent_fences_a_late_active_provider_response(postgres, owned, deletion_ready):
+    args, _, identity = owned
+    row = postgres.rpc("workspace_acquire", **identity, binding=BINDING)
+    row = transition(postgres, identity, row, "running", {"resource_id": "active-fixture"})
+    postgres.sql(f"SELECT delete_project_control_plane('{row['project_id']}','{args['user']}')")
+    with pytest.raises(RuntimeError, match="transition_invalid"):
+        transition(postgres, identity, row, "pausing")
+    due = postgres.rpc("workspace_due", limit=20)
+    assert len(due) == 1 and due[0]["resource"] == row["resource"]

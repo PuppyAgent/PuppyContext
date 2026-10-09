@@ -10,17 +10,21 @@ from tests.agent.runtime.conftest import ROOT, Database
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.parametrize("fault", [None, "missing_command", "disabled_guard", "proof_bypass"])
+@pytest.mark.parametrize(
+    "fault", [None, "missing_command", "disabled_guard", "deletion_guard", "proof_bypass"]
+)
 def test_hosted_release_gate_checks_workspace_and_proof_contracts(postgres, fault):
     """The same read-only SQL used by CD rejects partial/insecure installs."""
     mutations = {
         "missing_command": "ALTER FUNCTION agent_run_workspace_due(integer) RENAME TO missing_workspace_due",
         "disabled_guard": "ALTER TABLE version_ref_transactions DISABLE TRIGGER version_publish_object_proofs",
+        "deletion_guard": "ALTER TABLE projects DISABLE TRIGGER agent_workspace_project_deleting",
         "proof_bypass": "GRANT INSERT ON version_object_proofs TO service_role",
     }
     expected = {
         "missing_command": "CLOUD_AGENT_FUNCTION_MISSING",
         "disabled_guard": "CLOUD_AGENT_PUBLICATION_GUARD_MISSING",
+        "deletion_guard": "CLOUD_AGENT_PUBLICATION_GUARD_MISSING",
         "proof_bypass": "CLOUD_AGENT_PROOF_DIRECT_ACCESS",
     }
     sql = (ROOT / "supabase/tests/_support/cloud_agent_contracts.inc").read_text()

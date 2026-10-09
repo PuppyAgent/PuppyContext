@@ -70,10 +70,11 @@ BEGIN
             ('public.agent_session_workspaces'::regclass,'agent_workspace_delete_guard'),
             ('public.chat_sessions'::regclass,'agent_workspace_session_deleted'),
             ('public.projects'::regclass,'agent_workspace_project_deleted'),
+            ('public.projects'::regclass,'agent_workspace_project_deleting'),
             ('public.version_ref_transactions'::regclass,'version_publish_object_proofs'),
             ('public.version_ref_transactions'::regclass,'version_transaction_incremental_fence'),
             ('public.version_publication_receipts'::regclass,'version_receipt_incremental_fence')
-        )) <> 9 THEN
+        )) <> 10 THEN
         RAISE EXCEPTION 'CLOUD_AGENT_PUBLICATION_GUARD_MISSING';
     END IF;
     -- Proof facts are written only by the checked commands, including for the
