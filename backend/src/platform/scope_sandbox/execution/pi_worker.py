@@ -17,6 +17,7 @@ from src.platform.scope_sandbox.execution.store import ExecutionSession, durable
 from src.platform.scope_sandbox.execution.worker_port import WorkerDisconnected, WorkerLost
 
 MAX_FRAME = 192 * 1024 * 1024
+SEND_TIMEOUT = 15
 
 
 class PiWorker:
@@ -263,6 +264,7 @@ class PiWorker:
                 if not state.get("Paused"):
                     await self._docker("pause", self.resource["resource_id"])
             else:
+                await self._disconnect_output()
                 await self.sandbox.pause()
             for task in (self.reader, self.stderr_reader):
                 if task:
@@ -271,6 +273,20 @@ class PiWorker:
                         await task
         finally:
             self.reconnecting = False
+
+    async def _disconnect_output(self):
+        """Close the SDK subscription, not just the task awaiting its result.
+
+        In E2B a cancelled wait does not close the underlying RPC generator.
+        The previous subscription must release that stream before reconnecting.
+        """
+        if self.provider == "e2b" and self.handle:
+            async with asyncio.timeout(SEND_TIMEOUT):
+                await self.handle.disconnect()
+        if self.reader:
+            self.reader.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await self.reader
 
     async def _output(self, chunk):
         self.buffer += chunk
@@ -287,6 +303,8 @@ class PiWorker:
                     )
                 if sequence <= self.output_sequence:
                     continue
+                if sequence != self.output_sequence + 1:
+                    raise WorkerDisconnected("Sandbox output sequence has a gap")
                 self.output_sequence = sequence
                 if frame.get("type") == "control_result":
                     future = self.controls.pop(frame["id"], None)
@@ -337,8 +355,10 @@ class PiWorker:
         future = asyncio.get_running_loop().create_future()
         self.controls[identity] = future
         try:
-            await self.send({"type": "control", "id": identity, "action": action, "value": value})
             async with asyncio.timeout(180):
+                await self.send(
+                    {"type": "control", "id": identity, "action": action, "value": value}
+                )
                 return await future
         finally:
             self.controls.pop(identity, None)
@@ -429,12 +449,17 @@ class PiWorker:
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n"
         if len(data.encode()) > MAX_FRAME:
             raise ValueError("Pi input frame too large")
-        async with self.send_lock:
-            if self.provider == "docker":
-                self.process.stdin.write(data.encode())
-                await self.process.stdin.drain()
-            else:
-                await self.sandbox.commands.send_stdin(self.handle.pid, data)
+        try:
+            async with asyncio.timeout(SEND_TIMEOUT), self.send_lock:
+                if self.provider == "docker":
+                    self.process.stdin.write(data.encode())
+                    await self.process.stdin.drain()
+                else:
+                    await self.sandbox.commands.send_stdin(
+                        self.handle.pid, data, request_timeout=SEND_TIMEOUT
+                    )
+        except TimeoutError as exc:
+            raise WorkerDisconnected("Sandbox input delivery timed out") from exc
 
     async def receive(self):
         return await self.queue.get()
@@ -455,6 +480,8 @@ class PiWorker:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        self.reconnecting = True
+        await self._disconnect_output()
         await self.cleanup(self.resource, store=self.store)
         for task in (self.reader, self.stderr_reader):
             if task:
@@ -483,6 +510,7 @@ class PiWorker:
             await self.control("freeze")
             self.reconnecting = True
             try:
+                await self._disconnect_output()
                 snapshot = await self.sandbox.create_snapshot()
                 result = {
                     "provider": "e2b",
@@ -490,9 +518,6 @@ class PiWorker:
                     "project_id": self.project_id,
                     "artifact": self.resource["template"],
                 }
-                self.reader.cancel()
-                with suppress(asyncio.CancelledError, Exception):
-                    await self.reader
                 self.buffer = ""
                 self.handle = await self.sandbox.commands.connect(
                     self.handle.pid, timeout=0, on_stdout=self._output

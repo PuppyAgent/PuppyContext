@@ -10,6 +10,7 @@ from src.config import settings
 from src.infra.supabase.instrumentation import DatabaseTrace, database_stage, database_trace
 from src.platform.access.adapters.agent.runtime.checkpoints import Checkpoints
 from src.platform.access.adapters.agent.runtime.heartbeat import EndRun, ExecutionLease
+from src.platform.access.adapters.agent.runtime.model_progress import ModelProgress
 from src.platform.access.adapters.agent.runtime.models import TERMINAL
 from src.platform.access.adapters.agent.runtime.ports import RunStore
 from src.platform.access.adapters.agent.runtime.publication import PublicationRejected
@@ -46,6 +47,7 @@ class RunSupervisor:
         self.lock = asyncio.Lock()
         self.worker = None
         self.models = {}
+        self.model_progress = ModelProgress()
         self.durable = None
         self.value = None
         self.run = None
@@ -143,6 +145,16 @@ class RunSupervisor:
             await asyncio.sleep(1)
             await self.flush_text()
 
+    async def watch_models(self):
+        while True:
+            self.model_progress.check()
+            for identity, task in list(self.models.items()):
+                if task.done():
+                    del self.models[identity]
+                    if not task.cancelled():
+                        await task  # Transport/cleanup failures must reach the supervisor.
+            await asyncio.sleep(1)
+
     async def save(self, value, reason, **patch):
         await self.flush_text()
         payload = {**value, "reason": reason}
@@ -179,10 +191,11 @@ class RunSupervisor:
         heartbeat = asyncio.create_task(self.heartbeat())
         operation = asyncio.create_task(self.execute())
         flusher = asyncio.create_task(self.text_flush_loop())
+        models = asyncio.create_task(self.watch_models())
         outcome = None
         try:
             done, _ = await asyncio.wait(
-                {heartbeat, operation, flusher}, return_when=asyncio.FIRST_COMPLETED
+                {heartbeat, operation, flusher, models}, return_when=asyncio.FIRST_COMPLETED
             )
             for task in done:
                 await task
@@ -194,10 +207,10 @@ class RunSupervisor:
             logger.exception("cloud_agent_execution_failed", extra={"run_id": run["id"]})
             outcome = ("failed", "execution_failed")
         finally:
-            for task in (heartbeat, operation, flusher, *self.models.values()):
+            for task in (heartbeat, operation, flusher, models, *self.models.values()):
                 if not task.done():
                     task.cancel()
-            for task in (heartbeat, operation, flusher, *self.models.values()):
+            for task in (heartbeat, operation, flusher, models, *self.models.values()):
                 with suppress(asyncio.CancelledError, Exception):
                     await task
         if outcome:
@@ -447,6 +460,15 @@ class RunSupervisor:
         while True:
             frame = await self.worker.receive()
             kind = frame.get("type")
+            if kind in {
+                "checkpoint",
+                "tool_start",
+                "bound_tool",
+                "finished",
+                "failed",
+                "disconnected",
+            }:
+                self.model_progress.acknowledged()
             if kind != "text":
                 await self.flush_text()
             if kind == "text":
@@ -472,6 +494,7 @@ class RunSupervisor:
             elif kind == "bound_tool":
                 await self.bound_tool(frame)
             elif kind == "model_request":
+                self.model_progress.started(frame["id"])
                 self.models[frame["id"]] = asyncio.create_task(self.model(frame))
             elif kind == "model_cancel":
                 if task := self.models.get(frame["id"]):
@@ -548,10 +571,13 @@ class RunSupervisor:
             logger.exception("cloud_agent_model_failed", extra={"run_id": self.run["id"]})
             error = "model_request_failed"
         finally:
-            if inference:
-                await inference.aclose()
-            with suppress(Exception):
+            try:
+                if inference:
+                    async with asyncio.timeout(10):
+                        await inference.aclose()
+            finally:
                 await self.worker.send({"type": "model_end", "id": request_id, "error": error})
+                self.model_progress.delivered(request_id)
 
     async def tool_start(self, frame):
         name = frame["name"]

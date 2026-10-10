@@ -24,6 +24,85 @@ pytestmark = [
 ]
 
 
+async def test_e2b_fragmented_reply_after_snapshot_reaches_git_finalization():
+    """Existing template, synthetic model frames, no hosted DB or user files."""
+    from e2b import AsyncSandbox
+
+    worker = PiWorker(
+        str(uuid4()), str(uuid4()), provider="e2b", store=InMemoryExecutionSessionStore()
+    )
+    snapshots, text, sender = set(), [], None
+    expected = "".join(f"分片回复 {i}\n" for i in range(80)) + "END"
+
+    async def stream(request):
+        for index in range(80):
+            await worker.send(
+                {
+                    "type": "model_chunk",
+                    "id": request["id"],
+                    "frame": {
+                        "id": "model_fixture",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": "fixture",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": f"分片回复 {index}\n"},
+                                "finish_reason": None,
+                            }
+                        ],
+                    },
+                }
+            )
+        await completion(worker, request, text="END")
+
+    try:
+        async with asyncio.timeout(120):
+            await worker.create()
+            await worker.start(config())
+            snapshots.add(worker.recovery["id"])
+            requests = 0
+            while True:
+                frame = await worker.receive()
+                kind = frame["type"]
+                if kind == "model_request":
+                    requests += 1
+                    if requests == 1:
+                        await completion(
+                            worker,
+                            frame,
+                            call=("bash", {"command": "printf 'synthetic count: 1\\n'"}),
+                        )
+                    else:
+                        sender = asyncio.create_task(stream(frame))
+                elif kind == "tool_start":
+                    await worker.send({"type": "reply", "id": frame["id"], "allow": True})
+                elif kind == "tool_end":
+                    snapshots.add((await worker.snapshot())["id"])
+                    await worker.send({"type": "reply", "id": frame["id"]})
+                elif kind == "text":
+                    text.append(frame["delta"])
+                elif kind == "checkpoint":
+                    await worker.send({"type": "reply", "id": frame["id"]})
+                elif kind == "finished":
+                    assert not frame.get("error"), frame
+                    await sender
+                    assert "".join(text) == expected
+                    result = await worker.control("finalize", {"message": "Synthetic stream test"})
+                    assert result["changed"] is False
+                    break
+                elif kind in {"failed", "disconnected"}:
+                    pytest.fail(str(frame))
+    finally:
+        if sender:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+        await worker.stop()
+        for snapshot in snapshots:
+            await AsyncSandbox.delete_snapshot(snapshot, api_key=settings.E2B_API_KEY)
+
+
 async def test_e2b_snapshot_survives_source_deletion_and_rebinds_controller():
     from e2b import AsyncSandbox
 
