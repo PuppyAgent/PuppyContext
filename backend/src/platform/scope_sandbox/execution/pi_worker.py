@@ -511,6 +511,13 @@ class PiWorker:
             self.reconnecting = True
             try:
                 await self._disconnect_output()
+                # disconnect() closes the local subscription. Complete an envd
+                # RPC round trip before the separate snapshot API pauses the
+                # VM, so stream cancellation can reach the remote process.
+                # Otherwise stale subscribers can survive the snapshot and
+                # block subsequent output (including the Git push relay).
+                async with asyncio.timeout(SEND_TIMEOUT):
+                    await self.sandbox.commands.list(request_timeout=SEND_TIMEOUT)
                 snapshot = await self.sandbox.create_snapshot()
                 result = {
                     "provider": "e2b",

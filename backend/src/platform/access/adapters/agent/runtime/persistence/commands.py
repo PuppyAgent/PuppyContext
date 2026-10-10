@@ -1,5 +1,7 @@
 """Transactional Agent operations; SQL owns order, idempotency and fencing."""
 
+from uuid import UUID, uuid5
+
 from .queries import RunQueries
 
 
@@ -97,6 +99,16 @@ class RunRepository(RunQueries):
             result=result,
             checkpoint=checkpoint,
         )
+
+    def continue_after_rejection(self, run, frame):
+        """Leave approval wait without changing its rejected receipt; ACK replay is inert."""
+        batch = str(uuid5(UUID(run["execution_id"]), "declined-tool:" + frame["call_id"]))
+        result = self.append_events_batch(
+            run,
+            [{"kind": "state", "payload": {"state": "running"}, "patch": {"state": "running"}}],
+            batch_id=batch,
+        )
+        return {"run": result}
 
     def cleaned(self, execution_id):
         self.client.table("agent_run_executions").update({"cleaned": True}).eq(

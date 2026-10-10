@@ -153,7 +153,8 @@ async def test_sandbox_send_has_bounded_provider_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_closes_old_sdk_subscription_before_reconnect():
+@pytest.mark.parametrize("barrier_fails", [False, True])
+async def test_snapshot_confirms_remote_disconnect_before_pausing_vm(barrier_fails):
     value = PiWorker("execution", "project", provider="e2b", store=InMemoryExecutionSessionStore())
     calls = []
 
@@ -163,6 +164,13 @@ async def test_snapshot_closes_old_sdk_subscription_before_reconnect():
     async def snapshot():
         calls.append("snapshot")
         return SimpleNamespace(snapshot_id="snapshot")
+
+    async def barrier(*, request_timeout):
+        assert request_timeout == 15
+        calls.append("remote_barrier")
+        if barrier_fails:
+            raise RuntimeError("remote connection unavailable")
+        return []
 
     async def wait():
         await asyncio.Future()
@@ -175,12 +183,17 @@ async def test_snapshot_closes_old_sdk_subscription_before_reconnect():
     value.reader = asyncio.create_task(wait())
     value.resource["template"] = "pinned"
     value.sandbox = SimpleNamespace(
-        create_snapshot=snapshot, commands=SimpleNamespace(connect=connect)
+        create_snapshot=snapshot, commands=SimpleNamespace(connect=connect, list=barrier)
     )
     value.control = AsyncMock(return_value={})
     try:
-        await value.snapshot()
-        assert calls == ["disconnect", "snapshot", "connect"]
+        if barrier_fails:
+            with pytest.raises(RuntimeError, match="remote connection unavailable"):
+                await value.snapshot()
+            assert calls == ["disconnect", "remote_barrier"]
+        else:
+            await value.snapshot()
+            assert calls == ["disconnect", "remote_barrier", "snapshot", "connect"]
         assert [call.args[0] for call in value.control.call_args_list] == ["freeze", "thaw"]
         assert not value.reconnecting
     finally:

@@ -15,6 +15,11 @@ from src.platform.access.adapters.agent.runtime.models import TERMINAL
 from src.platform.access.adapters.agent.runtime.ports import RunStore
 from src.platform.access.adapters.agent.runtime.publication import PublicationRejected
 from src.platform.access.adapters.agent.runtime.recovery import Recovery
+from src.platform.access.adapters.agent.runtime.tool_results import (
+    approval_denied,
+    tool_denial,
+    tool_error,
+)
 from src.platform.managed_ai.contracts import InferenceFailed, ModelChunk
 from src.platform.managed_ai.schemas import CompletionRequest
 from src.platform.scope_sandbox.execution.worker_port import WorkerLifecycle, WorkerLost
@@ -581,16 +586,20 @@ class RunSupervisor:
 
     async def tool_start(self, frame):
         name = frame["name"]
-        allowed = {"read", "ls", "find", "grep"}
-        if not self.run["policy"]["readonly"]:
-            allowed |= {"write", "edit", "bash"}
-        if name not in allowed:
-            raise PermissionError("Tool outside run policy")
-        mutation = name in {"write", "edit", "bash"}
-        if name == "bash":
-            from src.platform.scope_sandbox.execution_policy import assert_command_allowed
-
-            assert_command_allowed(frame["input"].get("command", ""))
+        denial = tool_denial(name, self.run["policy"]["readonly"])
+        if denial is None and frame.get("error_result") is not None:
+            message = "\n".join(
+                str(part.get("text", ""))
+                for part in frame["error_result"].get("content", [])
+                if part.get("type") == "text"
+            )[:10000]
+            denial = tool_error(
+                "tool_invalid_input", message or "The SDK could not execute this tool call."
+            )
+        # Sandbox OS/provider policy enforces process, filesystem and network
+        # boundaries. Do not inspect arbitrary shell text with the shared SSH
+        # endpoint's regex blacklist (even /dev/null used to kill a whole Run).
+        mutation = denial is None and name in {"write", "edit", "bash"}
         value, manifest = await self.conversation_manifest(frame["checkpoint"], "before_tool")
         reply = await self.command(
             self.repo.begin_tool, frame, checkpoint=manifest, mutation=mutation
@@ -602,12 +611,29 @@ class RunSupervisor:
             )
             return
         self.value, self.durable = value, manifest
+        if denial is not None:
+            await self.command(
+                self.repo.complete_tool,
+                frame,
+                result={"pi_result": denial, "checkpoint": manifest},
+                checkpoint=manifest,
+            )
+            await self.worker.send({"type": "reply", "id": frame["id"], "result": denial})
+            return
         while receipt["state"] == "waiting":
             await asyncio.sleep(1)
             reply = await self.command(
                 self.repo.begin_tool, frame, checkpoint=manifest, mutation=mutation
             )
             receipt = reply["tool"]
+        if receipt["state"] == "rejected":
+            # The rejected receipt and original input are already durable.
+            # Preserve its decision identity rather than pretending it executed.
+            await self.command(self.repo.continue_after_rejection, frame)
+            await self.worker.send(
+                {"type": "reply", "id": frame["id"], "result": approval_denied()}
+            )
+            return
         await self.worker.send(
             {"type": "reply", "id": frame["id"], "allow": receipt["state"] != "rejected"}
         )
