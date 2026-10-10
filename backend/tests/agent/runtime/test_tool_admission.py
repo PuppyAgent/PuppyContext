@@ -49,8 +49,6 @@ async def test_question_git_inspection_and_tool_error_complete_then_resume(
     prepared, monkeypatch, provider
 ):
     """The incident's command, a failed tool, publication and a warm next turn."""
-    from src.infra.supabase.instrumentation import DatabaseTrace, database_trace
-
     case = prepared
     await native_write(case, "base.md", b"synthetic fixture")
     case.postgres.sql(f"UPDATE agent_runs SET prompt='?' WHERE id='{case.run['id']}'")
@@ -84,11 +82,9 @@ async def test_question_git_inspection_and_tool_error_complete_then_resume(
             model = RecoveringToolModel(steps)
             supervisor = case.supervisor(model=model)
             supervisor.worker_factory = factory
-            trace = DatabaseTrace(f"question-{provider}-{turn}")
-            with database_trace(trace):
-                result = await approve_to_completion(
-                    case, asyncio.create_task(supervisor.run_claim(case.run)), timeout=240
-                )
+            result = await approve_to_completion(
+                case, asyncio.create_task(supervisor.run_claim(case.run)), timeout=240
+            )
             assert result["state"] == "succeeded", result
             assert result["snapshot"]["text"] == "Recovered and completed."
             assert result["publication"]["status"] == ("committed" if turn == 0 else "no_changes")
@@ -99,7 +95,7 @@ async def test_question_git_inspection_and_tool_error_complete_then_resume(
             if turn == 0:
                 assert tools[1]["result"]["pi_result"]["isError"] is True
             assert read_case(case, "recovered.txt") == b"recovered"
-            operations = trace.report()["operations"]
+            operations = supervisor.metrics.report()["operations"]
             assert operations["POST rpc/agent_run_complete_tool"] == len(steps)
             assert operations["POST rpc/agent_run_begin_model"] == len(steps) + 1
             if turn:
