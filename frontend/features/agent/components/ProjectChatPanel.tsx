@@ -13,7 +13,7 @@ import { useActiveFile } from '@/features/workspace/activeFile';
 
 const ChatRuntimeView = dynamic(
   () =>
-    import('@/components/agent/views/ChatRuntimeView').then(module => ({
+    import('@/features/agent/components/ChatRuntimeView').then(module => ({
       default: module.ChatRuntimeView,
     })),
   {
@@ -71,6 +71,7 @@ export function ProjectChatPanel({
     <>
       {chatAgent ? (
         <ChatRuntimeView
+          active={active}
           {...activeFile}
           availableTools={(chatAgent.resources ?? []).map(resource => ({
             id: `bash:${resource.path}`,

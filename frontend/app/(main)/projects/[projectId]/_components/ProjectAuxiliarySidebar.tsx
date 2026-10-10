@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { WorkspaceAuxiliaryRegion } from '@/components/sidebar/WorkspaceAuxiliaryRegion';
-import { ProjectChatPanel } from '@/components/project/ProjectChatSidebar';
+import { ProjectChatPanel } from '@/features/agent/components/ProjectChatPanel';
 import { PageLoading } from '@/components/loading';
 import { useProjectSession } from '@/features/workspace/session';
 

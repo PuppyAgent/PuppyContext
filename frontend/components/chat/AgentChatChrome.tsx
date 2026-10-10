@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ArrowLeft, Check, History, MoreHorizontal, Pencil, Plus, Settings2, X } from 'lucide-react';
-import type { ChatSession } from '@/lib/chatApi';
+import type { ChatSession } from './types';
 import styles from './AgentChatSurface.module.css';
 
 export function AgentChatBrand() {

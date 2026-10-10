@@ -9,7 +9,7 @@ import { AgentChatHeader } from '@/components/chat/AgentChatChrome';
 import { ProjectAuxiliarySidebar } from '@/app/(main)/projects/[projectId]/_components/ProjectAuxiliarySidebar';
 
 const runtime = vi.hoisted(() => ({ renders: 0, mounts: 0, disconnects: 0 }));
-vi.mock('@/components/project/ProjectChatSidebar', () => ({
+vi.mock('@/features/agent/components/ProjectChatPanel', () => ({
   ProjectChatPanel: ({ onClose }: { onClose: () => void }) => {
     runtime.renders++;
     useEffect(() => { runtime.mounts++; return () => { runtime.disconnects++; }; }, []);

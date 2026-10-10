@@ -3,16 +3,8 @@ import { useState, memo, useCallback, CSSProperties } from 'react';
 import { Dots } from '@/components/loading';
 import MarkdownRenderer from './MarkdownRenderer';
 
-// 简化：消息部件（按时间顺序）
-export interface MessagePart {
-  type: 'text' | 'tool';
-  content?: string;
-  toolId?: string;
-  toolName?: string;
-  toolInput?: string;
-  toolOutput?: string;
-  toolStatus?: 'running' | 'completed' | 'error';
-}
+import type { MessagePart } from './types';
+export type { MessagePart } from './types';
 
 interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';

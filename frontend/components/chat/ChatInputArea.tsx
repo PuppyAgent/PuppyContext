@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useLayoutEffect, forwardRef, useImperativeHandle, useId } from 'react';
-import { ArrowUp, LoaderCircle } from 'lucide-react';
+import { ArrowUp, LoaderCircle, Square } from 'lucide-react';
 import styles from './AgentChatSurface.module.css';
 
 // Access 选项类型
@@ -20,6 +20,8 @@ interface ChatInputAreaProps {
   onKeyDown: (e: React.KeyboardEvent) => void;
   onSend: () => void;
   isLoading: boolean;
+  onStop?: () => void;
+  stopping?: boolean;
   // @ 补全相关
   showMentionMenu: boolean;
   filteredMentionOptions: string[];
@@ -38,7 +40,7 @@ export interface ChatInputAreaRef {
 }
 
 const ChatInputArea = forwardRef<ChatInputAreaRef, ChatInputAreaProps>(
-  function ChatInputArea({ inputValue, onInputChange, onKeyDown, onSend, isLoading,
+  function ChatInputArea({ inputValue, onInputChange, onKeyDown, onSend, isLoading, onStop, stopping = false,
     showMentionMenu, filteredMentionOptions, mentionIndex, onMentionSelect,
     onMentionIndexChange, onBlur, placeholder = 'Ask about this project', disabled = false }, ref) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -108,11 +110,8 @@ const ChatInputArea = forwardRef<ChatInputAreaRef, ChatInputAreaProps>(
           </div>
           <div className={styles.toolbar}>
             <span />
-            <button type='button' className={styles.send} onClick={onSend}
-              aria-label={isLoading ? 'Agent is responding' : 'Send message'}
-              aria-busy={isLoading || undefined} disabled={disabled || !inputValue.trim() || isLoading}>
-              {isLoading ? <LoaderCircle size={15} className={styles.spin} /> : <ArrowUp size={17} strokeWidth={1.6} />}
-            </button>
+            <ComposerAction inputValue={inputValue} disabled={disabled} isLoading={isLoading}
+              onStop={onStop} stopping={stopping} onSend={onSend} />
           </div>
         </div>
       </div>
@@ -121,3 +120,18 @@ const ChatInputArea = forwardRef<ChatInputAreaRef, ChatInputAreaProps>(
 );
 
 export default ChatInputArea;
+
+function ComposerAction({ inputValue, disabled, isLoading, onStop, stopping, onSend }:
+  Pick<ChatInputAreaProps, 'inputValue' | 'disabled' | 'isLoading' | 'onStop' | 'stopping' | 'onSend'>) {
+  let label = 'Send message';
+  let action = onSend;
+  let blocked = disabled || !inputValue.trim() || isLoading;
+  let icon = <ArrowUp size={17} strokeWidth={1.6} />;
+  if (isLoading) { label = 'Agent is responding'; icon = <LoaderCircle size={15} className={styles.spin} />; }
+  if (isLoading && onStop) {
+    label = stopping ? 'Stopping Agent' : 'Stop Agent'; action = onStop; blocked = Boolean(stopping);
+    if (!stopping) icon = <Square size={13} fill='currentColor' />;
+  }
+  return <button type='button' className={styles.send} onClick={action}
+    aria-label={label} aria-busy={isLoading || undefined} disabled={blocked}>{icon}</button>;
+}

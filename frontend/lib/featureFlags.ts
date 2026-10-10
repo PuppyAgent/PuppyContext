@@ -57,9 +57,9 @@
  * ## What's still alive
  *
  *   - `contexts/AgentContext.tsx`, `components/agent/views/*`,
- *     `lib/chatApi.ts`, `lib/hooks/useChat.ts` — all rendering
+ *     `features/agent/runtime/` — durable run observation and commands
  *     primitives and data hooks remain.
- *   - `app/api/agent/route.ts` — Next.js proxy still works.
+ *   - `app/api/backend/[...path]/route.ts` — authenticated HTTP/SSE proxy.
  *   - Backend `/api/v1/agents`, `/api/v1/agent-config`,
  *     `agent_profiles`, `chat_sessions`, `chat_messages` tables —
  *     untouched.

@@ -262,23 +262,6 @@
       "count": 6
     }
   },
-  "frontend/components/agent/views/ChatRuntimeView.tsx": {
-    "complexity": {
-      "count": 3
-    },
-    "max-depth": {
-      "count": 1
-    },
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    },
-    "no-nested-ternary": {
-      "count": 1
-    }
-  },
   "frontend/components/agent/views/McpConnectionView.tsx": {
     "max-lines-per-function": {
       "count": 1
@@ -816,14 +799,6 @@
     }
   },
   "frontend/features/workspace/usePaneMotion.ts": {
-    "no-nested-ternary": {
-      "count": 1
-    }
-  },
-  "frontend/lib/apiClient.ts": {
-    "complexity": {
-      "count": 1
-    },
     "no-nested-ternary": {
       "count": 1
     }

@@ -2,32 +2,48 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentChatHeader } from '@/components/chat/AgentChatChrome';
 import ChatInputArea from '@/components/chat/ChatInputArea';
-import { ChatRuntimeView } from '@/components/agent/views/ChatRuntimeView';
+import { ChatRuntimeView } from '@/features/agent/components/ChatRuntimeView';
+import { makeRun, eventResponse } from '../agent/fixtures';
+import type { AgentRun } from '@/features/agent/runtime/types';
 
 const chat = vi.hoisted(() => ({
   sessions: [] as { id: string; title: string; agent_id: string; mode: null; created_at: string; updated_at: string }[],
-  create: vi.fn(),
-  send: vi.fn(),
-  updateAgentInfo: vi.fn(),
+  request: vi.fn(), stream: vi.fn(),
+  run: null as AgentRun | null, count: 0,
+  updateAgentInfo: vi.fn(), setDraftResources: vi.fn(),
   capabilities: new Set<string>(),
 }));
 vi.mock('@/contexts/AgentContext', () => ({ useAgent: () => ({
   currentAgentId: 'agent-1', savedAgents: [{ id: 'agent-1', name: 'Project Agent', type: 'chat', resources: [] }],
-  selectedCapabilities: chat.capabilities, draftResources: [], updateAgentInfo: chat.updateAgentInfo,
+  selectedCapabilities: chat.capabilities, draftResources: [], updateAgentInfo: chat.updateAgentInfo, setDraftResources: chat.setDraftResources,
 }) }));
 vi.mock('@/lib/hooks/useOnboarding', () => ({ useOnboarding: () => ({ completeStep: vi.fn() }) }));
-vi.mock('@/lib/hooks/useChat', () => ({
-  useChatSessions: () => ({ sessions: chat.sessions }),
-  useChatMessages: () => ({ messages: [], isLoading: false }),
-  createSession: chat.create, refreshChatSessions: vi.fn(), refreshChatMessages: vi.fn(),
-}));
-vi.mock('@/lib/chatApi', () => ({ sendChatMessage: chat.send }));
+vi.mock('@/contexts/SupabaseAuthProvider', () => ({ useAuth: () => ({ userId: 'user-1', isAuthReady: true }) }));
+vi.mock('@/lib/apiClient', () => ({ apiRequest: chat.request, apiStreamRequest: chat.stream }));
+vi.mock('@/lib/hooks/useData', () => ({ refreshAllContentNodes: vi.fn(), refreshProjectHistory: vi.fn() }));
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   Element.prototype.scrollIntoView = vi.fn();
   chat.sessions = [];
   chat.capabilities.clear();
+  sessionStorage.clear(); chat.run = null; chat.count = 0;
+  chat.request.mockImplementation(async (path: string, options?: RequestInit) => {
+    if (path.includes('/agents/sessions?')) return [];
+    if (path === '/api/v1/agents/runs' && options?.method === 'POST') {
+      const input = JSON.parse(options.body as string);
+      chat.count++;
+      chat.run = makeRun({ ...input, id: `run-${chat.count}`, session_id: input.session_id ?? `session-${chat.count}` });
+      return chat.run;
+    }
+    if (path.includes('/agents/runs/')) return chat.run;
+    if (path.includes('/runs?')) return chat.run ? [chat.run] : [];
+    throw new Error(`Unexpected API ${path}`);
+  });
+  chat.stream.mockImplementation(async () => {
+    chat.run = { ...chat.run!, sequence: 1, state: 'succeeded', snapshot: { text: 'Ready to help.' } };
+    return eventResponse([`id: 1\nevent: reset\ndata: ${JSON.stringify(chat.run)}\n\n`]);
+  });
 });
 
 describe('Agent chat chrome', () => {
@@ -95,22 +111,44 @@ describe('Agent composer', () => {
     expect(props.onMentionSelect).toHaveBeenCalledWith('project.files');
   });
 
-  it('sends through the existing session API and renders the streamed response', async () => {
-    chat.create.mockResolvedValue({ id: 'session-1' });
-    const payload = new TextEncoder().encode('data: {"type":"text_delta","content":"Ready to help."}\n\ndata: [DONE]\n\n');
-    chat.send.mockResolvedValue(new Response(new ReadableStream({ start(controller) {
-      controller.enqueue(payload); controller.close();
-    } })));
-    render(<ChatRuntimeView availableTools={[]} />);
+  it('submits through durable runs, renders the reply, and reuses the session for follow-ups', async () => {
+    render(<ChatRuntimeView availableTools={[]} projectId='project-1' />);
     const input = screen.getByRole('textbox', { name: 'Message Agent' });
+    await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
     fireEvent.change(input, { target: { value: 'Summarize this project' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
-    expect(chat.send).not.toHaveBeenCalled();
+    expect(chat.count).toBe(0);
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(screen.getByText('Ready to help.')).toBeTruthy());
-    expect(chat.create).toHaveBeenCalledWith('agent-1', 'Summarize this project');
-    expect(chat.send).toHaveBeenCalledWith('session-1', 'agent-1', 'Summarize this project', { activeToolIds: undefined });
-    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
+    const post = chat.request.mock.calls.find(([path, init]) => path === '/api/v1/agents/runs' && init?.method === 'POST');
+    expect(JSON.parse(post![1].body)).toMatchObject({ project_id: 'project-1', agent_id: 'agent-1', prompt: 'Summarize this project' });
+    expect(JSON.parse(post![1].body).session_id).toBeUndefined();
+    expect((input as HTMLTextAreaElement).value).toBe('');
+    fireEvent.change(input, { target: { value: 'Continue' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(chat.count).toBe(2));
+    const posts = chat.request.mock.calls.filter(([path, init]) => path === '/api/v1/agents/runs' && init?.method === 'POST');
+    expect(JSON.parse(posts[1][1].body).session_id).toBe('session-1');
+    expect(chat.request.mock.calls.some(([path]) => path.includes('/chat/'))).toBe(false);
+  });
+
+  it('retains the existing Agent settings surface while separating it from execution state', async () => {
+    render(<ChatRuntimeView availableTools={[]} projectId='project-1' />);
+    fireEvent.click(screen.getByRole('button', { name: 'Chat actions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+    expect(screen.getByText("Agent's bash access")).toBeTruthy();
+    expect(screen.getByDisplayValue('Project Agent')).toBeTruthy();
+    expect(screen.getByText('Drag items into this')).toBeTruthy();
+    expect(chat.setDraftResources).toHaveBeenCalledWith([]);
+    expect(chat.count).toBe(0);
+  });
+
+  it('provides an explicit stop action while leaving the input blocked until server confirmation', () => {
+    const stop = vi.fn();
+    render(<ChatInputArea {...props} inputValue='' isLoading onStop={stop} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Agent' }));
+    expect(stop).toHaveBeenCalledOnce();
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(true);
   });
 });

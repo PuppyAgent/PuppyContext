@@ -62,7 +62,7 @@ const SandboxConfigPanel = dynamic(
 );
 const ChatRuntimeView = dynamic(
   () =>
-    import('@/components/agent/views/ChatRuntimeView').then(m => ({
+    import('@/features/agent/components/ChatRuntimeView').then(m => ({
       default: m.ChatRuntimeView,
     })),
   { ssr: false, loading: PanelLoading }
@@ -440,6 +440,7 @@ export function DataPageRightPanel({
           return (
             <div style={{ display: editorTarget ? 'none' : 'contents' }}>
               <ChatRuntimeView
+                active={!editorTarget}
                 availableTools={tools}
                 tableData={currentTableData?.data}
                 tableId={activeNodeId}
