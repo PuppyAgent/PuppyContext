@@ -15,6 +15,7 @@ from src.platform.access.adapters.agent.runtime.models import TERMINAL
 from src.platform.access.adapters.agent.runtime.ports import RunStore
 from src.platform.access.adapters.agent.runtime.publication import PublicationRejected
 from src.platform.access.adapters.agent.runtime.recovery import Recovery
+from src.platform.access.adapters.agent.runtime.tool_policy import approval_reason
 from src.platform.access.adapters.agent.runtime.tool_results import (
     approval_denied,
     tool_denial,
@@ -596,13 +597,12 @@ class RunSupervisor:
             denial = tool_error(
                 "tool_invalid_input", message or "The SDK could not execute this tool call."
             )
-        # Sandbox OS/provider policy enforces process, filesystem and network
-        # boundaries. Do not inspect arbitrary shell text with the shared SSH
-        # endpoint's regex blacklist (even /dev/null used to kill a whole Run).
-        mutation = denial is None and name in {"write", "edit", "bash"}
+        # Approval and mutation recovery are separate: ordinary sandbox writes
+        # execute automatically and still receive durable receipts/snapshots.
+        approval_required = denial is None and approval_reason(name, frame["input"]) is not None
         value, manifest = await self.conversation_manifest(frame["checkpoint"], "before_tool")
         reply = await self.command(
-            self.repo.begin_tool, frame, checkpoint=manifest, mutation=mutation
+            self.repo.begin_tool, frame, checkpoint=manifest, approval_required=approval_required
         )
         receipt = reply["tool"]
         if receipt["state"] == "completed":
@@ -623,7 +623,7 @@ class RunSupervisor:
         while receipt["state"] == "waiting":
             await asyncio.sleep(1)
             reply = await self.command(
-                self.repo.begin_tool, frame, checkpoint=manifest, mutation=mutation
+                self.repo.begin_tool, frame, checkpoint=manifest, approval_required=approval_required
             )
             receipt = reply["tool"]
         if receipt["state"] == "rejected":
@@ -659,7 +659,9 @@ class RunSupervisor:
             raise PermissionError("No configured tools")
         value, manifest = await self.conversation_manifest(frame["checkpoint"], "before_tool")
         receipt = (
-            await self.command(self.repo.begin_tool, frame, checkpoint=manifest, mutation=False)
+            await self.command(
+                self.repo.begin_tool, frame, checkpoint=manifest, approval_required=False
+            )
         )["tool"]
         if receipt["state"] == "completed":
             result = receipt["result"]["pi_result"]

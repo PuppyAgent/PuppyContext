@@ -111,6 +111,16 @@ class BashModel(ModelFixture):
         return InferenceRun(str(uuid4()), events(), result.aclose)
 
 
+class DestructiveModel(BashModel):
+    """Require explicit confirmation before a reset and an observable effect."""
+
+    def __init__(self):
+        super().__init__(
+            "git reset --hard HEAD 2>/dev/null || true; "
+            "printf 'durable result' > result.txt"
+        )
+
+
 def read_case(case, path):
     grant = case.admission.authorization.resolve_project_grant(case.project, case.user)
     with case.ops.open_read(case.project, grant) as reader:
@@ -337,7 +347,7 @@ async def test_publication_response_loss_keeps_original_material(prepared, after
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
     case = prepared
-    first = case.supervisor()
+    first = case.supervisor(model=DestructiveModel())
     task = asyncio.create_task(first.run_claim(case.run))
     await wait_for_approval(case, task)
     task.cancel()  # process-loss simulation: no terminal ACK or cleanup
@@ -349,7 +359,7 @@ async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
     )
     claimed = case.repo.rpc("claim", worker="replacement")
     assert claimed["execution_id"] != case.run["execution_id"]
-    model = ModelFixture()
+    model = DestructiveModel()
     model.calls = 1  # next deterministic provider response follows the restored tool
     replacement = case.supervisor(model=model)
     task = asyncio.create_task(replacement.run_claim(claimed))
@@ -366,7 +376,7 @@ async def test_approval_survives_destroyed_worker_and_new_execution(prepared):
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_stop_waiting_approval_has_no_tool_effect(prepared):
     case = prepared
-    task = asyncio.create_task(case.supervisor().run_claim(case.run))
+    task = asyncio.create_task(case.supervisor(model=DestructiveModel()).run_claim(case.run))
     await wait_for_approval(case, task)
     case.service.command(case.user, case.run["id"], "stop")
     await asyncio.wait_for(task, 30)
@@ -512,7 +522,7 @@ async def test_checkpoint_outage_retains_workspace_until_retry(prepared, monkeyp
 @pytest.mark.parametrize("prepared", ["native", "native_sha256"], indirect=True)
 async def test_active_run_failures_settle_and_cleanup(prepared, cause):
     case = prepared
-    model = ModelFixture()
+    model = DestructiveModel()
     if cause == "model_failure":
 
         async def fail(*args):

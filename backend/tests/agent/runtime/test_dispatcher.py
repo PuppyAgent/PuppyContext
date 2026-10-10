@@ -9,7 +9,7 @@ import pytest
 from src.config import settings
 from src.platform.access.adapters.agent.runtime import worker
 from src.platform.access.adapters.agent.runtime.models import SubmitRun
-from tests.agent.runtime.test_supervisor import ModelFixture
+from tests.agent.runtime.test_supervisor import DestructiveModel
 from tests.agent.runtime.test_supervisor import prepared as prepared_fixture
 
 prepared = prepared_fixture
@@ -36,7 +36,7 @@ async def test_dispatcher_runs_other_session_while_one_waits_approval(
     monkeypatch.setattr(settings, "SANDBOX_TYPE", "docker")
     monkeypatch.setattr(settings, "CLOUD_AGENT_CONCURRENCY", 2)
     monkeypatch.setattr(worker, "build_worker_version_engine_container", lambda **_: services[2])
-    monkeypatch.setattr(worker, "get_inference_service", lambda *_: ModelFixture())
+    monkeypatch.setattr(worker, "get_inference_service", lambda *_: DestructiveModel())
     # Use the same enrolled-repository readiness fixture as submission. Current
     # authorization, policies, claims and publication still use the real DB.
     monkeypatch.setattr(worker, "Admission", lambda _: case.admission)

@@ -773,7 +773,7 @@ async def test_atomic_command_adapters_each_use_one_real_database_attempt(prepar
         ),
         (
             "begin_tool",
-            lambda: c.repo.begin_tool(c.run, frame, checkpoint=manifest, mutation=False),
+            lambda: c.repo.begin_tool(c.run, frame, checkpoint=manifest, approval_required=False),
         ),
         (
             "complete_tool",
