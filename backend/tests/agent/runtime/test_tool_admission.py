@@ -34,6 +34,90 @@ INCIDENT_COMMAND = (
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "name,input",
+    [
+        ("write", {"path": "note.md", "content": "new note"}),
+        ("edit", {"path": "note.md", "oldText": "new", "newText": "updated"}),
+        ("bash", {"command": INCIDENT_COMMAND}),
+        ("bash", {"command": "mkdir -p notes; printf hello > notes/a.md"}),
+    ],
+)
+async def test_automatic_tool_admission_has_one_rpc_and_keeps_durable_identity(
+    prepared, name, input
+):
+    from unittest.mock import AsyncMock
+
+    from src.infra.supabase.instrumentation import DatabaseTrace, database_trace
+
+    case = prepared
+    frame = {
+        "id": "request",
+        "call_id": "automatic",
+        "name": name,
+        "input": input,
+        "checkpoint": {"version": 1, "pi_version": "0.85.1", "entries": [], "leaf_id": None},
+    }
+    supervisor = case.supervisor()
+    supervisor.run, supervisor.value, supervisor.worker = case.run, {}, AsyncMock()
+    trace = DatabaseTrace("automatic-tool")
+    with database_trace(trace):
+        await asyncio.wait_for(supervisor.tool_start(frame), timeout=10)
+    assert trace.report()["operations"] == {"POST rpc/agent_run_begin_tool": 1}
+    assert supervisor.worker.send.await_args.args[0] == {
+        "type": "reply",
+        "id": "request",
+        "allow": True,
+    }
+    receipt = case.repo.tools(case.run["id"])[0]
+    assert receipt["input"] == input
+    assert receipt["state"] == "executing"
+    assert receipt["decision_id"] is None
+    assert case.repo.get(case.run["id"])["checkpoint"] == supervisor.durable
+
+
+@pytest.mark.asyncio
+async def test_existing_waiting_receipt_is_not_silently_approved_by_new_default(prepared):
+    from unittest.mock import AsyncMock
+
+    case = prepared
+    frame = {
+        "id": "request",
+        "call_id": "old-waiting",
+        "name": "write",
+        "input": {"path": "note.md", "content": "still waiting"},
+        "checkpoint": {"version": 1, "pi_version": "0.85.1", "entries": [], "leaf_id": None},
+    }
+    case.repo.begin_tool(case.run, frame, checkpoint={}, approval_required=True)
+    supervisor = case.supervisor()
+    supervisor.run, supervisor.value, supervisor.worker = case.run, {}, AsyncMock()
+    task = asyncio.create_task(supervisor.tool_start(frame))
+    try:
+        await asyncio.sleep(1.2)
+        assert not task.done()
+        supervisor.worker.send.assert_not_awaited()
+        assert case.repo.tools(case.run["id"])[0]["state"] == "waiting"
+        decision = str(uuid4())
+        await asyncio.to_thread(
+            case.service.command,
+            case.user,
+            case.run["id"],
+            "approve",
+            call=frame["call_id"],
+            decision=decision,
+            allow=True,
+        )
+        await asyncio.wait_for(task, timeout=10)
+        assert supervisor.worker.send.await_args.args[0]["allow"] is True
+        assert case.repo.tools(case.run["id"])[0]["decision_id"] == decision
+    finally:
+        if not task.done():
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "provider",
     [
         "docker",
@@ -82,20 +166,23 @@ async def test_question_git_inspection_and_tool_error_complete_then_resume(
             model = RecoveringToolModel(steps)
             supervisor = case.supervisor(model=model)
             supervisor.worker_factory = factory
-            result = await approve_to_completion(
-                case, asyncio.create_task(supervisor.run_claim(case.run)), timeout=240
-            )
+            # No approval helper: even one accidental waiting receipt must fail.
+            await asyncio.wait_for(supervisor.run_claim(case.run), timeout=240)
+            result = case.repo.get(case.run["id"])
             assert result["state"] == "succeeded", result
             assert result["snapshot"]["text"] == "Recovered and completed."
             assert result["publication"]["status"] == ("committed" if turn == 0 else "no_changes")
             tools = case.repo.tools(result["id"])
             assert len(tools) == len(steps)
+            assert all(tool["decision_id"] is None for tool in tools)
+            assert all(tool["state"] == "completed" for tool in tools)
             assert model.calls == len(steps) + 1
             assert not tools[0]["result"]["pi_result"].get("isError")
             if turn == 0:
                 assert tools[1]["result"]["pi_result"]["isError"] is True
             assert read_case(case, "recovered.txt") == b"recovered"
             operations = supervisor.metrics.report()["operations"]
+            assert operations["POST rpc/agent_run_begin_tool"] == len(steps)
             assert operations["POST rpc/agent_run_complete_tool"] == len(steps)
             assert operations["POST rpc/agent_run_begin_model"] == len(steps) + 1
             if turn:
@@ -167,7 +254,7 @@ async def test_declined_tool_continues_without_executing_or_losing_decision(prep
     await native_write(case, "base.md", b"synthetic data")
     model = RecoveringToolModel(
         [
-            ("write", {"path": "declined.txt", "content": "never"}, "declined"),
+            ("bash", {"command": "git reset --hard HEAD; printf never > declined.txt"}, "declined"),
             ("ls", {"path": "."}, "base.md"),
         ]
     )
@@ -265,7 +352,7 @@ async def test_declined_continuation_is_idempotent_and_uses_bounded_database_com
         "input": {"path": "no.txt"},
         "checkpoint": {"version": 1, "pi_version": "0.85.1", "entries": [], "leaf_id": None},
     }
-    case.repo.begin_tool(case.run, frame, checkpoint={}, mutation=True)
+    case.repo.begin_tool(case.run, frame, checkpoint={}, approval_required=True)
     decision = str(uuid4())
     await asyncio.to_thread(
         case.service.command,

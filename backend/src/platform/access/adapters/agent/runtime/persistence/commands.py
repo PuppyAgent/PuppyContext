@@ -74,7 +74,10 @@ class RunRepository(RunQueries):
             limit=limit,
         )
 
-    def begin_tool(self, run, frame, *, checkpoint, mutation):
+    def begin_tool(self, run, frame, *, checkpoint, approval_required):
+        # The existing SQL wire argument is named p_mutation, but its only
+        # meaning is "wait for approval". Mutation recovery is owned separately
+        # by Recovery.after_tool; automatic writes must still be checkpointed.
         return self.rpc(
             "begin_tool",
             run=run["id"],
@@ -84,7 +87,7 @@ class RunRepository(RunQueries):
             name=frame["name"],
             input=frame["input"],
             checkpoint=checkpoint,
-            mutation=mutation,
+            mutation=approval_required,
         )
 
     def complete_tool(self, run, frame, *, result, checkpoint):
