@@ -111,14 +111,29 @@ class BashModel(ModelFixture):
         return InferenceRun(str(uuid4()), events(), result.aclose)
 
 
-class DestructiveModel(BashModel):
+class DestructiveModel(ModelFixture):
     """Require explicit confirmation before a reset and an observable effect."""
 
-    def __init__(self):
-        super().__init__(
-            "git reset --hard HEAD 2>/dev/null || true; "
-            "printf 'durable result' > result.txt"
-        )
+    async def completion(self, user, request, body):
+        result = await super().completion(user, request, body)
+
+        async def events():
+            async for event in result.events:
+                if isinstance(event, ModelChunk):
+                    for choice in event.frame.get("choices", []):
+                        for call in choice.get("delta", {}).get("tool_calls", []):
+                            call["function"] = {
+                                "name": "bash",
+                                "arguments": json.dumps(
+                                    {
+                                        "command": "git reset --hard HEAD 2>/dev/null || true; "
+                                        "printf 'durable result' > result.txt"
+                                    }
+                                ),
+                            }
+                yield event
+
+        return InferenceRun(str(uuid4()), events(), result.aclose)
 
 
 def read_case(case, path):
