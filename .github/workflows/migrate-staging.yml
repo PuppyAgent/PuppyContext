@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  deployments: write
 
 concurrency:
   group: database-release-staging
@@ -15,159 +17,8 @@ concurrency:
   queue: max
 
 jobs:
-  validate_ref:
-    name: Validate protected staging source
-    if: github.repository == 'puppyone-ai/puppyone-cloud'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Enforce qubits branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/qubits" ]; then
-            echo "::error::Staging database releases must run from the qubits branch."
-            exit 1
-          fi
-
-  resolve_data_release:
-    name: Resolve staged data release
-    needs: validate_ref
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      migration_id: ${{ steps.release.outputs.migration_id }}
-      repair_migration_id: ${{ steps.release.outputs.repair_migration_id }}
-      execution_mode: ${{ steps.release.outputs.execution_mode }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Validate staged migration pointer
-        id: release
-        shell: bash
-        run: python3 scripts/database_history.py release --environment staging
-
-  prepare_schema:
-    name: Apply compatible schema before staged data migration
-    needs: resolve_data_release
-    uses: ./.github/workflows/_schema-deploy.yml
-    secrets: inherit
-    with:
-      environment: staging
-      allow_data_migration_pause: true
-
-  validate_schema_pause:
-    name: Match schema guard to staged data migration
-    needs:
-      - prepare_schema
-      - resolve_data_release
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      EXPECTED_MIGRATION_ID: ${{ needs.resolve_data_release.outputs.migration_id }}
-      REQUIRED_MIGRATION_ID: ${{ needs.prepare_schema.outputs.required_data_migration_id }}
-    steps:
-      - name: Reject a mismatched contract guard
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "$REQUIRED_MIGRATION_ID" ] && [ "$REQUIRED_MIGRATION_ID" != "$EXPECTED_MIGRATION_ID" ]; then
-            echo "::error::Schema requires $REQUIRED_MIGRATION_ID, but the staged release points to $EXPECTED_MIGRATION_ID."
-            exit 1
-          fi
-
-  repair_run:
-    name: Run staged repair before the staged data migration
-    if: >-
-      needs.validate_schema_pause.result == 'success' &&
-      needs.resolve_data_release.outputs.execution_mode == 'ci' &&
-      needs.resolve_data_release.outputs.repair_migration_id != ''
-    needs:
-      - validate_schema_pause
-      - resolve_data_release
-    uses: ./.github/workflows/_data-migration.yml
-    secrets: inherit
-    with:
-      environment: staging
-      migration_id: ${{ needs.resolve_data_release.outputs.repair_migration_id }}
-      operation: run
-
-  data_plan:
-    if: >-
-      always() && needs.validate_schema_pause.result == 'success' &&
-      needs.resolve_data_release.result == 'success' &&
-      needs.resolve_data_release.outputs.execution_mode == 'ci' &&
-      (needs.repair_run.result == 'success' || needs.repair_run.result == 'skipped')
-    needs:
-      - validate_schema_pause
-      - repair_run
-      - resolve_data_release
-    uses: ./.github/workflows/_data-migration.yml
-    secrets: inherit
-    with:
-      environment: staging
-      migration_id: ${{ needs.resolve_data_release.outputs.migration_id }}
-      operation: plan
-
-  data_run:
-    # ``repair_run`` is intentionally optional.  A skipped optional ancestor
-    # otherwise propagates GitHub's implicit success() guard and silently
-    # skips this mutation even after data_plan succeeded.
-    if: >-
-      always() && needs.data_plan.result == 'success' &&
-      needs.resolve_data_release.result == 'success' &&
-      needs.resolve_data_release.outputs.execution_mode == 'ci'
-    needs:
-      - data_plan
-      - resolve_data_release
-    uses: ./.github/workflows/_data-migration.yml
-    secrets: inherit
-    with:
-      environment: staging
-      migration_id: ${{ needs.resolve_data_release.outputs.migration_id }}
-      operation: run
-
-  data_verify:
-    if: >-
-      always() && needs.data_run.result == 'success' &&
-      needs.resolve_data_release.result == 'success' &&
-      needs.resolve_data_release.outputs.execution_mode == 'ci'
-    needs:
-      - data_run
-      - resolve_data_release
-    uses: ./.github/workflows/_data-migration.yml
-    secrets: inherit
-    with:
-      environment: staging
-      migration_id: ${{ needs.resolve_data_release.outputs.migration_id }}
-      operation: verify
-
-  operator_data_verify:
-    name: Verify operator-local data migration on Qubits
-    if: >-
-      needs.validate_schema_pause.result == 'success' &&
-      needs.resolve_data_release.outputs.execution_mode == 'operator_local'
-    needs:
-      - validate_schema_pause
-      - resolve_data_release
-    uses: ./.github/workflows/_operator-data-verify.yml
-    secrets: inherit
-    with:
-      environment: staging
-      migration_id: ${{ needs.resolve_data_release.outputs.migration_id }}
-
-  deploy_after_data:
-    name: Recheck staging schema after data migration
-    if: >-
-      always() && (
-        (needs.data_verify.result == 'success' && needs.resolve_data_release.outputs.execution_mode == 'ci') ||
-        (needs.operator_data_verify.result == 'success' && needs.resolve_data_release.outputs.execution_mode == 'operator_local')
-      )
-    needs:
-      - data_verify
-      - operator_data_verify
-      - resolve_data_release
-    uses: ./.github/workflows/_schema-deploy.yml
-    secrets: inherit
+  release:
+    if: github.repository == 'puppyone-ai/puppyone-cloud' && github.ref == 'refs/heads/qubits'
+    uses: ./.github/workflows/_environment-release.yml
     with:
       environment: staging

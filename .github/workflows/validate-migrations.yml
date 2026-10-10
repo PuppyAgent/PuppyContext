@@ -3,7 +3,7 @@ name: Validate Database Changes
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [qubits, main]
   workflow_dispatch:
 
 permissions:
@@ -75,6 +75,8 @@ jobs:
             '.github/workflows/*migration*.yml' \
             '.github/workflows/migrate-*.yml' \
             '.github/workflows/_schema-deploy.yml' \
+            '.github/workflows/_environment-release.yml' \
+            '.github/workflows/release-upgrade-rehearsal.yml' \
             '.github/workflows/_operator-data-verify.yml' \
             '.github/workflows/entrypoint-cutover.yml' \
             '.github/workflows/prepare-baseline.yml' \

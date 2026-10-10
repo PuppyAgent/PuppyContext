@@ -15,13 +15,12 @@ on:
         required: true
         type: string
       operation:
-        description: Plan is read-only; run mutates and records; verify is read-only
+        description: Read-only diagnosis; recover writes by rerunning the environment release
         required: true
         default: plan
         type: choice
         options:
           - plan
-          - run
           - verify
 
 permissions:
@@ -38,11 +37,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      MIGRATION_OPERATION: ${{ inputs.operation }}
     steps:
       - name: Enforce environment branch
         shell: bash
         run: |
           set -euo pipefail
+          case "$MIGRATION_OPERATION" in plan|verify) ;; *) echo '::error::Use the environment release coordinator for writes'; exit 1;; esac
           if [ "$TARGET_ENVIRONMENT" = "staging" ] && [ "$GITHUB_REF" != "refs/heads/qubits" ]; then
             echo "::error::Staging data migrations must run from the qubits branch."
             exit 1
@@ -62,25 +63,9 @@ jobs:
       migration_id: ${{ inputs.migration_id }}
       operation: ${{ inputs.operation }}
 
-  production_staging_evidence:
-    if: inputs.environment == 'production' && inputs.operation == 'run'
-    needs: validate_protected_ref
-    uses: ./.github/workflows/_data-migration.yml
-    secrets: inherit
-    with:
-      environment: staging
-      migration_id: ${{ inputs.migration_id }}
-      operation: verify
-
   production:
-    if: >-
-      always() &&
-      inputs.environment == 'production' &&
-      needs.validate_protected_ref.result == 'success' &&
-      (inputs.operation != 'run' || needs.production_staging_evidence.result == 'success')
-    needs:
-      - validate_protected_ref
-      - production_staging_evidence
+    if: inputs.environment == 'production'
+    needs: validate_protected_ref
     uses: ./.github/workflows/_data-migration.yml
     secrets: inherit
     with:

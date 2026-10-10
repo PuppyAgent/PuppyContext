@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Inspect is read-only; prepare requires reviewed staging evidence
+        description: Read-only inspection; cutover is owned by the environment release
         required: true
         default: inspect
         type: choice
-        options: [inspect, prepare]
+        options: [inspect]
 
 permissions:
   contents: read
@@ -58,9 +58,6 @@ jobs:
         run: backend/.venv/bin/python scripts/qubits_entrypoint_cutover.py
       - name: Record reviewed cutover preparation
         if: github.event_name == 'workflow_dispatch' && env.CUTOVER_OPERATION == 'prepare'
-        env:
-          ENTRYPOINT_CUTOVER_DECISIONS: ${{ secrets.ENTRYPOINT_CUTOVER_DECISIONS }}
-          ENTRYPOINT_CUTOVER_EVIDENCE: ${{ secrets.ENTRYPOINT_CUTOVER_EVIDENCE }}
-          ENTRYPOINT_CUTOVER_RESTORE_POINT: ${{ secrets.ENTRYPOINT_CUTOVER_RESTORE_POINT }}
-          ENTRYPOINT_CUTOVER_LOGICAL_BACKUP: ${{ secrets.ENTRYPOINT_CUTOVER_LOGICAL_BACKUP }}
-        run: backend/.venv/bin/python scripts/qubits_entrypoint_cutover.py
+        run: |
+          echo '::error::Use the environment release coordinator for cutover'
+          exit 1

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from typing import IO
 
 from .catalog import DataMigrationArtifact, DataMigrationCatalog
 from .database import PsqlClient
@@ -44,11 +45,13 @@ class DataMigrationRunner:
         *,
         environment: dict[str, str] | None = None,
         source_sha: str | None = None,
+        output: IO[str] | None = None,
     ) -> None:
         self.catalog = catalog
         self.database = database
         self.environment = dict(os.environ if environment is None else environment)
         self.source_sha = source_sha or self._discover_source_sha()
+        self.output = output
 
     def plan(self, migration_id: str) -> MigrationPlan:
         artifact = self.catalog.get(migration_id)
@@ -189,6 +192,8 @@ class DataMigrationRunner:
                     check=False,
                     text=True,
                     timeout=manifest.timeout_seconds,
+                    stdout=self.output,
+                    stderr=subprocess.STDOUT if self.output is not None else None,
                 )
             except subprocess.TimeoutExpired as error:
                 raise ExecutionError(

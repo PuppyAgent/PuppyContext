@@ -10,11 +10,10 @@
 # mcp_server services
 # that share this repo — they switch behavior via the SERVICE_ROLE env var.
 #
-# REQUIRED Railway dashboard setting for every GitHub-sourced service:
-#   Settings -> Service -> Source -> Wait for CI = enabled
-# `migrate-staging.yml` runs for every `qubits` push. Wait for CI guarantees
-# that a service cannot make code live before the schema deployment for the
-# same source SHA succeeds; a failed migration must skip the deployment.
+# The environment release coordinator owns application deployment after
+# database verification. Disable independent GitHub deployment triggers when
+# activating it; Wait for CI alone does not coordinate drain/data migrations.
+# See docs/architecture/13-database-release-governance.md for activation.
 #
 # DO NOT move build phases into this file. railway.toml's schema only knows
 # `[build]` / `[deploy]` — any `[phases.*]` section here is silently ignored

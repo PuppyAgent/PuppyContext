@@ -12,28 +12,14 @@ on:
   # PRs would be blocked forever waiting for a check that never reports.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # IMPORTANT: only list branches here that will NEVER appear as a PR `head_ref`.
-  # If a branch (e.g. `qubits`, `newmu`, or any feature branch) is both pushed
-  # to AND opened as a PR, GitHub fires `push` and `pull_request` for the same
-  # SHA. The two runs share a concurrency group and cancel each other, leaving
-  # a CANCELLED check_run on the SHA. Branch protection treats every check_run
-  # with a required name as required ("all must pass"), so the cancelled ghost
-  # blocks auto-merge forever. `main` is the only branch we never PR *from*,
-  # so it is the only safe entry here. Post-merge verification on `qubits`
-  # happens via the PR run that brought the change in.
   push:
-    branches: [main]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-build.yml'
+    branches: [qubits, main]
   workflow_dispatch:
 
-# Defense in depth: even with the trigger split above, keep concurrency so
-# rapid pushes to the same PR cancel stale builds (which is fine — those
-# stale runs are on superseded SHAs, not on the PR's current HEAD).
+# PR and push runs are separate: a PR from qubits cannot cancel its release CI.
 concurrency:
-  group: frontend-build-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: frontend-build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

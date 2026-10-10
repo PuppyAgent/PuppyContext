@@ -13,7 +13,9 @@ import io
 import json
 import os
 import secrets
+import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -118,11 +120,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--variant",
-        choices=["default", "custom", "upgrade", "legacy"],
+        choices=["default", "custom", "upgrade", "legacy", "release"],
         default="default",
     )
     parser.add_argument("--artifacts", type=Path, required=True)
+    parser.add_argument(
+        "--upgrade-base", help="Exact deployed/base commit for the release rehearsal"
+    )
     args = parser.parse_args()
+    if args.variant == "release" and not args.upgrade_base:
+        parser.error("release rehearsal requires --upgrade-base")
     args.artifacts.mkdir(parents=True, exist_ok=True)
     project = "puppyone-install-" + secrets.token_hex(5)
     with tempfile.TemporaryDirectory(prefix=project) as temporary:
@@ -142,7 +149,7 @@ def main():
             MINIO_CONSOLE_PORT="19001",
             MAIL_PORT="18025",
         )
-        if args.variant in {"custom", "upgrade", "legacy"}:
+        if args.variant in {"custom", "upgrade", "legacy", "release"}:
             secret = secrets.token_hex(32)
             values.update(
                 JWT_SECRET=secret,
@@ -172,7 +179,7 @@ def main():
             ]
 
         previous_root = ROOT
-        if args.variant in {"upgrade", "legacy"}:
+        if args.variant in {"upgrade", "legacy", "release"}:
             previous_root = directory / "previous-release"
             previous_root.mkdir()
             archive = subprocess.check_output(
@@ -180,7 +187,9 @@ def main():
                     "git",
                     "archive",
                     "--format=tar",
-                    LEGACY_BASE if args.variant == "legacy" else UPGRADE_BASE,
+                    LEGACY_BASE
+                    if args.variant == "legacy"
+                    else (args.upgrade_base or UPGRADE_BASE),
                 ],
                 cwd=ROOT,
                 timeout=60,
@@ -230,7 +239,117 @@ def main():
                         )
                     # Preserve volumes, recreate every service, and rerun the
                     # same installer. Auth, DB rows and object bytes must survive.
-                    run(*compose, "down")
+                    if args.variant == "release":
+                        sys.path.insert(0, str(ROOT / "backend"))
+                        from urllib.parse import quote
+
+                        from testing import release_fixtures
+
+                        from src.infra.data_migrations.database import PsqlClient
+                        from src.infra.data_migrations.release.docker import Docker
+                        from src.infra.data_migrations.release.engine import Release
+                        from src.infra.data_migrations.release.plan import ReleasePlan
+                        from src.infra.data_migrations.release.target import (
+                            DatabaseTarget,
+                        )
+
+                        # Expose only this owned object service on a free loopback port.
+                        with socket.socket() as listener:
+                            listener.bind(("127.0.0.1", 0))
+                            object_port = listener.getsockname()[1]
+                        overlay = directory / "release-ports.json"
+                        overlay.write_text(
+                            json.dumps(
+                                {
+                                    "services": {
+                                        "minio": {
+                                            "ports": [f"127.0.0.1:{object_port}:9000"]
+                                        }
+                                    }
+                                }
+                            )
+                        )
+                        compose = [*compose_for(ROOT), "-f", str(overlay)]
+                        run(*compose, "up", "--detach", "--no-deps", "minio")
+                        url = f"postgresql://postgres:{quote(values['POSTGRES_PASSWORD'], safe='')}@127.0.0.1:15432/postgres?sslmode=disable"
+                        environment = {
+                            **os.environ,
+                            "DATA_MIGRATION_DATABASE_URL": url,
+                            "RELEASE_TARGET": "docker",
+                            "NO_PROXY": "127.0.0.1,localhost,::1",
+                            "no_proxy": "127.0.0.1,localhost,::1",
+                            "RELEASE_PRIVATE_ARTIFACTS": str(args.artifacts.resolve()),
+                            "S3_ENDPOINT_URL": f"http://127.0.0.1:{object_port}",
+                            "S3_BUCKET_NAME": values["S3_BUCKET"],
+                            "S3_REGION": "us-east-1",
+                            "S3_ACCESS_KEY_ID": values["S3_ACCESS_KEY"],
+                            "S3_SECRET_ACCESS_KEY": values["S3_SECRET_KEY"],
+                        }
+                        db = PsqlClient(url, base_environment=environment)
+                        fixture_seeded = release_fixtures.seed(
+                            db,
+                            json.loads((directory / "state.json").read_text())[
+                                "projectId"
+                            ],
+                        )
+
+                        def accept_release(db=db, fixture_seeded=fixture_seeded):
+                            if fixture_seeded:
+                                release_fixtures.verify(db)
+                            run(
+                                "npx",
+                                "--prefix",
+                                "e2e",
+                                "playwright",
+                                "test",
+                                "--config=e2e/install/playwright.config.mjs",
+                                env={
+                                    **test_env,
+                                    "INSTALL_PHASE": "verify",
+                                    "INSTALL_UPGRADED": "true",
+                                    "INSTALL_REPORT": str(
+                                        args.artifacts.resolve() / "verify.json"
+                                    ),
+                                },
+                            )
+                            return {
+                                "authenticated_read_write": True,
+                                "browser_session_preserved": True,
+                                "permissions_verified": True,
+                            }
+
+                        platform = Docker(
+                            ROOT,
+                            compose,
+                            project=project,
+                            directory=args.artifacts.resolve(),
+                            accept=accept_release,
+                            decisions=release_fixtures.decisions,
+                        )
+                        target = DatabaseTarget(ROOT, db, platform, environment)
+                        source_sha = subprocess.check_output(
+                            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+                        ).strip()
+                        result = Release(ReleasePlan.load(ROOT), target).run(source_sha)
+                        repeated = Release(ReleasePlan.load(ROOT), target).run(
+                            source_sha
+                        )
+                        assert (
+                            result["state"] == "accepted"
+                            and repeated["state"] == "already_accepted"
+                        )
+                        (args.artifacts / "release.json").write_text(
+                            json.dumps(
+                                {
+                                    "upgrade_from": args.upgrade_base,
+                                    "source_sha": source_sha,
+                                    "release": result,
+                                    "repeated": repeated,
+                                }
+                            )
+                        )
+                    else:
+                        run(*compose, "down")
                     if args.variant in {"upgrade", "legacy"}:
                         compose = compose_for(ROOT)
                         run(*compose, "build")
@@ -250,6 +369,8 @@ def main():
                         run(*compose, "down")
                     # A broken pending migration must roll back and block the
                     # new application, while preserving existing user data.
+                    if args.variant == "release":
+                        break
                     broken = directory / "29991231000000_install_failure_probe.sql"
                     broken.write_text(
                         "CREATE TABLE public.install_failure_probe(id integer);\nSELECT 1/0;\n"
@@ -360,14 +481,36 @@ def main():
                         "result": "passed",
                         "schema_source": "supabase/migrations",
                         "restart_verified": True,
-                        "upgrade_from": UPGRADE_BASE
-                        if args.variant == "upgrade"
+                        "upgrade_from": args.upgrade_base or UPGRADE_BASE
+                        if args.variant in {"upgrade", "release"}
                         else None,
                     }
                 )
                 + "\n"
             )
         finally:
+            if args.variant == "release":
+                # Only this owned synthetic fixture may export SQL diagnostics.
+                # Hosted adapters retain the same files privately. Never upload
+                # dumps, session state, environment files or arbitrary logs.
+                diagnostics = {}
+                for name in (
+                    "backups/restore-error.log",
+                    "backups/restore-startup.log",
+                    "schema-error.log",
+                    "schema-drift.log",
+                ):
+                    path = args.artifacts / name
+                    if path.is_file():
+                        detail = path.read_text()
+                        for secret_name in (
+                            "JWT_SECRET", "ANON_KEY", "SERVICE_ROLE_KEY",
+                            "POSTGRES_PASSWORD", "S3_SECRET_KEY",
+                        ):
+                            if secret_value := values.get(secret_name):
+                                detail = detail.replace(secret_value, "[redacted]")
+                        diagnostics[name] = detail
+                (args.artifacts / "diagnostics.json").write_text(json.dumps(diagnostics))
             with (args.artifacts / "compose.log").open("w") as log:
                 subprocess.run(
                     [*compose, "logs", "--no-color", "--tail", "150"],

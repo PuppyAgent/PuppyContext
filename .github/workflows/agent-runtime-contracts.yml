@@ -15,13 +15,6 @@ on:
       - '.github/workflows/agent-runtime-contracts.yml'
   push:
     branches: [qubits, main]
-    paths:
-      - 'backend/src/**'
-      - 'backend/tests/agent/**'
-      - 'backend/tests/repository_hosting/integration/test_read_request_budgets.py'
-      - 'backend/agent-worker/**'
-      - 'supabase/migrations/**'
-      - '.github/workflows/agent-runtime-contracts.yml'
   workflow_dispatch:
 
 permissions:

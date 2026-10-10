@@ -47,15 +47,15 @@ Complete this section for schema/data, release-pointer, migration-runner/workflo
 or application changes requiring a new database contract. Otherwise choose No
 database change and remove the remaining database fields. See
 docs/architecture/13-database-release-governance.md#migration-merge-admission.
-Choose the single phase this PR activates; preparing contract.pending.sql is
-not permission to activate Contract against a populated environment.
+List the phases in this release and their executable ordering. Prove the whole
+populated upgrade in Docker; the target database is migrated after merge.
 -->
 
 - [ ] No database change
 - [ ] Expand — additive schema and old/new-compatible application behavior
 - [ ] Data — immutable `supabase/data_migrations/<id>` artifact
 - [ ] Cutover — application now uses only the new fact
-- [ ] Contract — cleanup after this target environment's prerequisite receipts and cutover evidence
+- [ ] Contract — cleanup scheduled after verified data and cutover prerequisites
 
 If this changes the database, provide:
 
@@ -67,7 +67,7 @@ If this changes the database, provide:
 - Expected runtime and lock behavior:
 - Clean-install and populated-upgrade evidence; exact history-gap fixture if applicable:
 - Verification and safe retry behavior:
-- For cutovers: stopped writers/queues, current restore point and restart/config plan (or not applicable):
+- For cutovers: tested drain, restore validation and restart/config procedure (or not applicable):
 - Forward-fix / break-glass plan:
 - Qubits evidence:
 
@@ -75,7 +75,7 @@ If this changes the database, provide:
 - [ ] Reviewed the full diff against the refreshed target, including inherited migrations
 - [ ] Shared SQL/artifacts remain immutable; no history stamping or guard bypass
 - [ ] Database validation passed; applicable upgrade failures resolved or unrelated failures explicitly scoped
-- [ ] This phase is ready for automatic deployment; final Contract is inactive until its prerequisites are complete
+- [ ] Shared upgrade rehearsal passed; runtime prerequisites precede Contract execution in the plan
 
 Release state being claimed: implemented / tested / merged / database ready / deployed / accepted.
 Provide evidence for that state; a merged PR is not a completed hosted release.

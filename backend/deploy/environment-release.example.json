@@ -1,0 +1,43 @@
+{
+  "format_version": 1,
+  "environment": "staging",
+  "database_url": "postgresql://postgres:REPLACE@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require&connect_timeout=10",
+  "supabase_project_id": "PROJECT_REF",
+  "supabase_url": "https://PROJECT_REF.supabase.co",
+  "railway_token": "REPLACE_WITH_ENVIRONMENT_SCOPED_PROJECT_TOKEN",
+  "railway": {
+    "project_id": "REPLACE",
+    "environment_id": "REPLACE",
+    "services": {
+      "api": {"id": "REPLACE_API"},
+      "frontend": {"id": "REPLACE_FRONTEND"},
+      "agent_worker": {"id": "REPLACE_AGENT"},
+      "upload_worker": {"id": "REPLACE_UPLOAD"},
+      "import_worker": {"id": "REPLACE_IMPORT"},
+      "synchronize_worker": {"id": "REPLACE_SYNCHRONIZE"},
+      "mcp_server": {"id": "REPLACE_MCP"}
+    }
+  },
+  "redis_url": "rediss://REPLACE",
+  "queue_names": ["REPLACE_UPLOAD_QUEUE", "REPLACE_IMPORT_QUEUE", "REPLACE_SYNCHRONIZE_QUEUE"],
+  "migration_environment": {
+    "S3_ENDPOINT_URL": "https://s3.REGION.amazonaws.com",
+    "S3_REGION": "REPLACE",
+    "S3_BUCKET_NAME": "REPLACE_OBJECT_BUCKET",
+    "S3_ACCESS_KEY_ID": "REPLACE",
+    "S3_SECRET_ACCESS_KEY": "REPLACE"
+  },
+  "backup_bucket": "REPLACE_PRIVATE_VERSIONED_BACKUP_BUCKET",
+  "private_artifacts": "/var/lib/puppyone-release/private",
+  "frontend_build_args": {
+    "NEXT_PUBLIC_API_URL": "https://REPLACE_API",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://PROJECT_REF.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "REPLACE_PUBLIC_ANON_KEY"
+  },
+  "acceptance": {
+    "api_url": "https://REPLACE_API",
+    "email": "release-acceptance@example.invalid",
+    "password": "REPLACE",
+    "org_id": "REPLACE_DEDICATED_TEST_ORGANIZATION"
+  }
+}

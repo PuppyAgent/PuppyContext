@@ -27,6 +27,22 @@ def decision(**overrides):
     }
 
 
+def test_populated_release_fixture_preserves_import_only_identity():
+    fixture_spec = importlib.util.spec_from_file_location(
+        "release_fixture_under_test", SCRIPT.parent / "testing/release_fixtures.py"
+    )
+    fixture = importlib.util.module_from_spec(fixture_spec)
+    fixture_spec.loader.exec_module(fixture)
+    inventory = [decision(legacy_id="release-" + kind) for kind in ("binding", "source", "dual")]
+    rows = operator.reviewed_rows(fixture.decisions(inventory))
+    sources = {row["legacy_id"]: row["import_database_source_id"] for row in rows}
+    assert sources == {
+        "release-binding": None,
+        "release-source": "release-source",
+        "release-dual": "release-import-dual",
+    }
+
+
 @pytest.mark.parametrize(
     "change",
     [

@@ -1,0 +1,7 @@
+{
+  "format_version": 1,
+  "bootstrap": {
+    "staging": "a29fc1792972ba5bb7bc7e847f8bb6b25cdbb297",
+    "production": "51e122c3344535abea9286f69fed1975218f691f"
+  }
+}

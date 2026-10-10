@@ -1,0 +1,104 @@
+name: Reusable Environment Release
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  deployments: write
+
+jobs:
+  admission:
+    name: Check release runner configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the restricted release runner group
+        env:
+          RUNNER_GROUP: ${{ vars.PUPPYONE_RELEASE_RUNNER_GROUP }}
+          RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          test -n "$RUNNER_GROUP" || { echo '::error::Release runner group has not been configured'; exit 1; }
+          case "$RELEASE_ENVIRONMENT:$GITHUB_REF:$GITHUB_EVENT_NAME" in
+            staging:refs/heads/qubits:push|staging:refs/heads/qubits:workflow_dispatch|production:refs/heads/main:push|production:refs/heads/main:workflow_dispatch) ;;
+            *) echo '::error::Release source is not the protected target branch'; exit 1;;
+          esac
+  release:
+    name: Upgrade and accept ${{ inputs.environment }}
+    # Dedicated ephemeral runners accept protected push jobs only. PR tests
+    # run on GitHub-hosted machines without target credentials or private data.
+    needs: admission
+    runs-on:
+      group: ${{ vars.PUPPYONE_RELEASE_RUNNER_GROUP }}
+      labels: [self-hosted, puppyone-release, '${{ inputs.environment }}']
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Wait for candidate CI before changing the environment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const required = ['backend-release.yml', 'frontend-build.yml', 'agent-runtime-contracts.yml',
+                              'validate-migrations.yml', 'release-upgrade-rehearsal.yml',
+                              'self-hosted-install.yml', 'secret-scanning-gitleaks.yml'];
+            const deadline = Date.now() + 90 * 60 * 1000;
+            while (Date.now() < deadline) {
+              let ready = true;
+              for (const workflow_id of required) {
+                const {data} = await github.rest.actions.listWorkflowRuns({
+                  ...context.repo, workflow_id, head_sha: context.sha, event: 'push', per_page: 100
+                });
+                const run = data.workflow_runs.find(r => r.head_sha === context.sha);
+                if (!run || run.status !== 'completed') { ready = false; continue; }
+                if (run.conclusion !== 'success') throw new Error(`Required workflow failed: ${workflow_id}`);
+              }
+              if (ready) return;
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
+            throw new Error('Candidate CI did not complete');
+      - name: Record an environment release attempt
+        id: attempt
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const {data} = await github.rest.repos.createDeployment({
+              ...context.repo, ref: context.sha, task: 'puppyone-release',
+              environment: '${{ inputs.environment }}', auto_merge: false, required_contexts: []
+            });
+            core.setOutput('deployment_id', data.id);
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo, deployment_id: data.id, state: 'in_progress'
+            });
+      - name: Install locked release runtime
+        working-directory: backend
+        run: uv sync --locked
+      - name: Run the shared upgrade and acceptance program
+        working-directory: backend
+        env:
+          RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          uv run python -m src.infra.data_migrations.release \
+            --environment "$RELEASE_ENVIRONMENT" --source "$GITHUB_SHA" \
+            --configuration "/etc/puppyone/releases/$RELEASE_ENVIRONMENT.json" \
+            --report "$RUNNER_TEMP/environment-release.json"
+      - name: Publish accepted deployment status
+        if: always() && steps.attempt.outputs.deployment_id != ''
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          RELEASE_JOB_STATUS: ${{ job.status }}
+          DEPLOYMENT_ID: ${{ steps.attempt.outputs.deployment_id }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo, deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: process.env.RELEASE_JOB_STATUS === 'success' ? 'success' : 'failure'
+            });

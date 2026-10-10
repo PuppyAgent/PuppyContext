@@ -23,7 +23,7 @@ uv run python -m src.platform.access.adapters.agent.runtime.worker
 
 `SERVICE_ROLE=agent_worker` selects that command on Railway. The repository's
 service manifest includes this role; a service must still be provisioned and its
-Wait for CI database gate verified at deployment. This change does not provision
+environment release coordinator verified at deployment. This change does not provision
 or deploy it. `CLOUD_AGENT_CONCURRENCY` defaults to 4; additional supervisor
 processes coordinate through database leases.
 
