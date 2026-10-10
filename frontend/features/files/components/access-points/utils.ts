@@ -8,7 +8,7 @@ import { isMcpProvider, isSandboxProvider } from '@/lib/accessProviderRegistry';
 export function endpointToPanelState(ep: EntrypointBadge, nodeId: string): PanelState {
   if (ep.resourceKind === 'synchronize') return { type: 'sync_config', nodeId, synchronizeBindingId: ep.id };
   if (ep.resourceKind !== 'access') return { type: 'none' };
-  if (ep.provider.startsWith('agent:')) return { type: 'agent_chat', nodeId, agentId: ep.id };
+  if (ep.provider.startsWith('agent:')) return { type: 'workspace_chat', nodeId, agentId: ep.id };
   if (isMcpProvider(ep.provider)) return { type: 'mcp_config', nodeId, mcpEndpointId: ep.id };
   if (isSandboxProvider(ep.provider)) return { type: 'sandbox_config', nodeId, sandboxEndpointId: ep.id };
   return {

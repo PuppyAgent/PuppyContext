@@ -29,8 +29,11 @@ export class WebAgentController {
   private published = new Set<string>();
   private decisions = new Map<string, { id: string; allow: boolean }>();
   private state: AgentWorkspaceState;
-  constructor(readonly client: WebAgentClient, private storageKey: string) {
-    const saved = readConversation(storageKey, client.agentId);
+  constructor(readonly client: WebAgentClient, private storageKey: string, private options: {
+    initial?: SavedConversation;
+    sessions?: () => AgentSession[];
+  } = {}) {
+    const saved = readConversation(storageKey, client.agentId, options.initial);
     this.state = { ...EMPTY_STATE, ...saved, draft: saved.draft, loading: true };
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -62,7 +65,7 @@ export class WebAgentController {
         try { const run = await this.client.receipt(pending.request_id); if (alive()) this.confirm(run, pending); }
         catch (error) { if (status(error) !== 404) throw error; }
       }
-      const sessions = await this.client.sessions(signal);
+      const sessions = this.options.sessions?.() ?? await this.client.sessions(signal);
       if (!alive()) return;
       this.patch({ sessions });
       if (!this.state.sessionId && !this.state.newChat && !this.state.pending && sessions[0]) {

@@ -23,7 +23,6 @@ export type PanelType =
   | 'sync_config'
   | 'sync_create'
   | 'access_list'
-  | 'agent_chat'
   | 'workspace_chat'
   | 'mcp_config'
   | 'sandbox_config';

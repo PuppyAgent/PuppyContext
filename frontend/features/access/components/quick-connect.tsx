@@ -332,7 +332,7 @@ function AgentBody({
 
   const goToChat = useCallback(() => {
     // The actual chat runtime lives behind the data view's right panel.
-    // Drop the user there — the page-level wiring opens the agent_chat
+    // Drop the user there — the page-level wiring opens the workspace_chat
     // panel for this connector. Using `?ap=...` is enough; the data
     // page reads it on mount.
     router.push(scopePathToDataUrl(scope.project_id, scope.path) + `?ap=${connector.id}`);

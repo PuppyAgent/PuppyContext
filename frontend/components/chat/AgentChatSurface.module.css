@@ -26,6 +26,8 @@
 }
 
 .surface *, .dock * { box-sizing: border-box; }
+.surface[data-embedded] { --chat-header-height: 0px; }
+.statusRegion { grid-row: 2; min-height: 0; max-height: 45vh; overflow: auto; }
 .surface button, .surface input, .dock button, .dock textarea { font-family: inherit; }
 .surface button:focus-visible, .surface a:focus-visible, .dock button:focus-visible {
   outline: 2px solid var(--po-focus-ring);
