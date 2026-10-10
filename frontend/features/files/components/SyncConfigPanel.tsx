@@ -314,7 +314,7 @@ function CreateView({
       const name = displayName.trim() || 'Chat Agent';
       const agentId = await deployAgent(name, '💬');
       if (agentId) {
-        openPanel({ type: 'agent_chat', agentId, nodeId: draftResources[0]?.path ?? scopeBoundary });
+        openPanel({ type: 'workspace_chat', agentId, nodeId: draftResources[0]?.path ?? scopeBoundary });
       }
     } finally {
       setDeploying(false);

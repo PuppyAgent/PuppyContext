@@ -103,40 +103,6 @@
   },
   {
     "type": "dependency",
-    "from": "frontend/components/project/ProjectChatSidebar.tsx",
-    "to": "frontend/features/workspace/activeFile.tsx",
-    "unresolvedTo": "@/features/workspace/activeFile",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "components-no-features"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "frontend/components/project/ProjectChatSidebar.tsx",
-    "to": "frontend/features/workspace/session.tsx",
-    "unresolvedTo": "@/features/workspace/session",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "components-no-features"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "frontend/components/project/ProjectHeaderBreadcrumbs.tsx",
     "to": "frontend/features/workspace/navigation/index.ts",
     "unresolvedTo": "@/features/workspace/navigation",

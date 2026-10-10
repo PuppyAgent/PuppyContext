@@ -1,6 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { createRequestScope, withAbort } from './requestScope';
 import { API_BASE_URL } from '@/config/api';
+import { scopedResponseBody } from './responseStream';
 import {
   REPOSITORY_TARGET_CONTRACT_HEADER,
   REPOSITORY_TARGET_CONTRACT_VERSION,
@@ -90,11 +91,9 @@ function getNetworkErrorMessage(args: {
     // ignore malformed URLs; the failed URL is still included below.
   }
 
-  const reason = isAbort
-    ? `request timed out (${Math.round(timeoutMs / 1000)}s)`
-    : cause instanceof Error && cause.message
-      ? cause.message
-      : 'network request failed';
+  let reason = 'network request failed';
+  if (cause instanceof Error && cause.message) reason = cause.message;
+  if (isAbort) reason = `request timed out (${Math.round(timeoutMs / 1000)}s)`;
   const hintText = hints.length ? `. ${hints.join('; ')}` : '';
   return `Unable to reach the backend API: ${endpoint} -> ${url} (${reason})${hintText}`;
 }
@@ -252,10 +251,26 @@ export async function apiRequest<T>(endpoint: string, options?: ApiRequestOption
   }
 }
 
+/** Authenticated SSE transport with the same token refresh, proxy and errors as JSON.
+ * The request scope remains alive until consumption/cancellation of the body. */
+export async function apiStreamRequest(endpoint: string, options: ApiRequestOptions = {}): Promise<Response> {
+  const { timeoutMs = 65_000, ...fetchOptions } = options;
+  const scope = createRequestScope(fetchOptions.signal, timeoutMs);
+  try {
+    const response = await performRequest<Response>(endpoint,
+      { ...fetchOptions, timeoutMs, signal: scope.signal }, false, 'stream');
+    if (!response.body) { scope.dispose(); return response; }
+    return new Response(scopedResponseBody(response.body, scope), {
+      status: response.status, headers: response.headers,
+    });
+  } catch (error) { scope.dispose(); throw error; }
+}
+
 async function performRequest<T>(
   endpoint: string,
   options: ApiRequestOptions & { signal: AbortSignal },
   _isRetry = false,
+  responseMode: 'json' | 'stream' = 'json',
 ): Promise<T> {
   const token = await withAbort(getAuthToken(), options.signal);
   const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...fetchOptions } = options ?? {};
@@ -295,7 +310,7 @@ async function performRequest<T>(
     if (!_isRetry && typeof window !== 'undefined') {
       const refreshed = await withAbort(refreshAuthToken(), options.signal);
       if (refreshed) {
-        return performRequest<T>(endpoint, options, true);
+        return performRequest<T>(endpoint, options, true, responseMode);
       }
     }
     // Refresh failed (or we already retried) → the session is unrecoverable.
@@ -303,55 +318,13 @@ async function performRequest<T>(
     const error: any = new Error('You are not signed in, or your session has expired.');
     error.response = response;
     error.code = 401;
+    error.status = 401;
     throw error;
   }
 
-  // Handle HTTP error status codes (4xx/5xx) — FastAPI HTTPException returns {"detail": ...}
-  if (!response.ok) {
-    let body: any = null;
-    try { body = JSON.parse(await withAbort(response.text(), options.signal)); } catch (error) {
-      if (options.signal.aborted) throw options.signal.reason;
-    }
+  if (!response.ok) await rejectApiResponse(response, options.signal);
 
-    // Puppyone custom format: {"code": N, "message": "...", "data": null}
-    // FastAPI standard format: {"detail": "..." | {...}}
-    const puppyoneMsg: string | undefined = body?.message;
-    const fastApiDetail = body?.detail;
-
-    // Extract the human-readable message
-    let errorMsg = `HTTP ${response.status}`;
-    if (puppyoneMsg) {
-      errorMsg = puppyoneMsg;
-    } else if (typeof fastApiDetail === 'string') {
-      errorMsg = fastApiDetail;
-    } else if (fastApiDetail?.message) {
-      errorMsg = fastApiDetail.message;
-    }
-
-    // Detect duplicate: check multiple signals
-    const isDuplicate = response.status === 409 && (
-      fastApiDetail?.error === 'duplicate_access_point' ||
-      (typeof puppyoneMsg === 'string' && (
-        puppyoneMsg.includes('duplicate_access_point') ||
-        puppyoneMsg.includes('already exists')
-      ))
-    );
-
-    // If it's a dup, extract the inner message from Python dict string
-    // e.g. "{'error': '...', 'message': 'A sync already exists...'}"
-    let cleanMsg = errorMsg;
-    if (isDuplicate && puppyoneMsg) {
-      const m = puppyoneMsg.match(/['"]message['"]\s*:\s*['"](.*?)['"]\s*[,}]/s);
-      if (m) cleanMsg = m[1];
-    }
-
-    const error: any = new Error(cleanMsg);
-    error.status = response.status;
-    error.code = body?.code ?? response.status;
-    error.detail = fastApiDetail ?? body;
-    error.isDuplicate = isDuplicate;
-    throw error;
-  }
+  if (responseMode === 'stream') return response as T;
 
   const data: ApiResponse<T> = await withAbort(response.json(), options.signal);
 
@@ -408,4 +381,50 @@ export function patch<T>(endpoint: string, body?: unknown): Promise<T> {
     method: 'PATCH',
     body: body ? JSON.stringify(body) : undefined,
   });
+}
+
+async function rejectApiResponse(response: Response, signal: AbortSignal): Promise<never> {
+  let body: any = null;
+  try { body = JSON.parse(await withAbort(response.text(), signal)); } catch (error) {
+    if (signal.aborted) throw signal.reason;
+  }
+
+  // Puppyone custom format: {"code": N, "message": "...", "data": null}
+  // FastAPI standard format: {"detail": "..." | {...}}
+  const puppyoneMsg: string | undefined = body?.message;
+  const fastApiDetail = body?.detail;
+
+  // Extract the human-readable message
+  let errorMsg = `HTTP ${response.status}`;
+  if (puppyoneMsg) {
+    errorMsg = puppyoneMsg;
+  } else if (typeof fastApiDetail === 'string') {
+    errorMsg = fastApiDetail;
+  } else if (fastApiDetail?.message) {
+    errorMsg = fastApiDetail.message;
+  }
+
+  // Detect duplicate: check multiple signals
+  const isDuplicate = response.status === 409 && (
+    fastApiDetail?.error === 'duplicate_access_point' ||
+    (typeof puppyoneMsg === 'string' && (
+      puppyoneMsg.includes('duplicate_access_point') ||
+      puppyoneMsg.includes('already exists')
+    ))
+  );
+
+  // If it's a dup, extract the inner message from Python dict string
+  // e.g. "{'error': '...', 'message': 'A sync already exists...'}"
+  let cleanMsg = errorMsg;
+  if (isDuplicate && puppyoneMsg) {
+    const m = puppyoneMsg.match(/['"]message['"]\s*:\s*['"](.*?)['"]\s*[,}]/s);
+    if (m) cleanMsg = m[1];
+  }
+
+  const error: any = new Error(cleanMsg);
+  error.status = response.status;
+  error.code = body?.code ?? response.status;
+  error.detail = fastApiDetail ?? body;
+  error.isDuplicate = isDuplicate;
+  throw error;
 }

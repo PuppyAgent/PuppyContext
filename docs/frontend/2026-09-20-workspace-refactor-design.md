@@ -60,6 +60,36 @@ AppProviders                         身份 / 组织 / 主题 / 查询缓存
 
 不要求所有页面永远留在 DOM 中。只有交互明确需要保留的 Chat 等组件保持现有挂载策略；文件树展开、筛选、草稿等可以通过有作用域的状态恢复。
 
+### Agent 辅助工作区
+
+Header、Access 和文件关联 Agent 的入口都打开项目级 `workspace_chat`，由
+`ProjectChatPanel` 挂载 `features/agent/workbench`。文件 inspector 不再拥有另一套
+聊天视图。入口可以指定 `agentId`；已有相应标签时激活它，否则创建一个本地空标签。
+
+```text
+ProjectAuxiliarySidebar
+└─ AgentWorkbenchController            用户 / 项目作用域
+   ├─ Header                          多标签、排序、关闭、窄栏折叠
+   ├─ Launcher / History              整页选择、搜索、返回、刷新
+   └─ 每个 chat tab
+      ├─ WebAgentController           独立 session、草稿、提交回执、run 观察
+      └─ ChatRuntimeView              保留 DOM、输入和阅读位置
+```
+
+标签栏和历史页遵循 Desktop auxiliary workbench 的几何契约：38px 标签栏、28px
+标签和图标按钮、104–144px 展开标签、3px 间隔；空间不足时先压缩非当前标签，再进入
+溢出菜单，当前标签始终可见。历史页使用 40px 工具栏和 32px 会话行；颜色来自宿主主题。
+
+新建和切换空标签只改变本地 UI，不创建远端 session 或沙盒。历史目录由 workbench
+集中按 Agent 查询，多个标签复用目录；只在打开历史页或主动刷新时读取目录，恢复已打开
+的历史页也执行一次读取。只有选择会话才加载其 runs。打开中的会话不在历史列表重复显示。
+
+标签身份、顺序、当前选择与各自草稿/提交回执按用户和项目隔离，保存在浏览器当前会话。
+服务端仍是聊天历史和执行结果的权威。切标签保留运行观察；隐藏整个侧栏释放观察，重新打开
+从现有 run 恢复，不重新提交任务。关闭标签不等于停止 run；Stop 是明确的独立操作。
+提交结果尚未确认时保留标签及幂等回执，避免用户丢失重试入口。远端权限由原有 Agent API
+执行，标签和 Agent 选择不构成授权。
+
 ## 4. 状态所有权
 
 | 状态 | 所有者 | 生命周期与约束 |

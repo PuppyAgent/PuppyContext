@@ -112,7 +112,6 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
     selectedSyncId,
     selectedSyncNodeId,
     hoveredSyncNodeId,
-    selectAgent,
     refreshAgents,
   } = useAgent();
 
@@ -429,14 +428,6 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
   }, [currentOrg?.id, projects, routeProject]);
 
   // ───── Effects ─────
-
-  useEffect(() => {
-    if (panelState.type === 'agent_chat' && panelState.agentId) {
-      if (currentAgentId !== panelState.agentId) {
-        selectAgent(panelState.agentId);
-      }
-    }
-  }, [panelState.type, panelState.agentId, currentAgentId, selectAgent]);
 
   // Retained SaaS notification; Upload/Import refresh through their SWR queries.
   useEffect(() => {
@@ -849,7 +840,6 @@ export function FilesWorkspace({ projectId }: { projectId: string }) {
           onMoveNode: nodeActions.handleMoveNode,
           activeSyncNodeId:
             panelState.type === 'sync_config' ||
-            panelState.type === 'agent_chat' ||
             panelState.type === 'workspace_chat' ||
             panelState.type === 'mcp_config' ||
             panelState.type === 'sandbox_config'

@@ -41,3 +41,35 @@ it('aborting one caller does not cancel shared authentication for another caller
   const assertion = expect(a).rejects.toMatchObject({ name: 'AbortError' }); caller.abort(); await assertion;
   resolve({ data: { session } }); expect(await b).toBe('ok'); expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it('refreshes authentication for an SSE request through the shared proxy', async () => {
+  const stream = new Response('id: 1\nevent: text\ndata: {}\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+  const fetch = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 401 })).mockResolvedValueOnce(stream);
+  vi.stubGlobal('fetch', fetch);
+  auth.refreshSession.mockResolvedValue({ data: { session: { ...session, access_token: 'refreshed' } } });
+  const { apiStreamRequest } = await import('@/lib/apiClient');
+  const response = await apiStreamRequest('/api/v1/agents/runs/run-1/events?after=9');
+  expect(await response.text()).toContain('event: text');
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls[1][0]).toBe('/api/backend/api/v1/agents/runs/run-1/events?after=9');
+  expect(fetch.mock.calls[1][1].headers.Authorization).toBe('Bearer refreshed');
+});
+it('keeps the SSE deadline through the body and cancels upstream on timeout', async () => {
+  const cancel = vi.fn();
+  const response = new Response(new ReadableStream({ pull() { return new Promise(() => {}); }, cancel }),
+    { headers: { 'Content-Type': 'text/event-stream' } });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+  const { apiStreamRequest } = await import('@/lib/apiClient');
+  const result = await apiStreamRequest('/api/v1/agents/runs/run-1/events', { timeoutMs: 100 });
+  const reading = expect(result.text()).rejects.toMatchObject({ name: 'TimeoutError' });
+  await vi.advanceTimersByTimeAsync(100); await reading; expect(cancel).toHaveBeenCalled();
+});
+it('propagates caller cancellation to SSE without another stop command', async () => {
+  const cancel = vi.fn();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ pull() { return new Promise(() => {}); }, cancel }))));
+  const { apiStreamRequest } = await import('@/lib/apiClient');
+  const caller = new AbortController();
+  const response = await apiStreamRequest('/api/v1/agents/runs/run-1/events', { signal: caller.signal });
+  const reading = expect(response.text()).rejects.toMatchObject({ name: 'AbortError' });
+  caller.abort(); await reading; expect(cancel).toHaveBeenCalled();
+});
